@@ -92,7 +92,23 @@ li {
   text-decoration: none;
   font: var(--label-sm);
   color: white;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-open {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent !important;
+  border: 0 !important;
+  color: white;
+  display: block;
+  font: var(--label-sm);
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+  width: 100%;
 }
 
 .file-meta {
@@ -102,6 +118,8 @@ li {
 
 li .btn-group {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
   flex-shrink: 0;
   align-self: center;

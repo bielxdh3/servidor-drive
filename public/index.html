@@ -68,14 +68,60 @@
         background: #044879;
       }
 
+      .side-nav {
+        position: fixed;
+        left: 24px;
+        top: 170px;
+        width: 150px;
+        z-index: 120;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 12px;
+        background: rgba(17, 16, 18, 0.88);
+        border: 1px solid rgba(96, 160, 206, 0.22);
+        border-radius: 16px;
+        backdrop-filter: blur(12px);
+      }
+
+      .side-nav-button {
+        width: 100%;
+        background: transparent;
+        border: 1px solid transparent;
+        color: #8a8a8a;
+        border-radius: 10px;
+        padding: 10px 12px;
+        cursor: pointer;
+        font: var(--p-md);
+        text-align: left;
+        transition: border-color 0.2s, color 0.2s, background 0.2s;
+      }
+
+      .side-nav-button:hover,
+      .side-nav-button.active {
+        background: rgba(4, 72, 121, 0.32);
+        border-color: #044879;
+        color: white;
+      }
+
+      .app-view[hidden] {
+        display: none !important;
+      }
+
       .btn-small.btn-approve,
-      .btn-small.btn-rename {
+      .btn-small.btn-rename,
+      .btn-small.btn-move {
         background-color: #044879;
       }
 
       .btn-small.btn-preview {
         background-color: #24222e;
         border: 1px solid #044879;
+      }
+
+      .btn-small.btn-share {
+        background-color: #0d5f3f;
+        border: 1px solid #1d9b63;
       }
 
       #progressWrapper {
@@ -114,6 +160,49 @@
         color: #60a0ce;
         font: 700 0.75rem/1 var(--ff-robotoMono);
         text-align: right;
+      }
+
+      .folder-bar {
+        width: min(980px, calc(100vw - 260px));
+        margin: 80px auto 0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        color: white;
+      }
+
+      .folder-controls {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .folder-select {
+        min-width: 220px;
+        background: rgba(17, 16, 18, 0.9);
+        border: 1px solid #044879;
+        border-radius: 8px;
+        color: white;
+        font: var(--p-md);
+        padding: 10px 12px;
+        outline: none;
+      }
+
+      .folder-action {
+        background: transparent;
+        border: 1px solid #044879;
+        color: #60a0ce;
+        border-radius: 10px;
+        padding: 9px 12px;
+        cursor: pointer;
+        font: var(--p-sm);
+      }
+
+      .folder-action.primary {
+        background: #044879;
+        color: white;
       }
 
       .section-header {
@@ -280,6 +369,208 @@
         padding: 24px;
         text-align: center;
       }
+
+      .share-card {
+        width: min(520px, 100%);
+        background: #111012;
+        border: 1px solid #044879;
+        border-radius: 18px;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+      }
+
+      .share-header,
+      .share-actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .share-title {
+        color: white;
+        font: var(--label-md);
+      }
+
+      .share-file,
+      .share-message {
+        color: #8a8a8a;
+        font: var(--p-sm);
+      }
+
+      .share-file span {
+        color: white;
+        font: var(--label-sm);
+        overflow-wrap: anywhere;
+      }
+
+      .share-form {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .share-form label {
+        color: white;
+        font: var(--label-sm);
+      }
+
+      .share-select,
+      .share-link-input {
+        width: 100%;
+        background: rgba(17, 16, 18, 0.9);
+        border: 1px solid #044879;
+        border-radius: 8px;
+        color: white;
+        font: var(--p-md);
+        padding: 10px 12px;
+        outline: none;
+      }
+
+      .share-link-input {
+        font-family: var(--ff-robotoMono);
+      }
+
+      .share-actions {
+        justify-content: flex-end;
+      }
+
+      .share-action-btn {
+        background: transparent;
+        border: 1px solid #044879;
+        color: #60a0ce;
+        border-radius: 10px;
+        padding: 8px 12px;
+        cursor: pointer;
+        font: var(--p-sm);
+      }
+
+      .share-action-btn.primary {
+        background: #044879;
+        color: white;
+      }
+
+      .share-action-btn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      .history-panel {
+        width: min(980px, calc(100vw - 260px));
+        margin: 70px auto 0;
+        color: white;
+      }
+
+      .history-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 16px;
+      }
+
+      .history-header h2 {
+        text-align: left;
+      }
+
+      .history-refresh {
+        background: transparent;
+        border: 1px solid #044879;
+        color: #60a0ce;
+        border-radius: 10px;
+        padding: 8px 12px;
+        cursor: pointer;
+        font: var(--p-sm);
+      }
+
+      .history-list {
+        list-style: none;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        max-height: 600px;
+        overflow-y: auto;
+      }
+
+      .history-item {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 14px;
+        align-items: center;
+        background: rgba(17, 16, 18, 0.92);
+        border: 1px solid #044879;
+        border-radius: 12px;
+        padding: 14px;
+      }
+
+      .history-action {
+        color: white;
+        font: var(--label-sm);
+      }
+
+      .history-file {
+        margin-top: 4px;
+        color: #8a8a8a;
+        font: var(--p-sm);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .history-meta {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 4px;
+        color: #8a8a8a;
+        font: var(--p-sm);
+        white-space: nowrap;
+      }
+
+      .history-meta strong {
+        color: #60a0ce;
+      }
+
+      .history-empty {
+        justify-content: flex-start;
+        font: var(--p-md);
+      }
+
+      @media (max-width: 900px) {
+        .side-nav {
+          position: static;
+          width: min(420px, calc(100% - 32px));
+          margin: 24px auto 0;
+          flex-direction: row;
+        }
+
+        .side-nav-button {
+          text-align: center;
+        }
+
+        .history-panel {
+          width: min(720px, calc(100% - 32px));
+        }
+
+        .folder-bar {
+          width: min(720px, calc(100% - 32px));
+          margin-top: 32px;
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .history-item {
+          grid-template-columns: 1fr;
+        }
+
+        .history-meta {
+          align-items: flex-start;
+        }
+      }
     </style>
   </head>
   <body>
@@ -290,11 +581,30 @@
       <button class="btn-topbar" id="btnLogout">Sair</button>
     </div>
 
+    <nav class="side-nav" aria-label="Navegacao principal">
+      <button type="button" class="side-nav-button active" id="navFiles">Arquivos</button>
+      <button type="button" class="side-nav-button" id="navHistory">Historico</button>
+    </nav>
+
     <div class="container">
       <h1>
         <img src="assets/logo.svg" alt="Logo Lux" />
         <p>Root<small>.ark</small></p>
       </h1>
+
+      <div class="app-view" id="filesView">
+      <div class="folder-bar" id="folderBar">
+        <div>
+          <h2>Pastas</h2>
+          <p class="share-message">Apenas usuarios permitidos acessam cada pasta.</p>
+        </div>
+        <div class="folder-controls">
+          <select class="folder-select" id="folderSelect"></select>
+          <button type="button" class="folder-action primary" id="createFolderBtn" style="display: none">Nova pasta</button>
+          <button type="button" class="folder-action" id="editFolderAccessBtn" style="display: none">Acessos</button>
+          <button type="button" class="folder-action" id="deleteFolderBtn" style="display: none">Excluir pasta</button>
+        </div>
+      </div>
 
       <div class="upload-box" id="dropzone" style="display: none">
         <form id="form">
@@ -368,6 +678,17 @@
           </div>
         </div>
       </div>
+      </div>
+
+      <section class="history-panel app-view" id="historyView" hidden>
+        <div class="history-header">
+          <h2>Historico de acoes</h2>
+          <button type="button" class="history-refresh" id="historyRefresh">Atualizar</button>
+        </div>
+        <ul class="history-list" id="historyList">
+          <li class="history-empty">Nenhuma acao registrada ainda.</li>
+        </ul>
+      </section>
     </div>
 
     <div class="preview-modal" id="previewModal">
@@ -385,6 +706,37 @@
       </div>
     </div>
 
+    <div class="preview-modal" id="shareModal">
+      <div class="share-card">
+        <div class="share-header">
+          <p class="share-title">Compartilhar arquivo</p>
+          <button type="button" class="share-action-btn" id="shareClose">Fechar</button>
+        </div>
+
+        <p class="share-file">Arquivo: <span id="shareFileName"></span></p>
+
+        <div class="share-form">
+          <label for="shareDuration">Link expira em</label>
+          <select class="share-select" id="shareDuration">
+            <option value="15">15 minutos</option>
+            <option value="60" selected>1 hora</option>
+            <option value="1440">1 dia</option>
+            <option value="10080">7 dias</option>
+            <option value="43200">30 dias</option>
+          </select>
+
+          <label for="shareLink">Link publico</label>
+          <input class="share-link-input" id="shareLink" type="text" readonly placeholder="Gere um link para copiar" />
+          <p class="share-message" id="shareMessage">Qualquer pessoa com este link podera abrir o arquivo ate expirar.</p>
+        </div>
+
+        <div class="share-actions">
+          <button type="button" class="share-action-btn primary" id="shareCreate">Gerar link</button>
+          <button type="button" class="share-action-btn" id="shareCopy" disabled>Copiar link</button>
+        </div>
+      </div>
+    </div>
+
     <script>
       const token = localStorage.getItem("token");
       if (!token) window.location.href = "/login.html";
@@ -393,6 +745,7 @@
       const role = localStorage.getItem("role") || "user";
       const username = localStorage.getItem("username") || "";
       const pageSize = 6;
+      const maxFileNameLength = 30;
       const dateFormatter = new Intl.DateTimeFormat("pt-BR", {
         dateStyle: "short",
         timeStyle: "short",
@@ -403,12 +756,34 @@
       let publicPage = 1;
       let pendingPage = 1;
       let currentPreviewUrl = null;
+      let shareCurrentFile = "";
+      let actionHistory = [];
+      let folders = [];
+      let currentFolderId = "root";
 
+      const navFiles = document.getElementById("navFiles");
+      const navHistory = document.getElementById("navHistory");
+      const filesView = document.getElementById("filesView");
+      const historyView = document.getElementById("historyView");
+      const historyList = document.getElementById("historyList");
+      const historyRefresh = document.getElementById("historyRefresh");
+      const folderSelect = document.getElementById("folderSelect");
+      const createFolderBtn = document.getElementById("createFolderBtn");
+      const editFolderAccessBtn = document.getElementById("editFolderAccessBtn");
+      const deleteFolderBtn = document.getElementById("deleteFolderBtn");
       const previewModal = document.getElementById("previewModal");
       const previewBody = document.getElementById("previewBody");
       const previewTitle = document.getElementById("previewTitle");
       const previewSubtitle = document.getElementById("previewSubtitle");
       const previewClose = document.getElementById("previewClose");
+      const shareModal = document.getElementById("shareModal");
+      const shareClose = document.getElementById("shareClose");
+      const shareFileName = document.getElementById("shareFileName");
+      const shareDuration = document.getElementById("shareDuration");
+      const shareLink = document.getElementById("shareLink");
+      const shareMessage = document.getElementById("shareMessage");
+      const shareCreate = document.getElementById("shareCreate");
+      const shareCopy = document.getElementById("shareCopy");
 
       document.getElementById("displayUsername").textContent = username;
       const roleTag = document.getElementById("roleTag");
@@ -419,21 +794,38 @@
         document.getElementById("adminLink").style.display = "inline-block";
       }
 
-      document.getElementById("btnLogout").addEventListener("click", () => {
+      function forceLogout() {
         localStorage.clear();
         window.location.href = "/login.html";
-      });
+      }
+
+      document.getElementById("btnLogout").addEventListener("click", forceLogout);
 
       if (permissions.upload) document.getElementById("dropzone").style.display = "flex";
       if (permissions.listFiles) document.getElementById("sectionFiles").style.display = "block";
       if (permissions.listPending || permissions.upload) {
         document.getElementById("sectionPending").style.display = "block";
       }
+      if (!permissions.listFiles) {
+        navHistory.style.display = "none";
+      }
+      if (permissions.manageUsers) {
+        createFolderBtn.style.display = "inline-block";
+        editFolderAccessBtn.style.display = "inline-block";
+        deleteFolderBtn.style.display = "inline-block";
+      }
 
       function authFetch(url, opts = {}) {
         return fetch(url, {
           ...opts,
           headers: { Authorization: "Bearer " + token, ...(opts.headers || {}) },
+        }).then((response) => {
+          if (response.status === 401) {
+            forceLogout();
+            throw new Error("Sessao expirada. Faca login novamente.");
+          }
+
+          return response;
         });
       }
 
@@ -468,6 +860,28 @@
         return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
       }
 
+      function truncateFileName(name) {
+        if (name.length <= maxFileNameLength) return name;
+        return `${name.slice(0, maxFileNameLength - 3)}...`;
+      }
+
+      function shortenUploadFileName(name) {
+        if (name.length <= maxFileNameLength) return name;
+
+        const dotIndex = name.lastIndexOf(".");
+        const extension = dotIndex > 0 ? name.slice(dotIndex) : "";
+        const baseName = dotIndex > 0 ? name.slice(0, dotIndex) : name;
+        const maxBaseLength = Math.max(1, maxFileNameLength - extension.length);
+
+        return `${baseName.slice(0, maxBaseLength)}${extension}`;
+      }
+
+      function validateFileNameLength(name) {
+        if (name.length <= maxFileNameLength) return true;
+        alert(`O nome do arquivo deve ter no maximo ${maxFileNameLength} caracteres.`);
+        return false;
+      }
+
       function normalizeFileEntry(entry) {
         if (typeof entry === "string") {
           return {
@@ -483,6 +897,167 @@
           uploadedAt: entry?.uploadedAt || null,
           uploadedBy: entry?.uploadedBy || null,
         };
+      }
+
+      function normalizeApiList(payload) {
+        if (Array.isArray(payload)) {
+          return payload;
+        }
+
+        if (Array.isArray(payload?.value)) {
+          return payload.value;
+        }
+
+        return [];
+      }
+
+      function getCurrentFolder() {
+        return folders.find((folder) => folder.id === currentFolderId) || folders[0] || null;
+      }
+
+      function getFolderQuery() {
+        return `folderId=${encodeURIComponent(currentFolderId)}`;
+      }
+
+      function getFolderName(folderId) {
+        return folders.find((folder) => folder.id === folderId)?.name || "Pasta";
+      }
+
+      function renderFolderSelect() {
+        if (!folders.length) {
+          folders = [{ id: "root", name: "Arquivos atuais", allowedUsers: [], isRoot: true }];
+        }
+
+        if (!folders.some((folder) => folder.id === currentFolderId)) {
+          currentFolderId = folders[0].id;
+        }
+
+        folderSelect.innerHTML = folders
+          .map((folder) => `<option value="${escapeHtml(folder.id)}">${escapeHtml(folder.name)}</option>`)
+          .join("");
+        folderSelect.value = currentFolderId;
+
+        const currentFolder = getCurrentFolder();
+        editFolderAccessBtn.disabled = !currentFolder || currentFolder.isRoot;
+        deleteFolderBtn.disabled = !currentFolder || currentFolder.isRoot;
+      }
+
+      async function loadFolders() {
+        try {
+          const payload = await authJsonFetch("/folders", { headers: {} });
+          folders = normalizeApiList(payload);
+          renderFolderSelect();
+        } catch (error) {
+          folders = [{ id: "root", name: "Arquivos atuais", allowedUsers: [], isRoot: true }];
+          renderFolderSelect();
+        }
+      }
+
+      async function criarPasta() {
+        const name = prompt("Nome da nova pasta:");
+        if (name === null) return;
+
+        const cleanName = name.trim();
+        if (!cleanName) {
+          alert("Informe um nome valido.");
+          return;
+        }
+
+        const allowedUsers = prompt("Usuarios permitidos separados por virgula:", username) || "";
+
+        try {
+          const folder = await authJsonFetch("/folders", {
+            method: "POST",
+            body: JSON.stringify({ name: cleanName, allowedUsers }),
+          });
+
+          await loadFolders();
+          currentFolderId = folder.id;
+          renderFolderSelect();
+          loadFiles();
+          loadPending();
+        } catch (error) {
+          alert(error.message);
+        }
+      }
+
+      async function editarAcessosPasta() {
+        const folder = getCurrentFolder();
+        if (!folder || folder.isRoot) return;
+
+        const allowedUsers = prompt(
+          "Usuarios permitidos separados por virgula:",
+          (folder.allowedUsers || []).join(", ")
+        );
+        if (allowedUsers === null) return;
+
+        try {
+          await authJsonFetch(`/folders/${encodeURIComponent(folder.id)}/access`, {
+            method: "PUT",
+            body: JSON.stringify({ allowedUsers }),
+          });
+
+          await loadFolders();
+        } catch (error) {
+          alert(error.message);
+        }
+      }
+
+      async function excluirPastaAtual() {
+        const folder = getCurrentFolder();
+        if (!folder || folder.isRoot) return;
+
+        if (!confirm(`Excluir a pasta "${folder.name}" e todos os arquivos dela?`)) return;
+
+        try {
+          await authJsonFetch(`/folders/${encodeURIComponent(folder.id)}`, { method: "DELETE" });
+          currentFolderId = "root";
+          await loadFolders();
+          loadFiles();
+          loadPending();
+          if (!historyView.hidden) loadHistory();
+        } catch (error) {
+          alert(error.message || "Nao foi possivel excluir a pasta.");
+        }
+      }
+
+      async function moverArquivo(nome) {
+        const targets = folders.filter((folder) => folder.id !== currentFolderId);
+        if (!targets.length) {
+          alert("Crie ou acesse outra pasta para mover este arquivo.");
+          return;
+        }
+
+        const options = targets.map((folder, index) => `${index + 1}. ${folder.name}`).join("\n");
+        const answer = prompt(`Mover para qual pasta?\n${options}`);
+        if (answer === null) return;
+
+        const index = Number(answer.trim()) - 1;
+        const destination =
+          Number.isInteger(index) && targets[index]
+            ? targets[index]
+            : targets.find((folder) => folder.name.toLowerCase() === answer.trim().toLowerCase());
+
+        if (!destination) {
+          alert("Pasta de destino nao encontrada.");
+          return;
+        }
+
+        try {
+          await authJsonFetch("/move", {
+            method: "PUT",
+            body: JSON.stringify({
+              name: nome,
+              fromFolderId: currentFolderId,
+              toFolderId: destination.id,
+            }),
+          });
+
+          loadFiles();
+          if (!historyView.hidden) loadHistory();
+        } catch (error) {
+          alert(error.message);
+        }
       }
 
       function getFileIcon(name) {
@@ -536,6 +1111,107 @@
         return `<button class="btn-small btn-preview" onclick="abrirPreview('${escapeJsString(name)}', '${scope}')">Preview</button>`;
       }
 
+      function buildShareButton(name) {
+        return `<button class="btn-small btn-share" onclick="abrirCompartilhamento('${escapeJsString(name)}')">Compartilhar</button>`;
+      }
+
+      function getHistoryActionLabel(action) {
+        const labels = {
+          upload_pending: "Enviou para aprovacao",
+          approved: "Aprovou arquivo",
+          rejected: "Rejeitou arquivo",
+          deleted: "Deletou arquivo",
+          renamed: "Renomeou arquivo",
+          moved: "Moveu arquivo",
+          share_created: "Gerou link publico",
+          folder_created: "Criou pasta",
+          folder_access_updated: "Atualizou acessos da pasta",
+          folder_deleted: "Excluiu pasta",
+        };
+
+        return labels[action] || "Atualizou arquivo";
+      }
+
+      function getHistoryFileLabel(entry) {
+        if (entry.action === "renamed" && entry.details?.oldName && entry.details?.newName) {
+          return `${entry.details.oldName} -> ${entry.details.newName}`;
+        }
+
+        if (entry.action === "moved" && entry.details?.fromFolderName && entry.details?.toFolderName) {
+          return `${entry.fileName} (${entry.details.fromFolderName} -> ${entry.details.toFolderName})`;
+        }
+
+        return entry.fileName || "Arquivo desconhecido";
+      }
+
+      function renderHistory() {
+        if (!actionHistory.length) {
+          historyList.innerHTML = '<li class="history-empty">Nenhuma acao registrada ainda.</li>';
+          return;
+        }
+
+        historyList.innerHTML = actionHistory
+          .map((entry) => {
+            const action = escapeHtml(getHistoryActionLabel(entry.action));
+            const fileLabel = escapeHtml(getHistoryFileLabel(entry));
+            const actor = escapeHtml(entry.actor || "sistema");
+            const timestamp = escapeHtml(formatUploadedAt(entry.timestamp));
+            const folderLabel = entry.details?.folderName ? `Pasta: ${escapeHtml(entry.details.folderName)}` : "";
+
+            return `
+              <li class="history-item">
+                <div>
+                  <p class="history-action">${action}</p>
+                  <p class="history-file" title="${fileLabel}">${fileLabel}</p>
+                  ${folderLabel ? `<p class="history-file">${folderLabel}</p>` : ""}
+                </div>
+                <div class="history-meta">
+                  <span>Usuario: <strong>${actor}</strong></span>
+                  <span>${timestamp}</span>
+                </div>
+              </li>`;
+          })
+          .join("");
+      }
+
+      async function loadHistory() {
+        if (!permissions.listFiles) return;
+
+        try {
+          const response = await authFetch("/history");
+          const payload = await response.json().catch(() => []);
+
+          if (!response.ok) {
+            throw new Error(payload?.error || "Nao foi possivel carregar o historico.");
+          }
+
+          actionHistory = normalizeApiList(payload);
+          renderHistory();
+        } catch (error) {
+          actionHistory = [];
+          historyList.innerHTML = `<li class="history-empty">${escapeHtml(error.message || "Falha ao carregar historico.")}</li>`;
+        }
+      }
+
+      function setActiveView(view) {
+        const showingHistory = view === "history";
+
+        filesView.hidden = showingHistory;
+        historyView.hidden = !showingHistory;
+        navFiles.classList.toggle("active", !showingHistory);
+        navHistory.classList.toggle("active", showingHistory);
+
+        if (showingHistory) {
+          loadHistory();
+        }
+      }
+
+      function renderListError(targetId, message, mode) {
+        const list = document.getElementById(targetId);
+        list.innerHTML = `<li class="empty-state">${escapeHtml(message)}</li>`;
+        updatePagination(mode, 1, 1, 0);
+      }
+
       function clearPreviewObjectUrl() {
         if (currentPreviewUrl) {
           URL.revokeObjectURL(currentPreviewUrl);
@@ -563,7 +1239,7 @@
 
         try {
           if (kind === "image" || kind === "pdf") {
-            const response = await authFetch(`/preview/file/${scope}/${encodeURIComponent(name)}`);
+            const response = await authFetch(`/preview/file/${scope}/${encodeURIComponent(name)}?${getFolderQuery()}`);
             const payload = await response.blob();
 
             if (!response.ok) {
@@ -584,12 +1260,95 @@
             return;
           }
 
-          const previewData = await authJsonFetch(`/preview/text/${scope}/${encodeURIComponent(name)}`);
+          const previewData = await authJsonFetch(`/preview/text/${scope}/${encodeURIComponent(name)}?${getFolderQuery()}`);
           previewBody.innerHTML = `<pre class="preview-text">${escapeHtml(previewData.content || "Sem conteúdo disponível.")}</pre>`;
           previewSubtitle.textContent = "Prévia textual";
         } catch (error) {
           previewBody.innerHTML = `<div class="preview-empty">${escapeHtml(error.message || "Não foi possível carregar a prévia.")}</div>`;
           previewSubtitle.textContent = "Falha ao carregar";
+        }
+      }
+
+      async function abrirArquivo(name) {
+        try {
+          const response = await authFetch(`/files/${encodeURIComponent(name)}?${getFolderQuery()}`);
+          const payload = await response.blob();
+
+          if (!response.ok) {
+            const message = await payload.text().catch(() => "");
+            throw new Error(message || "Nao foi possivel abrir o arquivo.");
+          }
+
+          const fileUrl = URL.createObjectURL(payload);
+          window.open(fileUrl, "_blank", "noopener");
+          setTimeout(() => URL.revokeObjectURL(fileUrl), 60000);
+        } catch (error) {
+          alert(error.message || "Nao foi possivel abrir o arquivo.");
+        }
+      }
+
+      function closeShareModal() {
+        shareModal.classList.remove("open");
+        shareCurrentFile = "";
+        shareFileName.textContent = "";
+        shareLink.value = "";
+        shareCopy.disabled = true;
+        shareMessage.textContent = "Qualquer pessoa com este link podera abrir o arquivo ate expirar.";
+      }
+
+      function abrirCompartilhamento(name) {
+        shareCurrentFile = name;
+        shareFileName.textContent = name;
+        shareLink.value = "";
+        shareCopy.disabled = true;
+        shareMessage.textContent = "Escolha o prazo e gere um link publico.";
+        shareModal.classList.add("open");
+      }
+
+      async function gerarLinkCompartilhamento() {
+        if (!shareCurrentFile) return;
+
+        shareCreate.disabled = true;
+        shareMessage.textContent = "Gerando link...";
+
+        try {
+          const payload = await authJsonFetch("/share", {
+            method: "POST",
+            body: JSON.stringify({
+              name: shareCurrentFile,
+              folderId: currentFolderId,
+              expiresInMinutes: Number(shareDuration.value),
+            }),
+          });
+
+          shareLink.value = payload.url;
+          shareCopy.disabled = false;
+          shareMessage.textContent = `Link ativo ate ${formatUploadedAt(payload.expiresAt)}.`;
+          if (!historyView.hidden) loadHistory();
+        } catch (error) {
+          shareLink.value = "";
+          shareCopy.disabled = true;
+          shareMessage.textContent = error.message || "Nao foi possivel gerar o link.";
+        } finally {
+          shareCreate.disabled = false;
+        }
+      }
+
+      async function copiarLinkCompartilhamento() {
+        if (!shareLink.value) return;
+
+        try {
+          if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(shareLink.value);
+          } else {
+            shareLink.select();
+            document.execCommand("copy");
+          }
+
+          shareMessage.textContent = "Link copiado.";
+        } catch {
+          shareLink.select();
+          shareMessage.textContent = "Nao consegui copiar automaticamente. O link esta selecionado.";
         }
       }
 
@@ -643,6 +1402,7 @@
         list.innerHTML = pageItems
           .map((file) => {
             const safeHtmlName = escapeHtml(file.name);
+            const shortHtmlName = escapeHtml(truncateFileName(file.name));
             const safeJsName = escapeJsString(file.name);
             const metadata = `${formatFileSize(file.size)} • ${formatUploadedAt(file.uploadedAt)}`;
 
@@ -652,15 +1412,17 @@
                   <div class="file-info">
                     <div class="file-title">
                       <span class="file-icon">${getFileIcon(file.name)}</span>
-                      <a class="file-name" href="/files/${encodeURIComponent(file.name)}" target="_blank">${safeHtmlName}</a>
+                      <button type="button" class="file-name file-open" onclick="abrirArquivo('${safeJsName}')" title="${safeHtmlName}">${shortHtmlName}</button>
                     </div>
                     <span class="file-meta">${metadata}</span>
                   </div>
                   <div class="btn-group">
                     ${buildPreviewButton(file.name, "public")}
+                    ${buildShareButton(file.name)}
                     ${permissions.delete
                       ? `
                         <button class="btn-small btn-rename" onclick="renomear('${safeJsName}')">Renomear</button>
+                        <button class="btn-small btn-move" onclick="moverArquivo('${safeJsName}')">Mover</button>
                         <button class="btn-small btn-delete" onclick="excluir('${safeJsName}')">Excluir</button>
                       `
                       : ""}
@@ -673,7 +1435,7 @@
                 <div class="file-info">
                   <div class="file-title">
                     <span class="file-icon">${getFileIcon(file.name)}</span>
-                    <span class="file-name">${safeHtmlName}</span>
+                    <span class="file-name" title="${safeHtmlName}">${shortHtmlName}</span>
                   </div>
                   <span class="file-meta">${metadata}</span>
                 </div>
@@ -701,16 +1463,19 @@
         const bar = document.getElementById("progressBar");
         const percent = document.getElementById("progressPercent");
         const filename = document.getElementById("progressFilename");
+        const uploadFileName = shortenUploadFileName(file.name);
 
         wrapper.style.display = "flex";
-        filename.textContent = file.name;
+        filename.textContent = uploadFileName;
+        filename.title = uploadFileName === file.name ? file.name : `Original: ${file.name}`;
         bar.style.width = "0%";
         percent.textContent = "0%";
 
         const data = new FormData();
         data.append("file", file);
 
-        await new Promise((resolve, reject) => {
+        try {
+          await new Promise((resolve, reject) => {
           const xhr = new XMLHttpRequest();
 
           xhr.upload.addEventListener("progress", (e) => {
@@ -721,6 +1486,21 @@
           });
 
           xhr.addEventListener("load", () => {
+            let payload = {};
+            try {
+              payload = JSON.parse(xhr.responseText || "{}");
+            } catch {}
+
+            if (xhr.status >= 400) {
+              reject(new Error(payload.error || "Upload nao concluido."));
+              return;
+            }
+
+            if (payload.fileName) {
+              filename.textContent = payload.fileName;
+              filename.title = payload.renamed ? `Original: ${payload.originalName}` : payload.fileName;
+            }
+
             bar.style.width = "100%";
             percent.textContent = "100%";
             setTimeout(() => {
@@ -732,13 +1512,20 @@
 
           xhr.addEventListener("error", reject);
 
-          xhr.open("POST", "/upload");
+          xhr.open("POST", `/upload?${getFolderQuery()}`);
           xhr.setRequestHeader("Authorization", "Bearer " + token);
           xhr.send(data);
-        });
+          });
 
-        loadFiles();
-        loadPending();
+          loadFiles();
+          loadPending();
+          if (!historyView.hidden) loadHistory();
+        } catch (error) {
+          wrapper.style.display = "none";
+          bar.style.width = "0%";
+          percent.textContent = "0%";
+          alert(error.message || "Upload nao concluido.");
+        }
       }
 
       fileInput.onchange = () => {
@@ -762,33 +1549,58 @@
 
       async function loadFiles() {
         if (!permissions.listFiles) return;
-        const res = await authFetch("/list");
-        publicFiles = (await res.json()).map(normalizeFileEntry).filter((file) => file.name);
-        renderFileList("lista", publicFiles, "Nenhum arquivo ainda.", "public");
+        try {
+          const res = await authFetch(`/list?${getFolderQuery()}`);
+          const payload = await res.json().catch(() => []);
+
+          if (!res.ok) {
+            throw new Error(payload?.error || "Não foi possível carregar os arquivos públicos.");
+          }
+
+          publicFiles = normalizeApiList(payload).map(normalizeFileEntry).filter((file) => file.name);
+          renderFileList("lista", publicFiles, "Nenhum arquivo ainda.", "public");
+        } catch (error) {
+          publicFiles = [];
+          renderListError("lista", error.message || "Falha ao carregar arquivos.", "public");
+        }
       }
 
       async function loadPending() {
         if (!permissions.listPending && !permissions.upload) return;
-        const res = await authFetch("/pending");
-        pendingFiles = (await res.json()).map(normalizeFileEntry).filter((file) => file.name);
-        renderFileList("pendentes", pendingFiles, "Nenhum arquivo pendente.", "pending");
+        try {
+          const res = await authFetch(`/pending?${getFolderQuery()}`);
+          const payload = await res.json().catch(() => []);
+
+          if (!res.ok) {
+            throw new Error(payload?.error || "Não foi possível carregar os arquivos pendentes.");
+          }
+
+          pendingFiles = normalizeApiList(payload).map(normalizeFileEntry).filter((file) => file.name);
+          renderFileList("pendentes", pendingFiles, "Nenhum arquivo pendente.", "pending");
+        } catch (error) {
+          pendingFiles = [];
+          renderListError("pendentes", error.message || "Falha ao carregar pendentes.", "pending");
+        }
       }
 
       async function aprovar(nome) {
-        await authFetch("/approve/" + encodeURIComponent(nome));
+        await authFetch(`/approve/${encodeURIComponent(nome)}?${getFolderQuery()}`);
         loadFiles();
         loadPending();
+        if (!historyView.hidden) loadHistory();
       }
 
       async function rejeitar(nome) {
-        await authFetch("/reject/" + encodeURIComponent(nome));
+        await authFetch(`/reject/${encodeURIComponent(nome)}?${getFolderQuery()}`);
         loadPending();
+        if (!historyView.hidden) loadHistory();
       }
 
       async function excluir(nome) {
         if (!confirm(`Excluir ${nome}?`)) return;
-        await authFetch("/delete/" + encodeURIComponent(nome));
+        await authFetch(`/delete/${encodeURIComponent(nome)}?${getFolderQuery()}`);
         loadFiles();
+        if (!historyView.hidden) loadHistory();
       }
 
       async function renomear(nomeAtual) {
@@ -801,6 +1613,10 @@
           return;
         }
 
+        if (!validateFileNameLength(nomeLimpo)) {
+          return;
+        }
+
         if (nomeLimpo === nomeAtual) {
           return;
         }
@@ -808,21 +1624,46 @@
         try {
           await authJsonFetch("/rename", {
             method: "PUT",
-            body: JSON.stringify({ oldName: nomeAtual, newName: nomeLimpo }),
+            body: JSON.stringify({ oldName: nomeAtual, newName: nomeLimpo, folderId: currentFolderId }),
           });
           loadFiles();
+          if (!historyView.hidden) loadHistory();
         } catch (error) {
           alert(error.message);
         }
       }
 
+      navFiles.addEventListener("click", () => setActiveView("files"));
+      navHistory.addEventListener("click", () => setActiveView("history"));
+      historyRefresh.addEventListener("click", loadHistory);
+      folderSelect.addEventListener("change", () => {
+        currentFolderId = folderSelect.value || "root";
+        publicPage = 1;
+        pendingPage = 1;
+        renderFolderSelect();
+        loadFiles();
+        loadPending();
+      });
+      createFolderBtn.addEventListener("click", criarPasta);
+      editFolderAccessBtn.addEventListener("click", editarAcessosPasta);
+      deleteFolderBtn.addEventListener("click", excluirPastaAtual);
+
       previewClose.addEventListener("click", closePreview);
       previewModal.addEventListener("click", (event) => {
         if (event.target === previewModal) closePreview();
       });
+      shareClose.addEventListener("click", closeShareModal);
+      shareCreate.addEventListener("click", gerarLinkCompartilhamento);
+      shareCopy.addEventListener("click", copiarLinkCompartilhamento);
+      shareModal.addEventListener("click", (event) => {
+        if (event.target === shareModal) closeShareModal();
+      });
       document.addEventListener("keydown", (event) => {
         if (event.key === "Escape" && previewModal.classList.contains("open")) {
           closePreview();
+        }
+        if (event.key === "Escape" && shareModal.classList.contains("open")) {
+          closeShareModal();
         }
       });
 
@@ -856,11 +1697,14 @@
         renderFileList("pendentes", pendingFiles, "Nenhum arquivo pendente.", "pending");
       });
 
-      loadFiles();
-      loadPending();
+      loadFolders().then(() => {
+        loadFiles();
+        loadPending();
+      });
       setInterval(() => {
         loadFiles();
         loadPending();
+        if (!historyView.hidden) loadHistory();
       }, 1000);
     </script>
   </body>
