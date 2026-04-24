@@ -37,11 +37,7 @@ Persistência: API REST integrada para manipulação de metadados das pastas e a
 
 ## 👤 Autor
 
-<<<<<<< HEAD
-- Gabriel Mocelim dos Pintos
-=======
-- Gabriel Mocelin dos Santos
->>>>>>> 9ef133f49df6c5b93f64f1ff3c90ec250a83ba82
+- Gabriel Mocelin dos Pintos
 - Anthropic Claude AI
 - Jouberth Alves Macedo
 ```
