@@ -574,6 +574,7 @@
     </style>
   </head>
   <body>
+    <canvas id="matrixCanvas"></canvas>
     <div class="topbar">
       <p class="user-badge">Olá, <span id="displayUsername">—</span></p>
       <span class="role-tag" id="roleTag">—</span>
@@ -736,6 +737,8 @@
         </div>
       </div>
     </div>
+
+    <script src="./background-matrix.js"></script>
 
     <script>
       const token = localStorage.getItem("token");

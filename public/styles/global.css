@@ -43,6 +43,7 @@ body {
   background-color: var(--bg-secondary);
   background-image: url(../assets/Linha\ \(1\).png);
   overflow-x: hidden;
+  overflow-y: hidden;
 }
 
 body::before {
