@@ -35,7 +35,7 @@ const draw = () => {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   // Cor e fonte dos caracteres
-  ctx.fillStyle = 'rgba(4, 72, 121, 0.3)'; // Verde Matrix Clássico
+  ctx.fillStyle = 'rgba(4, 72, 121, 1)'; // Verde Matrix Clássico
   ctx.font = fontSize + 'px monospace';
 
   // Loop por todas as colunas
@@ -62,7 +62,7 @@ const draw = () => {
 
 // 5. O Loop de animação
 // Executa a função draw a cada 30 milissegundos
-setInterval(draw, 30);
+setInterval(draw, 60);
 
 // 6. Tratamento de redimensionamento de janela
 // Se o usuário esticar a tela, precisamos recalcular tudo
