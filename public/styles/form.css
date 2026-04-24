@@ -1,0 +1,16 @@
+.upload-box {
+  display: flex;
+  justify-content: center;
+  margin-top: 100px;
+  & form {
+    /* color: white; */
+
+    & button {
+      background: none;
+      border: none;
+      cursor: pointer;
+      transform: scale(1.3);
+    }
+    
+  }
+}

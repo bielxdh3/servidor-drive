@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Root.ark — Login</title>
+    <link rel="stylesheet" href="./styles/global.css" />
+    <link rel="icon" href="assets/logo.svg" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght,XOPQ,XTRA,YOPQ,YTDE,YTFI,YTLC,YTUC@8..144,100..1000,96,468,79,-203,738,514,712&family=Roboto+Mono:ital,wght@0,100..700;1,100..700&family=Sora:wght@100..800&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      .login-wrapper {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 48px;
+      }
+
+      .brand {
+        color: white;
+        font: 800 2.5rem/130% var(--ff-sora);
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        text-transform: uppercase;
+      }
+
+      .brand img {
+        width: 38px;
+        height: 38px;
+        animation: 45s rotateLogo linear infinite;
+      }
+
+      .brand small {
+        font: var(--display-sm);
+        text-transform: lowercase;
+        background-image: linear-gradient(#044879 70%, #60a0ce);
+        padding: 2px 10px;
+        border-radius: 8px;
+      }
+
+      @keyframes rotateLogo {
+        from { rotate: 90deg; }
+        to   { rotate: 450deg; }
+      }
+
+      .login-card {
+        background: var(--bg-tertiary);
+        border: 1px solid #044879;
+        border-radius: 12px;
+        padding: 40px 48px;
+        width: 360px;
+        display: flex;
+        flex-direction: column;
+        gap: 24px;
+      }
+
+      .login-card h2 {
+        color: white;
+        font: var(--label-md);
+        text-align: center;
+      }
+
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .field label {
+        color: #8a8a8a;
+        font: var(--p-sm);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .field input {
+        background: var(--bg-secondary);
+        border: 1px solid #044879;
+        border-radius: 8px;
+        color: white;
+        font: var(--p-md);
+        padding: 10px 14px;
+        outline: none;
+        transition: border-color 0.2s;
+      }
+
+      .field input:focus {
+        border-color: #60a0ce;
+      }
+
+      .btn-login {
+        background: linear-gradient(135deg, #044879, #60a0ce);
+        border: none;
+        border-radius: 8px;
+        color: white;
+        font: var(--label-sm);
+        padding: 12px;
+        cursor: pointer;
+        transition: opacity 0.2s;
+      }
+
+      .btn-login:hover { opacity: 0.85; }
+      .btn-login:disabled { opacity: 0.5; cursor: not-allowed; }
+
+      .error-msg {
+        color: #ff5555;
+        font: var(--p-sm);
+        text-align: center;
+        min-height: 18px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="login-wrapper">
+      <div class="brand">
+        <img src="assets/logo.svg" alt="Logo" />
+        <p>Root<small>.ark</small></p>
+      </div>
+
+      <div class="login-card">
+        <h2>Entrar</h2>
+
+        <div class="field">
+          <label>Usuário</label>
+          <input type="text" id="username" placeholder="seu usuário" autocomplete="username" />
+        </div>
+
+        <div class="field">
+          <label>Senha</label>
+          <input type="password" id="password" placeholder="••••••••" autocomplete="current-password" />
+        </div>
+
+        <p class="error-msg" id="errorMsg"></p>
+
+        <button class="btn-login" id="btnLogin">Entrar</button>
+      </div>
+    </div>
+
+    <script>
+      // Se já está logado, redireciona direto
+      if (localStorage.getItem("token")) window.location.href = "/index.html";
+
+      const btn = document.getElementById("btnLogin");
+      const errorMsg = document.getElementById("errorMsg");
+
+      async function login() {
+        const username = document.getElementById("username").value.trim();
+        const password = document.getElementById("password").value;
+
+        if (!username || !password) {
+          errorMsg.textContent = "Preencha usuário e senha.";
+          return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = "Entrando...";
+        errorMsg.textContent = "";
+
+        try {
+          const res = await fetch("/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, password }),
+          });
+          const data = await res.json();
+
+          if (!res.ok) {
+            errorMsg.textContent = data.error || "Erro ao fazer login.";
+            return;
+          }
+
+          localStorage.setItem("token", data.token);
+          localStorage.setItem("username", data.username);
+          localStorage.setItem("role", data.role);
+          localStorage.setItem("permissions", JSON.stringify(data.permissions));
+
+          window.location.href = "/index.html";
+        } catch {
+          errorMsg.textContent = "Erro de conexão com o servidor.";
+        } finally {
+          btn.disabled = false;
+          btn.textContent = "Entrar";
+        }
+      }
+
+      btn.addEventListener("click", login);
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") login();
+      });
+    </script>
+  </body>
+</html>

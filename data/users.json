@@ -1,0 +1,41 @@
+[
+  {
+    "username": "admin",
+    "password": "$2a$10$Po4qffd095m5bxtrAkFj7euanIYasy86ZXizSJCd7wwkxcfS8SCYG",
+    "role": "admin",
+    "permissions": {
+      "upload": true,
+      "approve": true,
+      "delete": true,
+      "listFiles": true,
+      "listPending": true,
+      "manageUsers": true
+    }
+  },
+  {
+    "username": "user",
+    "password": "$2a$10$GiBvmeuvzbxnfaNFprOd9OzJkJeS7DetuDSZwwz19nXZMSbL0QyRq",
+    "role": "user",
+    "permissions": {
+      "upload": true,
+      "approve": false,
+      "delete": false,
+      "listFiles": true,
+      "listPending": false,
+      "manageUsers": false
+    }
+  },
+  {
+    "username": "user2",
+    "password": "$2a$10$QYx.RBW9lKTFzvIQgqEkk.JSkd5U6NHQA9zbjVLB92KFnKtR1qGry",
+    "role": "user",
+    "permissions": {
+      "upload": true,
+      "approve": false,
+      "delete": false,
+      "listFiles": true,
+      "listPending": false,
+      "manageUsers": false
+    }
+  }
+]

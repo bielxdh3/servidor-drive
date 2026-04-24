@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Root.ark — Admin</title>
+    <link rel="stylesheet" href="./styles/global.css" />
+    <link rel="icon" href="assets/logo.svg" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght,XOPQ,XTRA,YOPQ,YTDE,YTFI,YTLC,YTUC@8..144,100..1000,96,468,79,-203,738,514,712&family=Roboto+Mono:ital,wght@0,100..700;1,100..700&family=Sora:wght@100..800&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      body { color: white; }
+
+      .topbar {
+        position: fixed;
+        top: 0; left: 0; right: 0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 32px;
+        background: rgba(2,2,2,0.85);
+        backdrop-filter: blur(10px);
+        border-bottom: 1px solid #1a1a2e;
+        z-index: 100;
+      }
+
+      .topbar .brand {
+        font: 800 1.25rem/1 var(--ff-sora);
+        text-transform: uppercase;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .topbar .brand small {
+        font: 700 0.9rem/1 var(--ff-sora);
+        background: linear-gradient(#044879, #60a0ce);
+        padding: 2px 8px;
+        border-radius: 6px;
+        text-transform: lowercase;
+      }
+
+      .topbar-right {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .btn-sm {
+        background: none;
+        border: 1px solid #044879;
+        color: #60a0ce;
+        font: var(--p-sm);
+        padding: 5px 12px;
+        border-radius: 6px;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-block;
+        transition: background 0.2s;
+      }
+      .btn-sm:hover { background: #044879; }
+
+      .page {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 110px 32px 60px;
+      }
+
+      .page-title {
+        font: var(--display-sm);
+        margin-bottom: 32px;
+      }
+
+      /* ── Create user form ── */
+      .card {
+        background: var(--bg-tertiary);
+        border: 1px solid #044879;
+        border-radius: 12px;
+        padding: 28px 32px;
+        margin-bottom: 40px;
+      }
+
+      .card h2 {
+        font: var(--label-md);
+        margin-bottom: 20px;
+        color: #60a0ce;
+      }
+
+      .form-row {
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+        margin-bottom: 20px;
+      }
+
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        flex: 1;
+        min-width: 140px;
+      }
+
+      .field label {
+        color: #8a8a8a;
+        font: var(--p-sm);
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+      }
+
+      .field input, .field select {
+        background: var(--bg-secondary);
+        border: 1px solid #044879;
+        border-radius: 8px;
+        color: white;
+        font: var(--p-md);
+        padding: 8px 12px;
+        outline: none;
+      }
+
+      .field input:focus, .field select:focus { border-color: #60a0ce; }
+      .field select option { background: var(--bg-secondary); }
+
+      .perms-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 20px;
+      }
+
+      .perm-toggle {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: var(--bg-secondary);
+        border: 1px solid #044879;
+        border-radius: 8px;
+        padding: 6px 14px;
+        cursor: pointer;
+        font: var(--p-sm);
+        color: #8a8a8a;
+        user-select: none;
+        transition: border-color 0.15s, color 0.15s;
+      }
+
+      .perm-toggle.active {
+        border-color: #60a0ce;
+        color: white;
+      }
+
+      .perm-toggle input { display: none; }
+
+      .dot {
+        width: 8px; height: 8px;
+        border-radius: 50%;
+        background: #3d3d3d;
+        transition: background 0.15s;
+        flex-shrink: 0;
+      }
+
+      .perm-toggle.active .dot { background: #60a0ce; }
+
+      .btn-primary {
+        background: linear-gradient(135deg, #044879, #60a0ce);
+        border: none;
+        border-radius: 8px;
+        color: white;
+        font: var(--label-sm);
+        padding: 10px 24px;
+        cursor: pointer;
+        transition: opacity 0.2s;
+      }
+
+      .btn-primary:hover { opacity: 0.85; }
+
+      .feedback {
+        font: var(--p-sm);
+        margin-top: 10px;
+        min-height: 18px;
+      }
+
+      .feedback.ok  { color: #50fa7b; }
+      .feedback.err { color: #ff5555; }
+
+      /* ── Users table ── */
+      .users-table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      .users-table th {
+        text-align: left;
+        font: var(--p-sm);
+        color: #8a8a8a;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        padding: 8px 12px;
+        border-bottom: 1px solid #24222e;
+      }
+
+      .users-table td {
+        padding: 10px 12px;
+        font: var(--p-md);
+        vertical-align: middle;
+        border-bottom: 1px solid #1a1a1f;
+      }
+
+      .users-table tr:last-child td { border-bottom: none; }
+
+      .role-tag {
+        font: 700 0.68rem/1 var(--ff-robotoMono);
+        padding: 3px 8px;
+        border-radius: 4px;
+        text-transform: uppercase;
+      }
+
+      .role-tag.admin { background: #044879; color: #60a0ce; }
+      .role-tag.user  { background: #24222e; color: #8a8a8a; }
+
+      .perm-cell {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+      }
+
+      .perm-chip {
+        font: 700 0.65rem/1 var(--ff-robotoMono);
+        padding: 3px 7px;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: opacity 0.15s;
+      }
+
+      .perm-chip.on  { background: #04304d; color: #60a0ce; border: 1px solid #60a0ce; }
+      .perm-chip.off { background: #1e1e1e; color: #555;    border: 1px solid #333; }
+      .perm-chip:hover { opacity: 0.75; }
+
+      .btn-danger {
+        background: none;
+        border: 1px solid #7a0000;
+        color: #ff5555;
+        font: var(--p-sm);
+        padding: 4px 10px;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+
+      .btn-danger:hover { background: #7a0000; }
+
+      .section-title {
+        font: var(--label-md);
+        color: #60a0ce;
+        margin-bottom: 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="topbar">
+      <div class="brand">
+        <img src="assets/logo.svg" alt="" style="width:24px;height:24px;animation:45s rotateLogo linear infinite" />
+        Root<small>.ark</small>
+      </div>
+      <div class="topbar-right">
+        <a href="/index.html" class="btn-sm">← Voltar</a>
+        <button class="btn-sm" id="btnLogout">Sair</button>
+      </div>
+    </div>
+
+    <div class="page">
+      <h1 class="page-title">Painel de Administração</h1>
+
+      <!-- Criar usuário -->
+      <div class="card">
+        <h2>Criar Usuário</h2>
+
+        <div class="form-row">
+          <div class="field">
+            <label>Usuário</label>
+            <input type="text" id="newUsername" placeholder="nome_do_usuario" />
+          </div>
+          <div class="field">
+            <label>Senha</label>
+            <input type="password" id="newPassword" placeholder="••••••••" />
+          </div>
+          <div class="field">
+            <label>Cargo</label>
+            <select id="newRole">
+              <option value="user">user</option>
+              <option value="admin">admin</option>
+            </select>
+          </div>
+        </div>
+
+        <p style="font:var(--p-sm);color:#8a8a8a;margin-bottom:10px;text-transform:uppercase;letter-spacing:.07em">Permissões</p>
+        <div class="perms-grid" id="createPermsGrid"></div>
+
+        <button class="btn-primary" id="btnCreate">Criar usuário</button>
+        <p class="feedback" id="createFeedback"></p>
+      </div>
+
+      <!-- Tabela de usuários -->
+      <div class="card">
+        <p class="section-title">Usuários</p>
+        <table class="users-table">
+          <thead>
+            <tr>
+              <th>Usuário</th>
+              <th>Cargo</th>
+              <th>Permissões <span style="color:#444;font-weight:400">(clique para alternar)</span></th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="usersBody">
+            <tr><td colspan="4" style="color:#555">Carregando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <style>
+      @keyframes rotateLogo {
+        from { rotate: 90deg; }
+        to   { rotate: 450deg; }
+      }
+    </style>
+
+    <script>
+      // ── Auth guard ──────────────────────────────────────────────────────────
+      const token = localStorage.getItem("token");
+      const myPerms = JSON.parse(localStorage.getItem("permissions") || "{}");
+      const myUsername = localStorage.getItem("username");
+
+      if (!token || !myPerms.manageUsers) {
+        window.location.href = "/login.html";
+      }
+
+      document.getElementById("btnLogout").addEventListener("click", () => {
+        localStorage.clear();
+        window.location.href = "/login.html";
+      });
+
+      function authFetch(url, opts = {}) {
+        return fetch(url, {
+          ...opts,
+          headers: {
+            Authorization: "Bearer " + token,
+            "Content-Type": "application/json",
+            ...(opts.headers || {}),
+          },
+        });
+      }
+
+      // ── Permissões disponíveis ──────────────────────────────────────────────
+      const ALL_PERMISSIONS = [
+        { key: "upload",      label: "Upload" },
+        { key: "approve",     label: "Aprovar" },
+        { key: "delete",      label: "Excluir" },
+        { key: "listFiles",   label: "Ver arquivos" },
+        { key: "listPending", label: "Ver pendentes" },
+        { key: "manageUsers", label: "Gerenciar usuários" },
+      ];
+
+      // ── Grid de criação ─────────────────────────────────────────────────────
+      const createPermsState = Object.fromEntries(
+        ALL_PERMISSIONS.map((p) => [p.key, p.key === "listFiles"])
+      );
+
+      function buildCreateGrid() {
+        const grid = document.getElementById("createPermsGrid");
+        grid.innerHTML = "";
+        ALL_PERMISSIONS.forEach(({ key, label }) => {
+          const div = document.createElement("label");
+          div.className = "perm-toggle" + (createPermsState[key] ? " active" : "");
+          div.innerHTML = `<input type="checkbox" ${createPermsState[key] ? "checked" : ""} />
+                           <span class="dot"></span>${label}`;
+          div.querySelector("input").addEventListener("change", (e) => {
+            createPermsState[key] = e.target.checked;
+            div.classList.toggle("active", e.target.checked);
+          });
+          grid.appendChild(div);
+        });
+      }
+
+      buildCreateGrid();
+
+      // Ao mudar o cargo para admin, marca tudo
+      document.getElementById("newRole").addEventListener("change", (e) => {
+        if (e.target.value === "admin") {
+          ALL_PERMISSIONS.forEach((p) => { createPermsState[p.key] = true; });
+        }
+        buildCreateGrid();
+      });
+
+      // ── Criar usuário ───────────────────────────────────────────────────────
+      document.getElementById("btnCreate").addEventListener("click", async () => {
+        const username    = document.getElementById("newUsername").value.trim();
+        const password    = document.getElementById("newPassword").value;
+        const role        = document.getElementById("newRole").value;
+        const feedback    = document.getElementById("createFeedback");
+
+        if (!username || !password) {
+          feedback.textContent = "Preencha usuário e senha.";
+          feedback.className = "feedback err";
+          return;
+        }
+
+        const res  = await authFetch("/users", {
+          method: "POST",
+          body: JSON.stringify({ username, password, role, permissions: createPermsState }),
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          feedback.textContent = data.error;
+          feedback.className = "feedback err";
+          return;
+        }
+
+        feedback.textContent = "Usuário criado com sucesso!";
+        feedback.className = "feedback ok";
+        document.getElementById("newUsername").value = "";
+        document.getElementById("newPassword").value = "";
+        loadUsers();
+      });
+
+      // ── Carregar e renderizar usuários ──────────────────────────────────────
+      async function loadUsers() {
+        const res   = await authFetch("/users");
+        const users = await res.json();
+        const tbody = document.getElementById("usersBody");
+
+        if (!users.length) {
+          tbody.innerHTML = `<tr><td colspan="4" style="color:#555">Nenhum usuário.</td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = users.map((u) => `
+          <tr data-user="${u.username}">
+            <td style="font:var(--label-sm)">${u.username}</td>
+            <td><span class="role-tag ${u.role}">${u.role}</span></td>
+            <td>
+              <div class="perm-cell">
+                ${ALL_PERMISSIONS.map((p) => `
+                  <span
+                    class="perm-chip ${u.permissions[p.key] ? "on" : "off"}"
+                    data-perm="${p.key}"
+                    title="Alternar ${p.label}"
+                    onclick="togglePerm('${u.username}', '${p.key}', this)"
+                  >${p.label}</span>
+                `).join("")}
+              </div>
+            </td>
+            <td>
+              ${u.username !== myUsername
+                ? `<button class="btn-danger" onclick="deleteUser('${u.username}')">Excluir</button>`
+                : `<span style="color:#555;font:var(--p-sm)">você</span>`}
+            </td>
+          </tr>
+        `).join("");
+      }
+
+      // ── Alternar permissão inline ───────────────────────────────────────────
+      async function togglePerm(username, permKey, el) {
+        const isOn = el.classList.contains("on");
+        const newVal = !isOn;
+
+        const res  = await authFetch(`/users/${username}`, {
+          method: "PUT",
+          body: JSON.stringify({ permissions: { [permKey]: newVal } }),
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          alert(data.error);
+          return;
+        }
+
+        el.classList.toggle("on",  newVal);
+        el.classList.toggle("off", !newVal);
+      }
+
+      // ── Excluir usuário ─────────────────────────────────────────────────────
+      async function deleteUser(username) {
+        if (!confirm(`Excluir o usuário "${username}"?`)) return;
+        const res  = await authFetch(`/users/${username}`, { method: "DELETE" });
+        const data = await res.json();
+        if (!res.ok) { alert(data.error); return; }
+        loadUsers();
+      }
+
+      loadUsers();
+    </script>
+  </body>
+</html>

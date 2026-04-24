@@ -1,0 +1,40 @@
+h1 {
+  color: white;
+  font: 800 2.5rem / 130% var(--ff-sora);
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  align-items: center;
+  transform: scale(2);
+  margin-top: 100px;
+  text-transform: uppercase;
+
+
+  & small {
+    font: var(--display-sm);
+    text-transform: lowercase;
+    height: fit-content;
+    background-image: linear-gradient(#044879 70%, #60a0ce);
+    width: 100px;
+    border-radius: 8px;
+    text-align: center;
+    /* background-color: var(--bg-brand); */
+  }
+
+  & img {
+    width: 38px;
+    height: 38px;
+    margin-bottom: 05px;
+    animation: 45s rotateLogo linear infinite;
+  }
+}
+
+@keyframes rotateLogo {
+  0% {
+    rotate: 90deg;
+  }
+
+  100% {
+    rotate: 450deg;
+  }
+}

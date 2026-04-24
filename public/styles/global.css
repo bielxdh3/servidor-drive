@@ -1,0 +1,57 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg-primary: #020202;
+  --bg-secondary: #111012;
+  --bg-tertiary: #24222e;
+  --bg-brand: #044879;
+  --bg-gray: #3d3d3d;
+
+  /* FONTS */
+
+  --ff-sora: "Sora", sans-serif;
+  --ff-robotoMono: "Roboto Mono", sans-serif;
+  --ff-robotoFlex: "Roboto Flex", sans-serif;
+
+  /* SORA */
+  --display-lg: 800 4.5rem/130% var(--ff-sora);
+  --display-md: 800 2.5rem/130% var(--ff-sora);
+  --display-sm: 700 2rem/130% var(--ff-sora);
+
+  /* ROBOTO MONO */
+  --overline: 700 1rem/150% var(--ff-robotoMono);
+
+  /* ROBOTO FLEX */
+
+  --p-lg: 1rem/150% var(--ff-robotoFlex);
+  --p-md: 0.875rem/150% var(--ff-robotoFlex);
+  --p-sm: 0.75rem/150% var(--ff-robotoFlex);
+  --label-md: 700 1.25rem/150% var(--ff-robotoFlex);
+  --label-sm: 700 1rem/150% var(--ff-robotoFlex);
+
+  /* GRADIENTE */
+
+  --blue-gradient: linear-gradient(#044879 0%, #60a0ce 100%)
+}
+
+
+body {
+  background-color: var(--bg-secondary);
+  background-image: url(../assets/Linha\ \(1\).png);
+  overflow-x: hidden;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+
+  background: linear-gradient(rgba(2, 2, 2, 1) 0%, rgba(2, 2, 2, 0) 100%);
+
+  pointer-events: none;
+  z-index: -1;
+}

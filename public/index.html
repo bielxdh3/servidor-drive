@@ -1,224 +1,867 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="pt-BR">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Drive - biel.dev.br</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+  <head>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Root.ark</title>
+    <link rel="stylesheet" href="./styles/index.css" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght,XOPQ,XTRA,YOPQ,YTDE,YTFI,YTLC,YTUC@8..144,100..1000,96,468,79,-203,738,514,712&family=Roboto+Mono:ital,wght@0,100..700;1,100..700&family=Sora:wght@100..800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="icon" href="assets/logo.svg" />
+    <style>
+      .topbar {
+        position: fixed;
+        top: 0;
+        right: 0;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 24px;
+        z-index: 100;
+      }
 
-    body {
-      background: linear-gradient(135deg, #0f0f0f 0%, #1a1a2e 100%);
-      color: #e0e0e0;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      min-height: 100vh;
-      padding: 20px;
-    }
+      .topbar .user-badge {
+        color: #8a8a8a;
+        font: var(--p-sm);
+      }
 
-    .container { max-width: 1200px; margin: 0 auto; }
+      .topbar .user-badge span {
+        color: white;
+        font: var(--label-sm);
+      }
 
-    h1 {
-      text-align: center;
-      font-size: 2.5rem;
-      margin-bottom: 40px;
-      background: linear-gradient(90deg, #00d4ff, #7b2ff7);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-    }
+      .topbar .role-tag {
+        font: 700 0.7rem/1 var(--ff-robotoMono);
+        padding: 3px 8px;
+        border-radius: 4px;
+        text-transform: uppercase;
+      }
 
-    .upload-box {
-      background: rgba(255, 255, 255, 0.05);
-      border: 2px dashed rgba(0, 212, 255, 0.3);
-      border-radius: 15px;
-      padding: 60px 40px;
-      margin-bottom: 40px;
-      text-align: center;
-      transition: all 0.3s;
-      cursor: pointer;
-    }
+      .role-tag.admin {
+        background: #044879;
+        color: #60a0ce;
+      }
 
-    .upload-box.dragover {
-      border-color: #00d4ff;
-      background: rgba(0, 212, 255, 0.1);
-      transform: scale(1.01);
-    }
+      .role-tag.user {
+        background: #24222e;
+        color: #8a8a8a;
+      }
 
-    .upload-label {
-      display: block;
-      font-size: 1.1rem;
-      color: #aaa;
-      margin-bottom: 15px;
-    }
+      .btn-topbar {
+        background: none;
+        border: 1px solid #044879;
+        color: #60a0ce;
+        font: var(--p-sm);
+        padding: 5px 12px;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: background 0.2s;
+        text-decoration: none;
+        display: inline-block;
+      }
 
-    #form {
-      display: flex;
-      flex-direction: column;
-      gap: 15px;
-      align-items: center;
-    }
+      .btn-topbar:hover {
+        background: #044879;
+      }
 
-    button {
-      padding: 12px 30px;
-      background: linear-gradient(90deg, #00d4ff, #7b2ff7);
-      border: none;
-      border-radius: 8px;
-      color: white;
-      font-weight: bold;
-      cursor: pointer;
-      transition: transform 0.2s, box-shadow 0.2s;
-    }
+      .btn-small.btn-approve,
+      .btn-small.btn-rename {
+        background-color: #044879;
+      }
 
-    button:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 5px 20px rgba(0, 212, 255, 0.4);
-    }
+      .btn-small.btn-preview {
+        background-color: #24222e;
+        border: 1px solid #044879;
+      }
 
-    button:active { transform: translateY(0); }
+      #progressWrapper {
+        margin-top: 18px;
+        width: 356px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
 
-    .section { margin-bottom: 40px; }
+      #progressFilename {
+        color: #8a8a8a;
+        font: var(--p-sm);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
 
-    h2 { margin-bottom: 20px; font-size: 1.5rem; color: #00d4ff; }
+      .progress-track {
+        width: 100%;
+        height: 6px;
+        background: var(--bg-tertiary);
+        border-radius: 99px;
+        overflow: hidden;
+      }
 
-    ul { list-style: none; }
+      .progress-bar {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, #044879, #60a0ce);
+        border-radius: 99px;
+        transition: width 0.1s linear;
+      }
 
-    li {
-      background: rgba(255, 255, 255, 0.05);
-      margin-bottom: 10px;
-      padding: 15px 20px;
-      border-radius: 10px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      transition: all 0.2s;
-    }
+      #progressPercent {
+        color: #60a0ce;
+        font: 700 0.75rem/1 var(--ff-robotoMono);
+        text-align: right;
+      }
 
-    li:hover { background: rgba(255, 255, 255, 0.1); transform: translateX(5px); }
+      .section-header {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
 
-    li a { color: #00d4ff; text-decoration: none; flex: 1; }
-    li a:hover { text-decoration: underline; }
+      .file-filter {
+        width: 100%;
+        background: rgba(17, 16, 18, 0.9);
+        border: 1px solid #044879;
+        border-radius: 8px;
+        color: white;
+        font: var(--p-md);
+        padding: 10px 12px;
+        outline: none;
+      }
 
-    .btn-group { display: flex; gap: 10px; }
+      .file-filter::placeholder {
+        color: #8a8a8a;
+      }
 
-    .btn-small { padding: 8px 16px; font-size: 0.9rem; }
+      .file-filter:focus {
+        border-color: #60a0ce;
+        box-shadow: 0 0 0 2px rgba(96, 160, 206, 0.15);
+      }
 
-    .btn-approve { background: linear-gradient(90deg, #00ff87, #60efff); }
-    .btn-reject, .btn-delete { background: linear-gradient(90deg, #ff6b6b, #ee5a6f); }
+      .pagination {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-top: 14px;
+      }
 
-    @media (max-width: 768px) {
-      h1 { font-size: 2rem; }
-      .upload-box { padding: 20px; }
-      li { flex-direction: column; gap: 10px; align-items: flex-start; }
-      .btn-group { width: 100%; }
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <h1>🐱‍👤 Drive - biel.dev.br</h1>
+      .pagination-info {
+        color: #8a8a8a;
+        font: var(--p-sm);
+      }
 
-    <div class="upload-box" id="dropzone">
-      <form id="form">
-        <span class="upload-label">📂 Arraste arquivos aqui ou clique para escolher</span>
-        <input type="file" name="file" id="fileInput" style="display:none" />
-        <button type="button" onclick="document.getElementById('fileInput').click()">📤 Escolher Arquivo</button>
-      </form>
+      .pagination-actions {
+        display: flex;
+        gap: 8px;
+      }
+
+      .pagination-btn {
+        background: transparent;
+        border: 1px solid #044879;
+        color: #60a0ce;
+        border-radius: 8px;
+        padding: 6px 12px;
+        cursor: pointer;
+        font: var(--p-sm);
+      }
+
+      .pagination-btn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      .preview-modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(2, 2, 2, 0.82);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        z-index: 300;
+      }
+
+      .preview-modal.open {
+        display: flex;
+      }
+
+      .preview-card {
+        width: min(1100px, 100%);
+        height: min(88vh, 820px);
+        background: #111012;
+        border: 1px solid #044879;
+        border-radius: 18px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+      }
+
+      .preview-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 16px 20px;
+        border-bottom: 1px solid rgba(96, 160, 206, 0.16);
+      }
+
+      .preview-title {
+        color: white;
+        font: var(--label-md);
+        min-width: 0;
+      }
+
+      .preview-title-text {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .preview-subtitle {
+        color: #8a8a8a;
+        font: var(--p-sm);
+      }
+
+      .preview-close {
+        background: transparent;
+        border: 1px solid #044879;
+        color: #60a0ce;
+        border-radius: 10px;
+        padding: 8px 12px;
+        cursor: pointer;
+        font: var(--p-sm);
+      }
+
+      .preview-body {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        background: #0b0b0c;
+      }
+
+      .preview-body img {
+        display: block;
+        max-width: 100%;
+        max-height: 100%;
+        margin: 0 auto;
+        object-fit: contain;
+      }
+
+      .preview-frame {
+        width: 100%;
+        height: 100%;
+        border: 0;
+        background: white;
+      }
+
+      .preview-text {
+        margin: 0;
+        padding: 20px;
+        color: white;
+        font: 0.95rem/1.6 var(--ff-robotoMono);
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .preview-empty {
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #8a8a8a;
+        font: var(--p-md);
+        padding: 24px;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="topbar">
+      <p class="user-badge">Olá, <span id="displayUsername">—</span></p>
+      <span class="role-tag" id="roleTag">—</span>
+      <a href="/admin.html" class="btn-topbar" id="adminLink" style="display: none">Admin</a>
+      <button class="btn-topbar" id="btnLogout">Sair</button>
     </div>
 
-    <div class="section">
-      <h2>📁 Arquivos Públicos</h2>
-      <ul id="lista"></ul>
+    <div class="container">
+      <h1>
+        <img src="assets/logo.svg" alt="Logo Lux" />
+        <p>Root<small>.ark</small></p>
+      </h1>
+
+      <div class="upload-box" id="dropzone" style="display: none">
+        <form id="form">
+          <input type="file" name="file" id="fileInput" style="display: none" />
+          <button type="button" onclick="document.getElementById('fileInput').click()">
+            <svg width="356" height="168" viewBox="0 0 356 168" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="gradienteBotao" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#044879" />
+                  <stop offset="100%" stop-color="#60a0ce" />
+                </linearGradient>
+                <filter id="filter0_d_2190_859" x="0" y="0" width="356" height="168" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+                  <feFlood flood-opacity="0" result="BackgroundImageFix" />
+                  <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
+                  <feOffset dy="4" />
+                  <feGaussianBlur stdDeviation="2" />
+                  <feComposite in2="hardAlpha" operator="out" />
+                  <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.25 0" />
+                  <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_2190_859" />
+                  <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_2190_859" result="shape" />
+                </filter>
+              </defs>
+              <g filter="url(#filter0_d_2190_859)">
+                <rect x="4.5" y="0.5" width="347" height="159" rx="7.5" fill="transparent" />
+                <rect x="4.5" y="0.5" width="347" height="159" rx="7.5" stroke="url(#gradienteBotao)" stroke-width="2" stroke-dasharray="8 8" />
+                <path d="M188.955 46.0221C188.97 46.022 188.985 46.022 189 46.022C193.971 46.022 198 50.0588 198 55.0386C198 59.6796 194.5 63.5016 190 64M188.955 46.0221C188.985 45.6921 189 45.3579 189 45.0202C189 38.9339 184.075 34 178 34C172.246 34 167.525 38.4253 167.041 44.0638M188.955 46.0221C188.751 48.2952 187.857 50.3692 186.486 52.033M167.041 44.0638C161.968 44.5475 158 48.8278 158 54.0366C158 58.8834 161.436 62.9264 166 63.8546M167.041 44.0638C167.357 44.0337 167.676 44.0183 168 44.0183C170.252 44.0183 172.329 44.7639 174.001 46.022" stroke="url(#gradienteBotao)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+                <path d="M178 54V70M178 54C176.6 54 173.983 57.9886 173 59M178 54C179.4 54 182.017 57.9886 183 59" stroke="url(#gradienteBotao)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+                <text x="50%" y="105" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="url(#gradienteBotao)" text-anchor="middle">Adicionar arquivo</text>
+              </g>
+            </svg>
+          </button>
+        </form>
+
+        <div id="progressWrapper" style="display: none">
+          <p id="progressFilename"></p>
+          <div class="progress-track">
+            <div class="progress-bar" id="progressBar"></div>
+          </div>
+          <p id="progressPercent">0%</p>
+        </div>
+      </div>
+
+      <div class="flex">
+        <div class="section" id="sectionFiles" style="display: none">
+          <div class="section-header">
+            <h2>Arquivos Públicos</h2>
+            <input type="search" id="fileSearch" class="file-filter" placeholder="Buscar arquivo por nome" />
+          </div>
+          <ul id="lista"></ul>
+          <div class="pagination" id="filePagination">
+            <span class="pagination-info" id="filePaginationInfo"></span>
+            <div class="pagination-actions">
+              <button type="button" class="pagination-btn" id="filePrevBtn">Anterior</button>
+              <button type="button" class="pagination-btn" id="fileNextBtn">Próxima</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="section" id="sectionPending" style="display: none">
+          <div class="section-header">
+            <h2>Aguardando Aprovação</h2>
+            <input type="search" id="pendingSearch" class="file-filter" placeholder="Buscar pendente por nome" />
+          </div>
+          <ul id="pendentes"></ul>
+          <div class="pagination" id="pendingPagination">
+            <span class="pagination-info" id="pendingPaginationInfo"></span>
+            <div class="pagination-actions">
+              <button type="button" class="pagination-btn" id="pendingPrevBtn">Anterior</button>
+              <button type="button" class="pagination-btn" id="pendingNextBtn">Próxima</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
-    <div class="section">
-      <h2>⏳ Aguardando Aprovação</h2>
-      <ul id="pendentes"></ul>
+    <div class="preview-modal" id="previewModal">
+      <div class="preview-card">
+        <div class="preview-header">
+          <div class="preview-title">
+            <span class="preview-title-text" id="previewTitle">Prévia do arquivo</span>
+            <span class="preview-subtitle" id="previewSubtitle">Selecione um arquivo para visualizar.</span>
+          </div>
+          <button type="button" class="preview-close" id="previewClose">Fechar</button>
+        </div>
+        <div class="preview-body" id="previewBody">
+          <div class="preview-empty">Nenhuma prévia carregada.</div>
+        </div>
+      </div>
     </div>
-  </div>
 
-  <script>
-    const dropzone = document.getElementById("dropzone");
-    const fileInput = document.getElementById("fileInput");
-    const lista = document.getElementById("lista");
-    const pendentes = document.getElementById("pendentes");
+    <script>
+      const token = localStorage.getItem("token");
+      if (!token) window.location.href = "/login.html";
 
-    async function enviarArquivo(file) {
-      const data = new FormData();
-      data.append("file", file);
-      await fetch("/upload", { method: "POST", body: data });
+      const permissions = JSON.parse(localStorage.getItem("permissions") || "{}");
+      const role = localStorage.getItem("role") || "user";
+      const username = localStorage.getItem("username") || "";
+      const pageSize = 6;
+      const dateFormatter = new Intl.DateTimeFormat("pt-BR", {
+        dateStyle: "short",
+        timeStyle: "short",
+      });
+
+      let publicFiles = [];
+      let pendingFiles = [];
+      let publicPage = 1;
+      let pendingPage = 1;
+      let currentPreviewUrl = null;
+
+      const previewModal = document.getElementById("previewModal");
+      const previewBody = document.getElementById("previewBody");
+      const previewTitle = document.getElementById("previewTitle");
+      const previewSubtitle = document.getElementById("previewSubtitle");
+      const previewClose = document.getElementById("previewClose");
+
+      document.getElementById("displayUsername").textContent = username;
+      const roleTag = document.getElementById("roleTag");
+      roleTag.textContent = role;
+      roleTag.className = `role-tag ${role}`;
+
+      if (permissions.manageUsers) {
+        document.getElementById("adminLink").style.display = "inline-block";
+      }
+
+      document.getElementById("btnLogout").addEventListener("click", () => {
+        localStorage.clear();
+        window.location.href = "/login.html";
+      });
+
+      if (permissions.upload) document.getElementById("dropzone").style.display = "flex";
+      if (permissions.listFiles) document.getElementById("sectionFiles").style.display = "block";
+      if (permissions.listPending || permissions.upload) {
+        document.getElementById("sectionPending").style.display = "block";
+      }
+
+      function authFetch(url, opts = {}) {
+        return fetch(url, {
+          ...opts,
+          headers: { Authorization: "Bearer " + token, ...(opts.headers || {}) },
+        });
+      }
+
+      async function authJsonFetch(url, opts = {}) {
+        const response = await authFetch(url, {
+          ...opts,
+          headers: {
+            "Content-Type": "application/json",
+            ...(opts.headers || {}),
+          },
+        });
+
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload.error || "Operação não concluída");
+        }
+
+        return payload;
+      }
+
+      function normalizeTerm(value) {
+        return value.trim().toLowerCase();
+      }
+
+      function escapeHtml(value) {
+        const div = document.createElement("div");
+        div.textContent = value;
+        return div.innerHTML;
+      }
+
+      function escapeJsString(value) {
+        return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+      }
+
+      function normalizeFileEntry(entry) {
+        if (typeof entry === "string") {
+          return {
+            name: entry,
+            size: 0,
+            uploadedAt: null,
+          };
+        }
+
+        return {
+          name: entry?.name || "",
+          size: Number(entry?.size) || 0,
+          uploadedAt: entry?.uploadedAt || null,
+          uploadedBy: entry?.uploadedBy || null,
+        };
+      }
+
+      function getFileIcon(name) {
+        const extension = (name.split(".").pop() || "").toLowerCase();
+
+        if (["pdf"].includes(extension)) return "📕";
+        if (["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp"].includes(extension)) return "🖼️";
+        if (["doc", "docx", "odt", "rtf", "txt"].includes(extension)) return "📘";
+        if (["xls", "xlsx", "csv", "ods"].includes(extension)) return "📊";
+        if (["ppt", "pptx", "odp"].includes(extension)) return "📙";
+        if (["zip", "rar", "7z", "tar", "gz"].includes(extension)) return "🗜️";
+        if (["mp4", "avi", "mov", "mkv", "webm"].includes(extension)) return "🎬";
+        if (["mp3", "wav", "ogg", "flac", "m4a"].includes(extension)) return "🎵";
+
+        return "📄";
+      }
+
+      function getFilePreviewKind(name) {
+        const extension = (name.split(".").pop() || "").toLowerCase();
+
+        if (["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp"].includes(extension)) return "image";
+        if (["pdf"].includes(extension)) return "pdf";
+        if (["txt", "doc", "docx"].includes(extension)) return "text";
+
+        return null;
+      }
+
+      function formatFileSize(bytes) {
+        if (!Number.isFinite(bytes) || bytes < 1024) return `${bytes || 0} B`;
+        const units = ["KB", "MB", "GB", "TB"];
+        let value = bytes / 1024;
+        let unitIndex = 0;
+
+        while (value >= 1024 && unitIndex < units.length - 1) {
+          value /= 1024;
+          unitIndex += 1;
+        }
+
+        return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex]}`;
+      }
+
+      function formatUploadedAt(value) {
+        if (!value) return "Data indisponível";
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) return "Data indisponível";
+        return dateFormatter.format(parsed);
+      }
+
+      function buildPreviewButton(name, scope) {
+        if (!getFilePreviewKind(name)) return "";
+        return `<button class="btn-small btn-preview" onclick="abrirPreview('${escapeJsString(name)}', '${scope}')">Preview</button>`;
+      }
+
+      function clearPreviewObjectUrl() {
+        if (currentPreviewUrl) {
+          URL.revokeObjectURL(currentPreviewUrl);
+          currentPreviewUrl = null;
+        }
+      }
+
+      function closePreview() {
+        previewModal.classList.remove("open");
+        previewBody.innerHTML = '<div class="preview-empty">Nenhuma prévia carregada.</div>';
+        previewTitle.textContent = "Prévia do arquivo";
+        previewSubtitle.textContent = "Selecione um arquivo para visualizar.";
+        clearPreviewObjectUrl();
+      }
+
+      async function abrirPreview(name, scope) {
+        const kind = getFilePreviewKind(name);
+        if (!kind) return;
+
+        clearPreviewObjectUrl();
+        previewModal.classList.add("open");
+        previewTitle.textContent = name;
+        previewSubtitle.textContent = "Carregando prévia...";
+        previewBody.innerHTML = '<div class="preview-empty">Carregando prévia...</div>';
+
+        try {
+          if (kind === "image" || kind === "pdf") {
+            const response = await authFetch(`/preview/file/${scope}/${encodeURIComponent(name)}`);
+            const payload = await response.blob();
+
+            if (!response.ok) {
+              const message = await payload.text().catch(() => "");
+              throw new Error(message || "Não foi possível carregar a prévia.");
+            }
+
+            currentPreviewUrl = URL.createObjectURL(payload);
+
+            if (kind === "image") {
+              previewBody.innerHTML = `<img src="${currentPreviewUrl}" alt="${escapeHtml(name)}" />`;
+              previewSubtitle.textContent = "Prévia de imagem";
+            } else {
+              previewBody.innerHTML = `<iframe class="preview-frame" src="${currentPreviewUrl}" title="${escapeHtml(name)}"></iframe>`;
+              previewSubtitle.textContent = "Prévia de PDF";
+            }
+
+            return;
+          }
+
+          const previewData = await authJsonFetch(`/preview/text/${scope}/${encodeURIComponent(name)}`);
+          previewBody.innerHTML = `<pre class="preview-text">${escapeHtml(previewData.content || "Sem conteúdo disponível.")}</pre>`;
+          previewSubtitle.textContent = "Prévia textual";
+        } catch (error) {
+          previewBody.innerHTML = `<div class="preview-empty">${escapeHtml(error.message || "Não foi possível carregar a prévia.")}</div>`;
+          previewSubtitle.textContent = "Falha ao carregar";
+        }
+      }
+
+      function updatePagination(mode, page, totalPages, totalItems) {
+        const prefix = mode === "public" ? "file" : "pending";
+        const pagination = document.getElementById(`${prefix}Pagination`);
+        const info = document.getElementById(`${prefix}PaginationInfo`);
+        const prevBtn = document.getElementById(`${prefix}PrevBtn`);
+        const nextBtn = document.getElementById(`${prefix}NextBtn`);
+
+        if (!pagination || !info || !prevBtn || !nextBtn) return;
+
+        if (totalItems <= pageSize) {
+          pagination.style.display = "none";
+          return;
+        }
+
+        pagination.style.display = "flex";
+        info.textContent = `Página ${page} de ${totalPages}`;
+        prevBtn.disabled = page <= 1;
+        nextBtn.disabled = page >= totalPages;
+      }
+
+      function renderFileList(targetId, files, emptyMessage, mode) {
+        const list = document.getElementById(targetId);
+        const searchId = mode === "public" ? "fileSearch" : "pendingSearch";
+        const query = normalizeTerm(document.getElementById(searchId)?.value || "");
+        const filteredFiles = files.filter((file) => file.name.toLowerCase().includes(query));
+        const currentPage = mode === "public" ? publicPage : pendingPage;
+
+        if (!filteredFiles.length) {
+          const message = query
+            ? `Nenhum arquivo encontrado para "${escapeHtml(query)}".`
+            : emptyMessage;
+          list.innerHTML = `<li class="empty-state">${message}</li>`;
+          updatePagination(mode, 1, 1, 0);
+          return;
+        }
+
+        const totalPages = Math.max(1, Math.ceil(filteredFiles.length / pageSize));
+        const safePage = Math.min(currentPage, totalPages);
+
+        if (mode === "public") {
+          publicPage = safePage;
+        } else {
+          pendingPage = safePage;
+        }
+
+        const pageItems = filteredFiles.slice((safePage - 1) * pageSize, safePage * pageSize);
+
+        list.innerHTML = pageItems
+          .map((file) => {
+            const safeHtmlName = escapeHtml(file.name);
+            const safeJsName = escapeJsString(file.name);
+            const metadata = `${formatFileSize(file.size)} • ${formatUploadedAt(file.uploadedAt)}`;
+
+            if (mode === "public") {
+              return `
+                <li>
+                  <div class="file-info">
+                    <div class="file-title">
+                      <span class="file-icon">${getFileIcon(file.name)}</span>
+                      <a class="file-name" href="/files/${encodeURIComponent(file.name)}" target="_blank">${safeHtmlName}</a>
+                    </div>
+                    <span class="file-meta">${metadata}</span>
+                  </div>
+                  <div class="btn-group">
+                    ${buildPreviewButton(file.name, "public")}
+                    ${permissions.delete
+                      ? `
+                        <button class="btn-small btn-rename" onclick="renomear('${safeJsName}')">Renomear</button>
+                        <button class="btn-small btn-delete" onclick="excluir('${safeJsName}')">Excluir</button>
+                      `
+                      : ""}
+                  </div>
+                </li>`;
+            }
+
+            return `
+              <li>
+                <div class="file-info">
+                  <div class="file-title">
+                    <span class="file-icon">${getFileIcon(file.name)}</span>
+                    <span class="file-name">${safeHtmlName}</span>
+                  </div>
+                  <span class="file-meta">${metadata}</span>
+                </div>
+                <div class="btn-group">
+                  ${buildPreviewButton(file.name, "pending")}
+                  ${permissions.approve
+                    ? `
+                      <button class="btn-small btn-approve" onclick="aprovar('${safeJsName}')">Aprovar</button>
+                      <button class="btn-small btn-reject" onclick="rejeitar('${safeJsName}')">Rejeitar</button>
+                    `
+                    : ""}
+                </div>
+              </li>`;
+          })
+          .join("");
+
+        updatePagination(mode, safePage, totalPages, filteredFiles.length);
+      }
+
+      const dropzone = document.getElementById("dropzone");
+      const fileInput = document.getElementById("fileInput");
+
+      async function enviarArquivo(file) {
+        const wrapper = document.getElementById("progressWrapper");
+        const bar = document.getElementById("progressBar");
+        const percent = document.getElementById("progressPercent");
+        const filename = document.getElementById("progressFilename");
+
+        wrapper.style.display = "flex";
+        filename.textContent = file.name;
+        bar.style.width = "0%";
+        percent.textContent = "0%";
+
+        const data = new FormData();
+        data.append("file", file);
+
+        await new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+
+          xhr.upload.addEventListener("progress", (e) => {
+            if (!e.lengthComputable) return;
+            const pct = Math.round((e.loaded / e.total) * 100);
+            bar.style.width = pct + "%";
+            percent.textContent = pct + "%";
+          });
+
+          xhr.addEventListener("load", () => {
+            bar.style.width = "100%";
+            percent.textContent = "100%";
+            setTimeout(() => {
+              wrapper.style.display = "none";
+              bar.style.width = "0%";
+            }, 1200);
+            resolve();
+          });
+
+          xhr.addEventListener("error", reject);
+
+          xhr.open("POST", "/upload");
+          xhr.setRequestHeader("Authorization", "Bearer " + token);
+          xhr.send(data);
+        });
+
+        loadFiles();
+        loadPending();
+      }
+
+      fileInput.onchange = () => {
+        if (fileInput.files[0]) enviarArquivo(fileInput.files[0]);
+      };
+
+      dropzone.ondragover = (e) => {
+        e.preventDefault();
+        dropzone.classList.add("dragover");
+      };
+
+      dropzone.ondragleave = () => {
+        dropzone.classList.remove("dragover");
+      };
+
+      dropzone.ondrop = (e) => {
+        e.preventDefault();
+        dropzone.classList.remove("dragover");
+        if (e.dataTransfer.files[0]) enviarArquivo(e.dataTransfer.files[0]);
+      };
+
+      async function loadFiles() {
+        if (!permissions.listFiles) return;
+        const res = await authFetch("/list");
+        publicFiles = (await res.json()).map(normalizeFileEntry).filter((file) => file.name);
+        renderFileList("lista", publicFiles, "Nenhum arquivo ainda.", "public");
+      }
+
+      async function loadPending() {
+        if (!permissions.listPending && !permissions.upload) return;
+        const res = await authFetch("/pending");
+        pendingFiles = (await res.json()).map(normalizeFileEntry).filter((file) => file.name);
+        renderFileList("pendentes", pendingFiles, "Nenhum arquivo pendente.", "pending");
+      }
+
+      async function aprovar(nome) {
+        await authFetch("/approve/" + encodeURIComponent(nome));
+        loadFiles();
+        loadPending();
+      }
+
+      async function rejeitar(nome) {
+        await authFetch("/reject/" + encodeURIComponent(nome));
+        loadPending();
+      }
+
+      async function excluir(nome) {
+        if (!confirm(`Excluir ${nome}?`)) return;
+        await authFetch("/delete/" + encodeURIComponent(nome));
+        loadFiles();
+      }
+
+      async function renomear(nomeAtual) {
+        const novoNome = prompt("Novo nome do arquivo:", nomeAtual);
+        if (novoNome === null) return;
+
+        const nomeLimpo = novoNome.trim();
+        if (!nomeLimpo) {
+          alert("Informe um nome válido.");
+          return;
+        }
+
+        if (nomeLimpo === nomeAtual) {
+          return;
+        }
+
+        try {
+          await authJsonFetch("/rename", {
+            method: "PUT",
+            body: JSON.stringify({ oldName: nomeAtual, newName: nomeLimpo }),
+          });
+          loadFiles();
+        } catch (error) {
+          alert(error.message);
+        }
+      }
+
+      previewClose.addEventListener("click", closePreview);
+      previewModal.addEventListener("click", (event) => {
+        if (event.target === previewModal) closePreview();
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && previewModal.classList.contains("open")) {
+          closePreview();
+        }
+      });
+
+      document.getElementById("fileSearch")?.addEventListener("input", () => {
+        publicPage = 1;
+        renderFileList("lista", publicFiles, "Nenhum arquivo ainda.", "public");
+      });
+
+      document.getElementById("pendingSearch")?.addEventListener("input", () => {
+        pendingPage = 1;
+        renderFileList("pendentes", pendingFiles, "Nenhum arquivo pendente.", "pending");
+      });
+
+      document.getElementById("filePrevBtn")?.addEventListener("click", () => {
+        publicPage = Math.max(1, publicPage - 1);
+        renderFileList("lista", publicFiles, "Nenhum arquivo ainda.", "public");
+      });
+
+      document.getElementById("fileNextBtn")?.addEventListener("click", () => {
+        publicPage += 1;
+        renderFileList("lista", publicFiles, "Nenhum arquivo ainda.", "public");
+      });
+
+      document.getElementById("pendingPrevBtn")?.addEventListener("click", () => {
+        pendingPage = Math.max(1, pendingPage - 1);
+        renderFileList("pendentes", pendingFiles, "Nenhum arquivo pendente.", "pending");
+      });
+
+      document.getElementById("pendingNextBtn")?.addEventListener("click", () => {
+        pendingPage += 1;
+        renderFileList("pendentes", pendingFiles, "Nenhum arquivo pendente.", "pending");
+      });
+
       loadFiles();
       loadPending();
-    }
-
-    fileInput.onchange = () => {
-      if (fileInput.files[0]) enviarArquivo(fileInput.files[0]);
-    };
-
-    dropzone.ondragover = (e) => {
-      e.preventDefault();
-      dropzone.classList.add("dragover");
-    };
-
-    dropzone.ondragleave = () => {
-      dropzone.classList.remove("dragover");
-    };
-
-    dropzone.ondrop = (e) => {
-      e.preventDefault();
-      dropzone.classList.remove("dragover");
-      const file = e.dataTransfer.files[0];
-      if (file) enviarArquivo(file);
-    };
-
-    async function loadFiles() {
-      const res = await fetch("/list");
-      const files = await res.json();
-      lista.innerHTML = files.length
-        ? files.map(f => `
-            <li>
-              <a href="/files/${f}" target="_blank">📄 ${f}</a>
-              <div class="btn-group">
-                <button class="btn-small btn-delete" onclick="excluir('${f}')">🗑️ Excluir</button>
-              </div>
-            </li>`).join("")
-        : "<li>Nenhum arquivo ainda.</li>";
-    }
-
-    async function loadPending() {
-      const res = await fetch("/pending");
-      const files = await res.json();
-      pendentes.innerHTML = files.length
-        ? files.map(f => `
-            <li>
-              <span>📄 ${f}</span>
-              <div class="btn-group">
-                <button class="btn-small btn-approve" onclick="aprovar('${f}')">✅ Aprovar</button>
-                <button class="btn-small btn-reject" onclick="rejeitar('${f}')">❌ Rejeitar</button>
-              </div>
-            </li>`).join("")
-        : "<li>Nenhum arquivo pendente.</li>";
-    }
-
-    async function aprovar(nome) {
-      await fetch("/approve/" + nome);
-      loadFiles();
-      loadPending();
-    }
-
-    async function rejeitar(nome) {
-      await fetch("/reject/" + nome);
-      loadPending();
-    }
-
-    async function excluir(nome) {
-      if (!confirm(`Excluir ${nome}?`)) return;
-      await fetch("/delete/" + nome);
-      loadFiles();
-    }
-
-    loadFiles();
-    loadPending();
-    setInterval(() => { loadFiles(); loadPending(); }, 1000);
-  </script>
-</body>
+      setInterval(() => {
+        loadFiles();
+        loadPending();
+      }, 1000);
+    </script>
+  </body>
 </html>
