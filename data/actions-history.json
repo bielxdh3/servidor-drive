@@ -1,1 +1,126 @@
-[]
+[
+  {
+    "id": "11269c2b-f0d8-4d93-8b64-585192b75387",
+    "action": "folder_deleted",
+    "fileName": "Projetos",
+    "actor": "admin",
+    "timestamp": "2026-04-24T19:39:14.049Z",
+    "details": {
+      "folderId": "79411554d85353cf"
+    }
+  },
+  {
+    "id": "dc1c1fd0-ad65-4a9c-a71f-c7373d8a5be2",
+    "action": "moved",
+    "fileName": "hair-day projeto.zip",
+    "actor": "admin",
+    "timestamp": "2026-04-24T19:39:11.312Z",
+    "details": {
+      "oldName": "hair-day projeto.zip",
+      "newName": "hair-day projeto.zip",
+      "fromFolderId": "79411554d85353cf",
+      "fromFolderName": "Projetos",
+      "toFolderId": "5ef14df3cdb49814",
+      "toFolderName": "Projetos Jouberth"
+    }
+  },
+  {
+    "id": "8def13e5-a736-452d-ae76-eb0009c913b2",
+    "action": "folder_created",
+    "fileName": "Projetos Jouberth",
+    "actor": "admin",
+    "timestamp": "2026-04-24T19:39:05.277Z",
+    "details": {
+      "folderId": "5ef14df3cdb49814",
+      "allowedUsers": [
+        "admin"
+      ]
+    }
+  },
+  {
+    "id": "450652ae-4506-4474-b2f5-253bddca861c",
+    "action": "folder_deleted",
+    "fileName": "Teste",
+    "actor": "admin",
+    "timestamp": "2026-04-24T19:38:37.958Z",
+    "details": {
+      "folderId": "11105952600e1478"
+    }
+  },
+  {
+    "id": "663300be-da91-42b2-92cf-dd9b6615e749",
+    "action": "folder_created",
+    "fileName": "Teste",
+    "actor": "admin",
+    "timestamp": "2026-04-24T19:38:28.062Z",
+    "details": {
+      "folderId": "11105952600e1478",
+      "allowedUsers": [
+        "admin"
+      ]
+    }
+  },
+  {
+    "id": "548ce4db-7fe7-4482-9cf8-235b6cd93b78",
+    "action": "share_created",
+    "fileName": "hair-day projeto.zip",
+    "actor": "admin",
+    "timestamp": "2026-04-24T19:37:50.297Z",
+    "details": {
+      "expiresAt": "2026-04-24T20:37:50.296Z",
+      "folderId": "79411554d85353cf",
+      "folderName": "Projetos"
+    }
+  },
+  {
+    "id": "db5da163-a325-41ef-9758-f5fb8c8013bd",
+    "action": "approved",
+    "fileName": "hair-day projeto.zip",
+    "actor": "admin",
+    "timestamp": "2026-04-24T19:37:33.770Z",
+    "details": {
+      "uploadedBy": "admin",
+      "folderId": "79411554d85353cf",
+      "folderName": "Projetos"
+    }
+  },
+  {
+    "id": "9f243c0d-d1ea-4281-84a5-59a39b9ec125",
+    "action": "upload_pending",
+    "fileName": "hair-day projeto.zip",
+    "actor": "admin",
+    "timestamp": "2026-04-24T19:37:30.417Z",
+    "details": {
+      "status": "pending",
+      "originalName": null,
+      "folderId": "79411554d85353cf",
+      "folderName": "Projetos"
+    }
+  },
+  {
+    "id": "06588401-2e99-421b-b098-6eac3ef20f32",
+    "action": "folder_access_updated",
+    "fileName": "Projetos",
+    "actor": "admin",
+    "timestamp": "2026-04-24T19:36:10.427Z",
+    "details": {
+      "folderId": "79411554d85353cf",
+      "allowedUsers": [
+        "admin"
+      ]
+    }
+  },
+  {
+    "id": "6d6ac8cc-41cc-4433-84d5-6e5b6cf8dd18",
+    "action": "folder_created",
+    "fileName": "Projetos",
+    "actor": "admin",
+    "timestamp": "2026-04-24T19:36:05.877Z",
+    "details": {
+      "folderId": "79411554d85353cf",
+      "allowedUsers": [
+        "admin"
+      ]
+    }
+  }
+]

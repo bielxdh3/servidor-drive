@@ -6,5 +6,15 @@
     "createdAt": "2026-04-24T00:00:00.000Z",
     "allowedUsers": [],
     "isRoot": true
+  },
+  {
+    "id": "5ef14df3cdb49814",
+    "name": "Projetos Jouberth",
+    "createdBy": "admin",
+    "createdAt": "2026-04-24T19:39:05.273Z",
+    "allowedUsers": [
+      "admin"
+    ],
+    "isRoot": false
   }
 ]
