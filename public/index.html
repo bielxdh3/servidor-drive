@@ -6,7 +6,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Root.ark</title>
-    <link rel="stylesheet" href="./styles/index.css" />
+    <link rel="stylesheet" href="./styles/index.css?v=12" />
     <link
       href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght,XOPQ,XTRA,YOPQ,YTDE,YTFI,YTLC,YTUC@8..144,100..1000,96,468,79,-203,738,514,712&family=Roboto+Mono:ital,wght@0,100..700;1,100..700&family=Sora:wght@100..800&display=swap"
       rel="stylesheet"
@@ -22,6 +22,11 @@
         gap: 12px;
         padding: 14px 24px;
         z-index: 100;
+      }
+
+      .container {
+        position: relative;
+        z-index: 1;
       }
 
       .topbar .user-badge {
@@ -73,7 +78,7 @@
         left: 24px;
         top: 170px;
         width: 150px;
-        z-index: 120;
+        z-index: 1000;
         display: flex;
         flex-direction: column;
         gap: 10px;
@@ -82,6 +87,7 @@
         border: 1px solid rgba(96, 160, 206, 0.22);
         border-radius: 16px;
         backdrop-filter: blur(12px);
+        pointer-events: auto;
       }
 
       .side-nav-button {
@@ -95,6 +101,7 @@
         font: var(--p-md);
         text-align: left;
         transition: border-color 0.2s, color 0.2s, background 0.2s;
+        pointer-events: auto;
       }
 
       .side-nav-button:hover,
@@ -122,6 +129,16 @@
       .btn-small.btn-share {
         background-color: #0d5f3f;
         border: 1px solid #1d9b63;
+      }
+
+      .btn-small.btn-permissions {
+        background-color: #2b2640;
+        border: 1px solid #7d65c7;
+      }
+
+      .btn-small.btn-temporary {
+        background-color: #6b4b00;
+        border: 1px solid #d6a100;
       }
 
       #progressWrapper {
@@ -164,7 +181,7 @@
 
       .folder-bar {
         width: min(980px, calc(100vw - 260px));
-        margin: 80px auto 0;
+        margin: 42px auto 0;
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -180,14 +197,32 @@
       }
 
       .folder-select {
+        display: none;
+      }
+
+      .folder-picker-trigger,
+      .share-duration-trigger {
         min-width: 220px;
         background: rgba(17, 16, 18, 0.9);
         border: 1px solid #044879;
         border-radius: 8px;
         color: white;
+        cursor: pointer;
         font: var(--p-md);
         padding: 10px 12px;
-        outline: none;
+        text-align: left;
+      }
+
+      .folder-picker-trigger:hover,
+      .share-duration-trigger:hover {
+        border-color: #60a0ce;
+      }
+
+      .folder-picker-trigger::after,
+      .share-duration-trigger::after {
+        content: "▾";
+        float: right;
+        color: #60a0ce;
       }
 
       .folder-action {
@@ -277,6 +312,113 @@
 
       .preview-modal.open {
         display: flex;
+      }
+
+      .action-modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(2, 2, 2, 0.78);
+        display: none;
+        padding: 24px;
+        z-index: 380;
+        min-height: 100dvh;
+      }
+
+      .action-modal.open {
+        display: block;
+      }
+
+      .action-card {
+        position: fixed;
+        top: 50dvh;
+        left: 50vw;
+        transform: translate(-50%, -50%);
+        width: min(420px, 100%);
+        max-height: calc(100dvh - 48px);
+        overflow-y: auto;
+        background: #111012;
+        border: 1px solid #044879;
+        border-radius: 16px;
+        color: white;
+        padding: 20px;
+        box-shadow: 0 22px 60px rgba(0, 0, 0, 0.45);
+      }
+
+      .action-card h3 {
+        font: var(--label-md);
+        margin-bottom: 8px;
+      }
+
+      .action-card p {
+        color: #b8b8b8;
+        font: var(--p-md);
+        margin-bottom: 14px;
+        white-space: pre-wrap;
+      }
+
+      .action-input {
+        width: 100%;
+        background: rgba(17, 16, 18, 0.9);
+        border: 1px solid #044879;
+        border-radius: 8px;
+        color: white;
+        font: var(--p-md);
+        margin-bottom: 16px;
+        padding: 10px 12px;
+        outline: none;
+      }
+
+      .action-buttons {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+      }
+
+      .action-button {
+        background: transparent;
+        border: 1px solid #044879;
+        color: #60a0ce;
+        border-radius: 10px;
+        cursor: pointer;
+        font: var(--p-sm);
+        padding: 9px 12px;
+      }
+
+      .action-button.primary {
+        background: #044879;
+        color: white;
+      }
+
+      .action-button.danger {
+        background: rgb(214, 3, 3);
+        border-color: rgb(214, 3, 3);
+        color: white;
+      }
+
+      .selection-options {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-bottom: 16px;
+        max-height: 320px;
+        overflow-y: auto;
+      }
+
+      .selection-option {
+        background: rgba(17, 16, 18, 0.9);
+        border: 1px solid #044879;
+        border-radius: 10px;
+        color: white;
+        cursor: pointer;
+        font: var(--p-md);
+        padding: 10px 12px;
+        text-align: left;
+      }
+
+      .selection-option:hover,
+      .selection-option.active {
+        background: #044879;
+        border-color: #60a0ce;
       }
 
       .preview-card {
@@ -458,10 +600,109 @@
         cursor: not-allowed;
       }
 
+      .permissions-card {
+        width: min(560px, 100%);
+        background: #111012;
+        border: 1px solid #d9e8ff;
+        border-radius: 0;
+        padding: 18px;
+        color: white;
+        font: 0.95rem/1.55 var(--ff-robotoMono);
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+      }
+
+      .permissions-box {
+        border: 2px dashed #d9e8ff;
+        padding: 14px 18px;
+      }
+
+      .permissions-title {
+        font-weight: 800;
+        margin-bottom: 10px;
+        overflow-wrap: anywhere;
+      }
+
+      .permissions-divider {
+        border: 0;
+        border-top: 1px solid #d9e8ff;
+        margin: 10px -18px 14px;
+      }
+
+      .permissions-owner,
+      .permissions-label {
+        color: white;
+        font-weight: 800;
+        margin-top: 12px;
+      }
+
+      .permissions-help {
+        color: #8a8a8a;
+        font: var(--p-sm);
+        margin-top: 6px;
+      }
+
+      .permissions-public {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 4px;
+      }
+
+      .permissions-users {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-top: 6px;
+        max-height: 280px;
+        overflow-y: auto;
+      }
+
+      .permissions-user-row {
+        display: grid;
+        grid-template-columns: minmax(90px, 1fr) auto auto;
+        gap: 14px;
+        align-items: center;
+      }
+
+      .permissions-user-row span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .permissions-user-row label {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .permissions-actions {
+        display: flex;
+        justify-content: center;
+        gap: 14px;
+        margin-top: 22px;
+      }
+
+      .permissions-action {
+        background: transparent;
+        border: 0;
+        color: white;
+        cursor: pointer;
+        font: 800 0.95rem/1 var(--ff-robotoMono);
+      }
+
+      .permissions-action:hover {
+        color: #60a0ce;
+      }
+
       .history-panel {
         width: min(980px, calc(100vw - 260px));
-        margin: 70px auto 0;
+        margin: 42px auto 0;
         color: white;
+      }
+
+      .share-select {
+        display: none;
       }
 
       .history-header {
@@ -583,8 +824,8 @@
     </div>
 
     <nav class="side-nav" aria-label="Navegacao principal">
-      <button type="button" class="side-nav-button active" id="navFiles">Arquivos</button>
-      <button type="button" class="side-nav-button" id="navHistory">Historico</button>
+      <button type="button" class="side-nav-button active" id="navFiles" onclick="openFilesTab()">Arquivos</button>
+      <button type="button" class="side-nav-button" id="navHistory" onclick="openHistoryTab()">Historico</button>
     </nav>
 
     <div class="container">
@@ -601,8 +842,10 @@
         </div>
         <div class="folder-controls">
           <select class="folder-select" id="folderSelect"></select>
+          <button type="button" class="folder-picker-trigger" id="folderPicker" aria-label="Selecionar pasta">Arquivos atuais</button>
           <button type="button" class="folder-action primary" id="createFolderBtn" style="display: none">Nova pasta</button>
           <button type="button" class="folder-action" id="editFolderAccessBtn" style="display: none">Acessos</button>
+          <button type="button" class="folder-action" id="editFolderTemporaryBtn" style="display: none">Temporaria</button>
           <button type="button" class="folder-action" id="deleteFolderBtn" style="display: none">Excluir pasta</button>
         </div>
       </div>
@@ -725,6 +968,19 @@
             <option value="10080">7 dias</option>
             <option value="43200">30 dias</option>
           </select>
+          <button type="button" class="share-duration-trigger" id="shareDurationOptions">1 hora</button>
+
+          <label for="shareMaxViews">Autodestruir apos</label>
+          <select class="share-select" id="shareMaxViews">
+            <option value="0" selected>Visualizacoes ilimitadas</option>
+            <option value="1">1 visualizacao</option>
+            <option value="3">3 visualizacoes</option>
+            <option value="5">5 visualizacoes</option>
+            <option value="10">10 visualizacoes</option>
+            <option value="25">25 visualizacoes</option>
+            <option value="50">50 visualizacoes</option>
+          </select>
+          <button type="button" class="share-duration-trigger" id="shareViewsOptions">Visualizacoes ilimitadas</button>
 
           <label for="shareLink">Link publico</label>
           <input class="share-link-input" id="shareLink" type="text" readonly placeholder="Gere um link para copiar" />
@@ -738,7 +994,188 @@
       </div>
     </div>
 
-    <script src="./background-matrix.js"></script>
+    <div class="preview-modal" id="filePermissionsModal">
+      <div class="permissions-card">
+        <div class="permissions-box">
+          <p class="permissions-title">Permissoes: <span id="permissionsFileName"></span></p>
+          <hr class="permissions-divider" />
+          <p class="permissions-owner">Dono: <span id="permissionsOwner">sistema</span></p>
+
+          <p class="permissions-label">Acesso:</p>
+          <label class="permissions-public">
+            <input type="checkbox" id="permissionsPublic" />
+            Publico (qualquer um pode ver)
+          </label>
+          <p class="permissions-help">Acesso publico continua respeitando a permissao da pasta atual.</p>
+
+          <p class="permissions-label">Usuarios especificos:</p>
+          <div class="permissions-users" id="permissionsUsers"></div>
+
+          <div class="permissions-actions">
+            <button type="button" class="permissions-action" id="permissionsCancel">[Cancelar]</button>
+            <button type="button" class="permissions-action" id="permissionsSave">[Salvar]</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="action-modal" id="actionModal">
+      <div class="action-card">
+        <h3 id="actionTitle">Confirmar acao</h3>
+        <p id="actionMessage"></p>
+        <input class="action-input" id="actionInput" type="text" />
+        <div class="action-buttons">
+          <button type="button" class="action-button" id="actionCancel">Cancelar</button>
+          <button type="button" class="action-button primary" id="actionConfirm">Confirmar</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="action-modal" id="selectModal">
+      <div class="action-card">
+        <h3 id="selectTitle">Selecionar</h3>
+        <p id="selectMessage"></p>
+        <div class="selection-options" id="selectOptions"></div>
+        <div class="action-buttons">
+          <button type="button" class="action-button" id="selectCancel">Cancelar</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      function rootarkEscapeHtml(value) {
+        const div = document.createElement("div");
+        div.textContent = value || "";
+        return div.innerHTML;
+      }
+
+      function rootarkNormalizeHistory(payload) {
+        if (Array.isArray(payload)) return payload;
+        if (Array.isArray(payload?.items)) return payload.items;
+        if (Array.isArray(payload?.value)) return payload.value;
+        return [];
+      }
+
+      function rootarkHistoryAction(action) {
+        const labels = {
+          upload_pending: "Enviou para aprovacao",
+          approved: "Aprovou arquivo",
+          rejected: "Rejeitou arquivo",
+          deleted: "Deletou arquivo",
+          renamed: "Renomeou arquivo",
+          moved: "Moveu arquivo",
+          share_created: "Gerou link publico",
+          file_access_updated: "Atualizou permissoes do arquivo",
+          file_temporary_updated: "Atualizou temporariedade do arquivo",
+          file_expired: "Arquivo temporario expirou",
+          folder_created: "Criou pasta",
+          folder_access_updated: "Atualizou acessos da pasta",
+          folder_temporary_updated: "Atualizou temporariedade da pasta",
+          folder_expired: "Pasta temporaria expirou",
+          folder_deleted: "Excluiu pasta",
+        };
+
+        return labels[action] || "Atualizou arquivo";
+      }
+
+      function rootarkHistoryFile(entry) {
+        if (entry.action === "renamed" && entry.details?.oldName && entry.details?.newName) {
+          return `${entry.details.oldName} -> ${entry.details.newName}`;
+        }
+
+        if (entry.action === "moved" && entry.details?.fromFolderName && entry.details?.toFolderName) {
+          return `${entry.fileName} (${entry.details.fromFolderName} -> ${entry.details.toFolderName})`;
+        }
+
+        return entry.fileName || "Arquivo desconhecido";
+      }
+
+      function rootarkFormatDate(value) {
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) return "Data indisponivel";
+        return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(parsed);
+      }
+
+      window.openFilesTab = function openFilesTab() {
+        const filesView = document.getElementById("filesView");
+        const historyView = document.getElementById("historyView");
+        const navFiles = document.getElementById("navFiles");
+        const navHistory = document.getElementById("navHistory");
+
+        filesView.hidden = false;
+        historyView.hidden = true;
+        filesView.style.display = "";
+        historyView.style.display = "none";
+        navFiles.classList.add("active");
+        navHistory.classList.remove("active");
+        window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      };
+
+      window.openHistoryTab = async function openHistoryTab() {
+        const filesView = document.getElementById("filesView");
+        const historyView = document.getElementById("historyView");
+        const historyList = document.getElementById("historyList");
+        const navFiles = document.getElementById("navFiles");
+        const navHistory = document.getElementById("navHistory");
+        const token = localStorage.getItem("token");
+
+        filesView.hidden = true;
+        historyView.hidden = false;
+        filesView.style.display = "none";
+        historyView.style.display = "block";
+        navFiles.classList.remove("active");
+        navHistory.classList.add("active");
+        window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+
+        historyList.innerHTML = '<li class="history-empty">Carregando historico...</li>';
+
+        try {
+          const response = await fetch("/history", {
+            headers: { Authorization: "Bearer " + token },
+          });
+          const payload = await response.json().catch(() => ({}));
+
+          if (!response.ok) {
+            throw new Error(payload.error || "Nao foi possivel carregar o historico.");
+          }
+
+          const items = rootarkNormalizeHistory(payload);
+          if (!items.length) {
+            historyList.innerHTML = '<li class="history-empty">Nenhuma acao registrada ainda.</li>';
+            return;
+          }
+
+          historyList.innerHTML = items
+            .map((entry) => {
+              const action = rootarkEscapeHtml(rootarkHistoryAction(entry.action));
+              const fileLabel = rootarkEscapeHtml(rootarkHistoryFile(entry));
+              const actor = rootarkEscapeHtml(entry.actor || "sistema");
+              const timestamp = rootarkEscapeHtml(rootarkFormatDate(entry.timestamp));
+              const folderLabel = entry.details?.folderName
+                ? `<p class="history-file">Pasta: ${rootarkEscapeHtml(entry.details.folderName)}</p>`
+                : "";
+
+              return `
+                <li class="history-item">
+                  <div>
+                    <p class="history-action">${action}</p>
+                    <p class="history-file" title="${fileLabel}">${fileLabel}</p>
+                    ${folderLabel}
+                  </div>
+                  <div class="history-meta">
+                    <span>Usuario: <strong>${actor}</strong></span>
+                    <span>${timestamp}</span>
+                  </div>
+                </li>`;
+            })
+            .join("");
+        } catch (error) {
+          historyList.innerHTML = `<li class="history-empty">${rootarkEscapeHtml(error.message || "Falha ao carregar historico.")}</li>`;
+        }
+      };
+    </script>
+
+    <script src="./background-matrix.js?v=12"></script>
 
     <script>
       const token = localStorage.getItem("token");
@@ -760,6 +1197,7 @@
       let pendingPage = 1;
       let currentPreviewUrl = null;
       let shareCurrentFile = "";
+      let permissionsCurrentFile = "";
       let actionHistory = [];
       let folders = [];
       let currentFolderId = "root";
@@ -771,8 +1209,10 @@
       const historyList = document.getElementById("historyList");
       const historyRefresh = document.getElementById("historyRefresh");
       const folderSelect = document.getElementById("folderSelect");
+      const folderPicker = document.getElementById("folderPicker");
       const createFolderBtn = document.getElementById("createFolderBtn");
       const editFolderAccessBtn = document.getElementById("editFolderAccessBtn");
+      const editFolderTemporaryBtn = document.getElementById("editFolderTemporaryBtn");
       const deleteFolderBtn = document.getElementById("deleteFolderBtn");
       const previewModal = document.getElementById("previewModal");
       const previewBody = document.getElementById("previewBody");
@@ -783,10 +1223,31 @@
       const shareClose = document.getElementById("shareClose");
       const shareFileName = document.getElementById("shareFileName");
       const shareDuration = document.getElementById("shareDuration");
+      const shareDurationOptions = document.getElementById("shareDurationOptions");
+      const shareMaxViews = document.getElementById("shareMaxViews");
+      const shareViewsOptions = document.getElementById("shareViewsOptions");
       const shareLink = document.getElementById("shareLink");
       const shareMessage = document.getElementById("shareMessage");
       const shareCreate = document.getElementById("shareCreate");
       const shareCopy = document.getElementById("shareCopy");
+      const filePermissionsModal = document.getElementById("filePermissionsModal");
+      const permissionsFileName = document.getElementById("permissionsFileName");
+      const permissionsOwner = document.getElementById("permissionsOwner");
+      const permissionsPublic = document.getElementById("permissionsPublic");
+      const permissionsUsers = document.getElementById("permissionsUsers");
+      const permissionsCancel = document.getElementById("permissionsCancel");
+      const permissionsSave = document.getElementById("permissionsSave");
+      const actionModal = document.getElementById("actionModal");
+      const actionTitle = document.getElementById("actionTitle");
+      const actionMessage = document.getElementById("actionMessage");
+      const actionInput = document.getElementById("actionInput");
+      const actionCancel = document.getElementById("actionCancel");
+      const actionConfirm = document.getElementById("actionConfirm");
+      const selectModal = document.getElementById("selectModal");
+      const selectTitle = document.getElementById("selectTitle");
+      const selectMessage = document.getElementById("selectMessage");
+      const selectOptions = document.getElementById("selectOptions");
+      const selectCancel = document.getElementById("selectCancel");
 
       document.getElementById("displayUsername").textContent = username;
       const roleTag = document.getElementById("roleTag");
@@ -809,12 +1270,11 @@
       if (permissions.listPending || permissions.upload) {
         document.getElementById("sectionPending").style.display = "block";
       }
-      if (!permissions.listFiles) {
-        navHistory.style.display = "none";
-      }
+      navHistory.style.display = "block";
       if (permissions.manageUsers) {
         createFolderBtn.style.display = "inline-block";
         editFolderAccessBtn.style.display = "inline-block";
+        editFolderTemporaryBtn.style.display = "inline-block";
         deleteFolderBtn.style.display = "inline-block";
       }
 
@@ -863,6 +1323,102 @@
         return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
       }
 
+      function openActionDialog({
+        title = "Confirmar acao",
+        message = "",
+        input = false,
+        defaultValue = "",
+        confirmText = "Confirmar",
+        cancelText = "Cancelar",
+        danger = false,
+        showCancel = true,
+      } = {}) {
+        return new Promise((resolve) => {
+          actionTitle.textContent = title;
+          actionMessage.textContent = message;
+          actionInput.value = defaultValue;
+          actionInput.style.display = input ? "block" : "none";
+          actionCancel.textContent = cancelText;
+          actionCancel.style.display = showCancel ? "inline-block" : "none";
+          actionConfirm.textContent = confirmText;
+          actionConfirm.className = `action-button ${danger ? "danger" : "primary"}`;
+          actionModal.classList.add("open");
+
+          const finish = (confirmed) => {
+            actionModal.classList.remove("open");
+            actionCancel.onclick = null;
+            actionConfirm.onclick = null;
+            actionInput.onkeydown = null;
+            resolve({ confirmed, value: actionInput.value });
+          };
+
+          actionCancel.onclick = () => finish(false);
+          actionConfirm.onclick = () => finish(true);
+          actionInput.onkeydown = (event) => {
+            if (event.key === "Enter") finish(true);
+            if (event.key === "Escape") finish(false);
+          };
+
+          if (input) {
+            actionInput.focus();
+            actionInput.select();
+          } else {
+            actionConfirm.focus();
+          }
+        });
+      }
+
+      function showMessage(message, title = "Aviso") {
+        return openActionDialog({
+          title,
+          message,
+          confirmText: "Ok",
+          showCancel: false,
+        });
+      }
+
+      async function askText(title, message, defaultValue = "") {
+        return openActionDialog({ title, message, input: true, defaultValue });
+      }
+
+      async function askConfirm(title, message, confirmText = "Confirmar") {
+        return openActionDialog({ title, message, confirmText, danger: true });
+      }
+
+      function openSelectionDialog({
+        title = "Selecionar",
+        message = "",
+        items = [],
+        selectedValue = "",
+      } = {}) {
+        return new Promise((resolve) => {
+          selectTitle.textContent = title;
+          selectMessage.textContent = message;
+          selectOptions.innerHTML = items
+            .map((item) => {
+              const active = item.value === selectedValue ? " active" : "";
+              return `<button type="button" class="selection-option${active}" data-value="${escapeHtml(item.value)}">${escapeHtml(item.label)}</button>`;
+            })
+            .join("");
+
+          selectModal.classList.add("open");
+
+          const finish = (confirmed, value = "") => {
+            selectModal.classList.remove("open");
+            selectCancel.onclick = null;
+            selectOptions.onclick = null;
+            resolve({ confirmed, value });
+          };
+
+          selectCancel.onclick = () => finish(false);
+          selectOptions.onclick = (event) => {
+            const option = event.target.closest(".selection-option");
+            if (!option) return;
+            finish(true, option.dataset.value);
+          };
+        });
+      }
+
       function truncateFileName(name) {
         if (name.length <= maxFileNameLength) return name;
         return `${name.slice(0, maxFileNameLength - 3)}...`;
@@ -881,7 +1437,7 @@
 
       function validateFileNameLength(name) {
         if (name.length <= maxFileNameLength) return true;
-        alert(`O nome do arquivo deve ter no maximo ${maxFileNameLength} caracteres.`);
+        showMessage(`O nome do arquivo deve ter no maximo ${maxFileNameLength} caracteres.`);
         return false;
       }
 
@@ -899,6 +1455,11 @@
           size: Number(entry?.size) || 0,
           uploadedAt: entry?.uploadedAt || null,
           uploadedBy: entry?.uploadedBy || null,
+          canEdit: Boolean(entry?.canEdit),
+          canManageAccess: Boolean(entry?.canManageAccess),
+          access: entry?.access || null,
+          temporary: Boolean(entry?.temporary),
+          expiresAt: entry?.expiresAt || null,
         };
       }
 
@@ -909,6 +1470,10 @@
 
         if (Array.isArray(payload?.value)) {
           return payload.value;
+        }
+
+        if (Array.isArray(payload?.items)) {
+          return payload.items;
         }
 
         return [];
@@ -926,6 +1491,80 @@
         return folders.find((folder) => folder.id === folderId)?.name || "Pasta";
       }
 
+      function selectFolder(folderId) {
+        currentFolderId = folderId || "root";
+        folderSelect.value = currentFolderId;
+        publicPage = 1;
+        pendingPage = 1;
+        renderFolderSelect();
+        loadFiles();
+        loadPending();
+      }
+
+      function renderFolderPicker() {
+        const folder = getCurrentFolder();
+        folderPicker.textContent = folder?.expiresAt
+          ? `${folder.name} • ${formatExpirationLabel(folder.expiresAt)}`
+          : folder?.name || "Arquivos atuais";
+      }
+
+      function renderShareDurationOptions() {
+        const selectedOption = shareDuration.options[shareDuration.selectedIndex] || shareDuration.options[0];
+        shareDurationOptions.textContent = selectedOption?.textContent || "1 hora";
+      }
+
+      function renderShareViewsOptions() {
+        const selectedOption = shareMaxViews.options[shareMaxViews.selectedIndex] || shareMaxViews.options[0];
+        shareViewsOptions.textContent = selectedOption?.textContent || "Visualizacoes ilimitadas";
+      }
+
+      async function escolherPastaAtual() {
+        const result = await openSelectionDialog({
+          title: "Selecionar pasta",
+          message: "Escolha qual pasta deseja abrir.",
+          items: folders.map((folder) => ({ value: folder.id, label: folder.name })),
+          selectedValue: currentFolderId,
+        });
+
+        if (result.confirmed) {
+          selectFolder(result.value);
+        }
+      }
+
+      async function escolherDuracaoCompartilhamento() {
+        const result = await openSelectionDialog({
+          title: "Expiracao do link",
+          message: "Escolha por quanto tempo o link publico ficara ativo.",
+          items: Array.from(shareDuration.options).map((option) => ({
+            value: option.value,
+            label: option.textContent,
+          })),
+          selectedValue: shareDuration.value,
+        });
+
+        if (result.confirmed) {
+          shareDuration.value = result.value;
+          renderShareDurationOptions();
+        }
+      }
+
+      async function escolherVisualizacoesCompartilhamento() {
+        const result = await openSelectionDialog({
+          title: "Visualizacoes do link",
+          message: "Escolha quantas vezes o link podera ser aberto antes de se autodestruir.",
+          items: Array.from(shareMaxViews.options).map((option) => ({
+            value: option.value,
+            label: option.textContent,
+          })),
+          selectedValue: shareMaxViews.value,
+        });
+
+        if (result.confirmed) {
+          shareMaxViews.value = result.value;
+          renderShareViewsOptions();
+        }
+      }
+
       function renderFolderSelect() {
         if (!folders.length) {
           folders = [{ id: "root", name: "Arquivos atuais", allowedUsers: [], isRoot: true }];
@@ -939,9 +1578,11 @@
           .map((folder) => `<option value="${escapeHtml(folder.id)}">${escapeHtml(folder.name)}</option>`)
           .join("");
         folderSelect.value = currentFolderId;
+        renderFolderPicker();
 
         const currentFolder = getCurrentFolder();
         editFolderAccessBtn.disabled = !currentFolder || currentFolder.isRoot;
+        editFolderTemporaryBtn.disabled = !currentFolder || currentFolder.isRoot;
         deleteFolderBtn.disabled = !currentFolder || currentFolder.isRoot;
       }
 
@@ -956,22 +1597,92 @@
         }
       }
 
-      async function criarPasta() {
-        const name = prompt("Nome da nova pasta:");
-        if (name === null) return;
+      function buildTemporaryPayloadFromSelection(selection) {
+        if (!selection || selection === "none") return { temporary: false, expiresAt: null };
 
-        const cleanName = name.trim();
+        const now = Date.now();
+        const presets = {
+          "1h": 60 * 60 * 1000,
+          "6h": 6 * 60 * 60 * 1000,
+          "12h": 12 * 60 * 60 * 1000,
+          "1d": 24 * 60 * 60 * 1000,
+          "3d": 3 * 24 * 60 * 60 * 1000,
+          "7d": 7 * 24 * 60 * 60 * 1000,
+          "30d": 30 * 24 * 60 * 60 * 1000,
+        };
+
+        if (presets[selection]) {
+          return { temporary: true, expiresAt: new Date(now + presets[selection]).toISOString() };
+        }
+
+        return null;
+      }
+
+      async function escolherExpiracaoTemporaria(title, currentExpiresAt = null) {
+        const result = await openSelectionDialog({
+          title,
+          message: currentExpiresAt
+            ? `Atual: ${formatExpirationLabel(currentExpiresAt)}`
+            : "Escolha por quanto tempo ficara temporario.",
+          items: [
+            { value: "none", label: "Nao temporario" },
+            { value: "1h", label: "1 hora" },
+            { value: "6h", label: "6 horas" },
+            { value: "12h", label: "12 horas" },
+            { value: "1d", label: "1 dia" },
+            { value: "3d", label: "3 dias" },
+            { value: "7d", label: "7 dias" },
+            { value: "30d", label: "30 dias" },
+            { value: "custom-hours", label: "Personalizado em horas" },
+            { value: "custom-days", label: "Personalizado em dias" },
+          ],
+          selectedValue: currentExpiresAt ? "" : "none",
+        });
+
+        if (!result.confirmed) return null;
+
+        if (result.value === "custom-hours" || result.value === "custom-days") {
+          const unit = result.value === "custom-days" ? "days" : "hours";
+          const amountResult = await askText(
+            "Tempo personalizado",
+            unit === "days" ? "Quantidade de dias:" : "Quantidade de horas:",
+            "1"
+          );
+          if (!amountResult.confirmed) return null;
+
+          const amount = Number(amountResult.value.replace(",", "."));
+          if (!Number.isFinite(amount) || amount <= 0) {
+            await showMessage("Informe uma quantidade valida.");
+            return null;
+          }
+
+          return { temporary: true, durationAmount: amount, durationUnit: unit };
+        }
+
+        return buildTemporaryPayloadFromSelection(result.value);
+      }
+
+      async function criarPasta() {
+        const nameResult = await askText("Nova pasta", "Nome da nova pasta:");
+        if (!nameResult.confirmed) return;
+
+        const cleanName = nameResult.value.trim();
         if (!cleanName) {
-          alert("Informe um nome valido.");
+          await showMessage("Informe um nome valido.");
           return;
         }
 
-        const allowedUsers = prompt("Usuarios permitidos separados por virgula:", username) || "";
+        const usersResult = await askText("Acessos da pasta", "Usuarios permitidos separados por virgula:", username);
+        if (!usersResult.confirmed) return;
+        const allowedUsers = usersResult.value;
+
+        const temporaryPayload = await escolherExpiracaoTemporaria("Pasta temporaria");
+        if (!temporaryPayload) return;
 
         try {
           const folder = await authJsonFetch("/folders", {
             method: "POST",
-            body: JSON.stringify({ name: cleanName, allowedUsers }),
+            body: JSON.stringify({ name: cleanName, allowedUsers, ...temporaryPayload }),
           });
 
           await loadFolders();
@@ -980,7 +1691,27 @@
           loadFiles();
           loadPending();
         } catch (error) {
-          alert(error.message);
+          await showMessage(error.message);
+        }
+      }
+
+      async function editarTemporarioPasta() {
+        const folder = getCurrentFolder();
+        if (!folder || folder.isRoot) return;
+
+        const temporaryPayload = await escolherExpiracaoTemporaria("Pasta temporaria", folder.expiresAt);
+        if (!temporaryPayload) return;
+
+        try {
+          await authJsonFetch(`/folders/${encodeURIComponent(folder.id)}/temporary`, {
+            method: "PUT",
+            body: JSON.stringify(temporaryPayload),
+          });
+
+          await loadFolders();
+          if (!historyView.hidden) loadHistory();
+        } catch (error) {
+          await showMessage(error.message || "Nao foi possivel alterar a temporariedade da pasta.");
         }
       }
 
@@ -988,21 +1719,22 @@
         const folder = getCurrentFolder();
         if (!folder || folder.isRoot) return;
 
-        const allowedUsers = prompt(
+        const usersResult = await askText(
+          "Acessos da pasta",
           "Usuarios permitidos separados por virgula:",
           (folder.allowedUsers || []).join(", ")
         );
-        if (allowedUsers === null) return;
+        if (!usersResult.confirmed) return;
 
         try {
           await authJsonFetch(`/folders/${encodeURIComponent(folder.id)}/access`, {
             method: "PUT",
-            body: JSON.stringify({ allowedUsers }),
+            body: JSON.stringify({ allowedUsers: usersResult.value }),
           });
 
           await loadFolders();
         } catch (error) {
-          alert(error.message);
+          await showMessage(error.message);
         }
       }
 
@@ -1010,7 +1742,12 @@
         const folder = getCurrentFolder();
         if (!folder || folder.isRoot) return;
 
-        if (!confirm(`Excluir a pasta "${folder.name}" e todos os arquivos dela?`)) return;
+        const confirmation = await askConfirm(
+          "Excluir pasta",
+          `Excluir a pasta "${folder.name}" e todos os arquivos dela?`,
+          "Excluir"
+        );
+        if (!confirmation.confirmed) return;
 
         try {
           await authJsonFetch(`/folders/${encodeURIComponent(folder.id)}`, { method: "DELETE" });
@@ -1020,29 +1757,28 @@
           loadPending();
           if (!historyView.hidden) loadHistory();
         } catch (error) {
-          alert(error.message || "Nao foi possivel excluir a pasta.");
+          await showMessage(error.message || "Nao foi possivel excluir a pasta.");
         }
       }
 
       async function moverArquivo(nome) {
         const targets = folders.filter((folder) => folder.id !== currentFolderId);
         if (!targets.length) {
-          alert("Crie ou acesse outra pasta para mover este arquivo.");
+          await showMessage("Crie ou acesse outra pasta para mover este arquivo.");
           return;
         }
 
-        const options = targets.map((folder, index) => `${index + 1}. ${folder.name}`).join("\n");
-        const answer = prompt(`Mover para qual pasta?\n${options}`);
-        if (answer === null) return;
+        const answerResult = await openSelectionDialog({
+          title: "Mover arquivo",
+          message: "Escolha a pasta de destino.",
+          items: targets.map((folder) => ({ value: folder.id, label: folder.name })),
+        });
+        if (!answerResult.confirmed) return;
 
-        const index = Number(answer.trim()) - 1;
-        const destination =
-          Number.isInteger(index) && targets[index]
-            ? targets[index]
-            : targets.find((folder) => folder.name.toLowerCase() === answer.trim().toLowerCase());
+        const destination = targets.find((folder) => folder.id === answerResult.value);
 
         if (!destination) {
-          alert("Pasta de destino nao encontrada.");
+          await showMessage("Pasta de destino nao encontrada.");
           return;
         }
 
@@ -1059,7 +1795,7 @@
           loadFiles();
           if (!historyView.hidden) loadHistory();
         } catch (error) {
-          alert(error.message);
+          await showMessage(error.message);
         }
       }
 
@@ -1109,6 +1845,11 @@
         return dateFormatter.format(parsed);
       }
 
+      function formatExpirationLabel(expiresAt) {
+        if (!expiresAt) return "Nao temporario";
+        return `Temporario ate ${formatUploadedAt(expiresAt)}`;
+      }
+
       function buildPreviewButton(name, scope) {
         if (!getFilePreviewKind(name)) return "";
         return `<button class="btn-small btn-preview" onclick="abrirPreview('${escapeJsString(name)}', '${scope}')">Preview</button>`;
@@ -1116,6 +1857,16 @@
 
       function buildShareButton(name) {
         return `<button class="btn-small btn-share" onclick="abrirCompartilhamento('${escapeJsString(name)}')">Compartilhar</button>`;
+      }
+
+      function buildPermissionsButton(file) {
+        if (!permissions.manageUsers && !file.canManageAccess) return "";
+        return `<button class="btn-small btn-permissions" onclick="abrirPermissoesArquivo('${escapeJsString(file.name)}')">Permissoes</button>`;
+      }
+
+      function buildTemporaryButton(file) {
+        if (!file.canEdit) return "";
+        return `<button class="btn-small btn-temporary" onclick="editarTemporarioArquivo('${escapeJsString(file.name)}')">Temporario</button>`;
       }
 
       function getHistoryActionLabel(action) {
@@ -1127,8 +1878,13 @@
           renamed: "Renomeou arquivo",
           moved: "Moveu arquivo",
           share_created: "Gerou link publico",
+          file_access_updated: "Atualizou permissoes do arquivo",
+          file_temporary_updated: "Atualizou temporariedade do arquivo",
+          file_expired: "Arquivo temporario expirou",
           folder_created: "Criou pasta",
           folder_access_updated: "Atualizou acessos da pasta",
+          folder_temporary_updated: "Atualizou temporariedade da pasta",
+          folder_expired: "Pasta temporaria expirou",
           folder_deleted: "Excluiu pasta",
         };
 
@@ -1178,8 +1934,6 @@
       }
 
       async function loadHistory() {
-        if (!permissions.listFiles) return;
-
         try {
           const response = await authFetch("/history");
           const payload = await response.json().catch(() => []);
@@ -1197,16 +1951,12 @@
       }
 
       function setActiveView(view) {
-        const showingHistory = view === "history";
-
-        filesView.hidden = showingHistory;
-        historyView.hidden = !showingHistory;
-        navFiles.classList.toggle("active", !showingHistory);
-        navHistory.classList.toggle("active", showingHistory);
-
-        if (showingHistory) {
-          loadHistory();
+        if (view === "history") {
+          openHistoryTab();
+          return;
         }
+
+        openFilesTab();
       }
 
       function renderListError(targetId, message, mode) {
@@ -1286,7 +2036,7 @@
           window.open(fileUrl, "_blank", "noopener");
           setTimeout(() => URL.revokeObjectURL(fileUrl), 60000);
         } catch (error) {
-          alert(error.message || "Nao foi possivel abrir o arquivo.");
+          await showMessage(error.message || "Nao foi possivel abrir o arquivo.");
         }
       }
 
@@ -1296,7 +2046,7 @@
         shareFileName.textContent = "";
         shareLink.value = "";
         shareCopy.disabled = true;
-        shareMessage.textContent = "Qualquer pessoa com este link podera abrir o arquivo ate expirar.";
+        shareMessage.textContent = "Qualquer pessoa com este link podera abrir o arquivo ate expirar ou atingir o limite de visualizacoes.";
       }
 
       function abrirCompartilhamento(name) {
@@ -1304,7 +2054,7 @@
         shareFileName.textContent = name;
         shareLink.value = "";
         shareCopy.disabled = true;
-        shareMessage.textContent = "Escolha o prazo e gere um link publico.";
+        shareMessage.textContent = "Escolha o prazo, o limite de visualizacoes e gere um link publico.";
         shareModal.classList.add("open");
       }
 
@@ -1321,12 +2071,16 @@
               name: shareCurrentFile,
               folderId: currentFolderId,
               expiresInMinutes: Number(shareDuration.value),
+              maxViews: Number(shareMaxViews.value),
             }),
           });
 
           shareLink.value = payload.url;
           shareCopy.disabled = false;
-          shareMessage.textContent = `Link ativo ate ${formatUploadedAt(payload.expiresAt)}.`;
+          const viewsText = payload.maxViews > 0
+            ? ` Autodestrutivo apos ${payload.maxViews} visualizacao${payload.maxViews === 1 ? "" : "es"}.`
+            : " Visualizacoes ilimitadas.";
+          shareMessage.textContent = `Link ativo ate ${formatUploadedAt(payload.expiresAt)}.${viewsText}`;
           if (!historyView.hidden) loadHistory();
         } catch (error) {
           shareLink.value = "";
@@ -1352,6 +2106,126 @@
         } catch {
           shareLink.select();
           shareMessage.textContent = "Nao consegui copiar automaticamente. O link esta selecionado.";
+        }
+      }
+
+      function closeFilePermissionsModal() {
+        filePermissionsModal.classList.remove("open");
+        permissionsCurrentFile = "";
+        permissionsUsers.innerHTML = "";
+      }
+
+      function renderFilePermissions(data) {
+        permissionsFileName.textContent = data.fileName || permissionsCurrentFile;
+        permissionsOwner.textContent = data.owner || "sistema";
+        permissionsPublic.checked = Boolean(data.public);
+
+        const users = Array.isArray(data.eligibleUsers) ? data.eligibleUsers : [];
+        const configuredUsers = data.users && typeof data.users === "object" ? data.users : {};
+
+        if (!users.length) {
+          permissionsUsers.innerHTML = '<p class="permissions-help">Nenhum usuario disponivel para esta pasta.</p>';
+          return;
+        }
+
+        permissionsUsers.innerHTML = users.map((user) => {
+          const userAccess = configuredUsers[user.username] || {};
+          const safeUsername = escapeHtml(user.username);
+          const safeValue = escapeHtml(user.username);
+
+          return `
+            <div class="permissions-user-row" data-user="${safeValue}">
+              <span title="${safeUsername}">${safeUsername}</span>
+              <label><input type="checkbox" class="perm-read" ${userAccess.read || userAccess.edit ? "checked" : ""} /> Ler</label>
+              <label><input type="checkbox" class="perm-edit" ${userAccess.edit ? "checked" : ""} /> Editar</label>
+            </div>
+          `;
+        }).join("");
+
+        permissionsUsers.querySelectorAll(".permissions-user-row").forEach((row) => {
+          const readInput = row.querySelector(".perm-read");
+          const editInput = row.querySelector(".perm-edit");
+
+          editInput.addEventListener("change", () => {
+            if (editInput.checked) readInput.checked = true;
+          });
+
+          readInput.addEventListener("change", () => {
+            if (!readInput.checked) editInput.checked = false;
+          });
+        });
+      }
+
+      async function abrirPermissoesArquivo(name) {
+        permissionsCurrentFile = name;
+        permissionsFileName.textContent = name;
+        permissionsOwner.textContent = "carregando...";
+        permissionsPublic.checked = true;
+        permissionsUsers.innerHTML = '<p class="permissions-help">Carregando permissoes...</p>';
+        filePermissionsModal.classList.add("open");
+
+        try {
+          const data = await authJsonFetch(`/file-access?${getFolderQuery()}&name=${encodeURIComponent(name)}`);
+          renderFilePermissions(data);
+        } catch (error) {
+          permissionsUsers.innerHTML = `<p class="permissions-help">${escapeHtml(error.message || "Nao foi possivel carregar as permissoes.")}</p>`;
+        }
+      }
+
+      async function salvarPermissoesArquivo() {
+        if (!permissionsCurrentFile) return;
+
+        const users = {};
+        permissionsUsers.querySelectorAll(".permissions-user-row").forEach((row) => {
+          const read = row.querySelector(".perm-read")?.checked;
+          const edit = row.querySelector(".perm-edit")?.checked;
+          if (read || edit) {
+            users[row.dataset.user] = { read: Boolean(read || edit), edit: Boolean(edit) };
+          }
+        });
+
+        permissionsSave.disabled = true;
+
+        try {
+          await authJsonFetch("/file-access", {
+            method: "PUT",
+            body: JSON.stringify({
+              folderId: currentFolderId,
+              name: permissionsCurrentFile,
+              public: permissionsPublic.checked,
+              users,
+            }),
+          });
+
+          closeFilePermissionsModal();
+          await loadFiles();
+          if (!historyView.hidden) loadHistory();
+        } catch (error) {
+          await showMessage(error.message || "Nao foi possivel salvar as permissoes.");
+        } finally {
+          permissionsSave.disabled = false;
+        }
+      }
+
+      async function editarTemporarioArquivo(name) {
+        const file = publicFiles.find((item) => item.name === name);
+        const temporaryPayload = await escolherExpiracaoTemporaria("Arquivo temporario", file?.expiresAt);
+        if (!temporaryPayload) return;
+
+        try {
+          await authJsonFetch("/file-temporary", {
+            method: "PUT",
+            body: JSON.stringify({
+              folderId: currentFolderId,
+              name,
+              ...temporaryPayload,
+            }),
+          });
+
+          await loadFiles();
+          if (!historyView.hidden) loadHistory();
+        } catch (error) {
+          await showMessage(error.message || "Nao foi possivel alterar a temporariedade do arquivo.");
         }
       }
 
@@ -1407,7 +2281,8 @@
             const safeHtmlName = escapeHtml(file.name);
             const shortHtmlName = escapeHtml(truncateFileName(file.name));
             const safeJsName = escapeJsString(file.name);
-            const metadata = `${formatFileSize(file.size)} • ${formatUploadedAt(file.uploadedAt)}`;
+            const temporaryLabel = file.expiresAt ? ` • ${formatExpirationLabel(file.expiresAt)}` : "";
+            const metadata = `${formatFileSize(file.size)} • ${formatUploadedAt(file.uploadedAt)}${temporaryLabel}`;
 
             if (mode === "public") {
               return `
@@ -1422,7 +2297,9 @@
                   <div class="btn-group">
                     ${buildPreviewButton(file.name, "public")}
                     ${buildShareButton(file.name)}
-                    ${permissions.delete
+                    ${buildPermissionsButton(file)}
+                    ${buildTemporaryButton(file)}
+                    ${file.canEdit
                       ? `
                         <button class="btn-small btn-rename" onclick="renomear('${safeJsName}')">Renomear</button>
                         <button class="btn-small btn-move" onclick="moverArquivo('${safeJsName}')">Mover</button>
@@ -1527,7 +2404,7 @@
           wrapper.style.display = "none";
           bar.style.width = "0%";
           percent.textContent = "0%";
-          alert(error.message || "Upload nao concluido.");
+          await showMessage(error.message || "Upload nao concluido.");
         }
       }
 
@@ -1600,19 +2477,20 @@
       }
 
       async function excluir(nome) {
-        if (!confirm(`Excluir ${nome}?`)) return;
+        const confirmation = await askConfirm("Excluir arquivo", `Excluir ${nome}?`, "Excluir");
+        if (!confirmation.confirmed) return;
         await authFetch(`/delete/${encodeURIComponent(nome)}?${getFolderQuery()}`);
         loadFiles();
         if (!historyView.hidden) loadHistory();
       }
 
       async function renomear(nomeAtual) {
-        const novoNome = prompt("Novo nome do arquivo:", nomeAtual);
-        if (novoNome === null) return;
+        const nameResult = await askText("Renomear arquivo", "Novo nome do arquivo:", nomeAtual);
+        if (!nameResult.confirmed) return;
 
-        const nomeLimpo = novoNome.trim();
+        const nomeLimpo = nameResult.value.trim();
         if (!nomeLimpo) {
-          alert("Informe um nome válido.");
+          await showMessage("Informe um nome valido.");
           return;
         }
 
@@ -1632,23 +2510,30 @@
           loadFiles();
           if (!historyView.hidden) loadHistory();
         } catch (error) {
-          alert(error.message);
+          await showMessage(error.message);
         }
       }
 
-      navFiles.addEventListener("click", () => setActiveView("files"));
-      navHistory.addEventListener("click", () => setActiveView("history"));
-      historyRefresh.addEventListener("click", loadHistory);
-      folderSelect.addEventListener("change", () => {
-        currentFolderId = folderSelect.value || "root";
-        publicPage = 1;
-        pendingPage = 1;
-        renderFolderSelect();
-        loadFiles();
-        loadPending();
+      navFiles.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openFilesTab();
       });
+      navHistory.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openHistoryTab();
+      });
+      historyRefresh.addEventListener("click", openHistoryTab);
+      folderSelect.addEventListener("change", () => {
+        selectFolder(folderSelect.value);
+      });
+      folderPicker.addEventListener("click", escolherPastaAtual);
+      shareDurationOptions.addEventListener("click", escolherDuracaoCompartilhamento);
+      shareViewsOptions.addEventListener("click", escolherVisualizacoesCompartilhamento);
       createFolderBtn.addEventListener("click", criarPasta);
       editFolderAccessBtn.addEventListener("click", editarAcessosPasta);
+      editFolderTemporaryBtn.addEventListener("click", editarTemporarioPasta);
       deleteFolderBtn.addEventListener("click", excluirPastaAtual);
 
       previewClose.addEventListener("click", closePreview);
@@ -1658,17 +2543,43 @@
       shareClose.addEventListener("click", closeShareModal);
       shareCreate.addEventListener("click", gerarLinkCompartilhamento);
       shareCopy.addEventListener("click", copiarLinkCompartilhamento);
+      permissionsCancel.addEventListener("click", closeFilePermissionsModal);
+      permissionsSave.addEventListener("click", salvarPermissoesArquivo);
       shareModal.addEventListener("click", (event) => {
         if (event.target === shareModal) closeShareModal();
       });
+      filePermissionsModal.addEventListener("click", (event) => {
+        if (event.target === filePermissionsModal) closeFilePermissionsModal();
+      });
+      actionModal.addEventListener("click", (event) => {
+        if (event.target === actionModal && actionCancel.style.display !== "none") {
+          actionCancel.click();
+        }
+      });
+      selectModal.addEventListener("click", (event) => {
+        if (event.target === selectModal) {
+          selectCancel.click();
+        }
+      });
       document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && selectModal.classList.contains("open")) {
+          selectCancel.click();
+        }
+        if (event.key === "Escape" && actionModal.classList.contains("open")) {
+          actionCancel.click();
+        }
         if (event.key === "Escape" && previewModal.classList.contains("open")) {
           closePreview();
         }
         if (event.key === "Escape" && shareModal.classList.contains("open")) {
           closeShareModal();
         }
+        if (event.key === "Escape" && filePermissionsModal.classList.contains("open")) {
+          closeFilePermissionsModal();
+        }
       });
+      renderShareDurationOptions();
+      renderShareViewsOptions();
 
       document.getElementById("fileSearch")?.addEventListener("input", () => {
         publicPage = 1;

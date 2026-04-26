@@ -257,6 +257,26 @@
         color: #60a0ce;
         margin-bottom: 16px;
       }
+
+      .file-access-note {
+        color: #8a8a8a;
+        font: var(--p-sm);
+        margin: -4px 0 14px;
+      }
+
+      .file-access-actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 18px;
+      }
+
+      .empty-state {
+        color: #555;
+        font: var(--p-md);
+        padding: 10px 0;
+      }
     </style>
   </head>
   <body>
@@ -320,6 +340,34 @@
           </tbody>
         </table>
       </div>
+
+      <!-- Permissoes por arquivo -->
+      <div class="card">
+        <p class="section-title">Permissoes por arquivo</p>
+        <p class="file-access-note">
+          Escolha uma pasta e um arquivo para definir quais contas podem acessar esse arquivo. Se nenhuma conta for marcada, o arquivo herda o acesso da pasta.
+        </p>
+
+        <div class="form-row">
+          <div class="field">
+            <label>Pasta</label>
+            <select id="fileAccessFolder"></select>
+          </div>
+          <div class="field">
+            <label>Arquivo</label>
+            <select id="fileAccessFile"></select>
+          </div>
+        </div>
+
+        <div class="perms-grid" id="fileAccessUsers">
+          <p class="empty-state">Carregando arquivos...</p>
+        </div>
+
+        <div class="file-access-actions">
+          <button class="btn-primary" id="btnSaveFileAccess">Salvar permissoes</button>
+          <p class="feedback" id="fileAccessFeedback"></p>
+        </div>
+      </div>
     </div>
 
     <style>
@@ -366,6 +414,9 @@
       ];
 
       // ── Grid de criação ─────────────────────────────────────────────────────
+      let usersCache = [];
+      let fileAccessAllowedUsers = [];
+
       const createPermsState = Object.fromEntries(
         ALL_PERMISSIONS.map((p) => [p.key, p.key === "listFiles"])
       );
@@ -433,13 +484,15 @@
         const res   = await authFetch("/users");
         const users = await res.json();
         const tbody = document.getElementById("usersBody");
+        usersCache = Array.isArray(users) ? users : [];
 
-        if (!users.length) {
+        if (!usersCache.length) {
+          renderFileAccessUsers();
           tbody.innerHTML = `<tr><td colspan="4" style="color:#555">Nenhum usuário.</td></tr>`;
           return;
         }
 
-        tbody.innerHTML = users.map((u) => `
+        tbody.innerHTML = usersCache.map((u) => `
           <tr data-user="${u.username}">
             <td style="font:var(--label-sm)">${u.username}</td>
             <td><span class="role-tag ${u.role}">${u.role}</span></td>
@@ -462,6 +515,7 @@
             </td>
           </tr>
         `).join("");
+        renderFileAccessUsers();
       }
 
       // ── Alternar permissão inline ───────────────────────────────────────────
@@ -493,7 +547,182 @@
         loadUsers();
       }
 
+      const fileAccessFolderSelect = document.getElementById("fileAccessFolder");
+      const fileAccessFileSelect = document.getElementById("fileAccessFile");
+      const fileAccessFeedback = document.getElementById("fileAccessFeedback");
+      const btnSaveFileAccess = document.getElementById("btnSaveFileAccess");
+
+      function setFileAccessFeedback(message, isError = false) {
+        fileAccessFeedback.textContent = message;
+        fileAccessFeedback.className = "feedback" + (isError ? " err" : " ok");
+      }
+
+      function renderFileAccessUsers() {
+        const grid = document.getElementById("fileAccessUsers");
+        if (!grid) return;
+
+        grid.innerHTML = "";
+
+        if (!fileAccessFileSelect.value) {
+          grid.innerHTML = `<p class="empty-state">Selecione um arquivo para editar as permissoes.</p>`;
+          btnSaveFileAccess.disabled = true;
+          return;
+        }
+
+        if (!usersCache.length) {
+          grid.innerHTML = `<p class="empty-state">Nenhuma conta cadastrada.</p>`;
+          btnSaveFileAccess.disabled = true;
+          return;
+        }
+
+        btnSaveFileAccess.disabled = false;
+        const selectedUsers = new Set(fileAccessAllowedUsers);
+
+        usersCache.forEach((user) => {
+          const label = document.createElement("label");
+          const input = document.createElement("input");
+          const dot = document.createElement("span");
+          const isChecked = selectedUsers.has(user.username);
+
+          label.className = "perm-toggle" + (isChecked ? " active" : "");
+          input.type = "checkbox";
+          input.value = user.username;
+          input.checked = isChecked;
+          dot.className = "dot";
+
+          input.addEventListener("change", () => {
+            if (input.checked) {
+              selectedUsers.add(user.username);
+            } else {
+              selectedUsers.delete(user.username);
+            }
+
+            fileAccessAllowedUsers = [...selectedUsers];
+            label.classList.toggle("active", input.checked);
+          });
+
+          label.appendChild(input);
+          label.appendChild(dot);
+          label.append(document.createTextNode(user.username));
+          grid.appendChild(label);
+        });
+      }
+
+      async function loadFileAccessFolders() {
+        const res = await authFetch("/folders");
+        const folders = await res.json();
+
+        fileAccessFolderSelect.innerHTML = "";
+
+        if (!res.ok || !Array.isArray(folders) || !folders.length) {
+          fileAccessFolderSelect.innerHTML = `<option value="">Nenhuma pasta</option>`;
+          fileAccessFileSelect.innerHTML = `<option value="">Nenhum arquivo</option>`;
+          renderFileAccessUsers();
+          return;
+        }
+
+        folders.forEach((folder) => {
+          const option = document.createElement("option");
+          option.value = folder.id;
+          option.textContent = folder.name;
+          fileAccessFolderSelect.appendChild(option);
+        });
+
+        await loadFileAccessFiles();
+      }
+
+      async function loadFileAccessFiles() {
+        const folderId = fileAccessFolderSelect.value;
+        fileAccessFileSelect.innerHTML = "";
+        fileAccessAllowedUsers = [];
+        setFileAccessFeedback("");
+
+        if (!folderId) {
+          fileAccessFileSelect.innerHTML = `<option value="">Nenhum arquivo</option>`;
+          renderFileAccessUsers();
+          return;
+        }
+
+        const res = await authFetch(`/list?folderId=${encodeURIComponent(folderId)}`);
+        const files = await res.json();
+
+        if (!res.ok || !Array.isArray(files) || !files.length) {
+          fileAccessFileSelect.innerHTML = `<option value="">Nenhum arquivo</option>`;
+          renderFileAccessUsers();
+          return;
+        }
+
+        files.forEach((file) => {
+          const option = document.createElement("option");
+          option.value = file.name;
+          option.textContent = file.name;
+          fileAccessFileSelect.appendChild(option);
+        });
+
+        await loadSelectedFileAccess();
+      }
+
+      async function loadSelectedFileAccess() {
+        const folderId = fileAccessFolderSelect.value;
+        const fileName = fileAccessFileSelect.value;
+        fileAccessAllowedUsers = [];
+        setFileAccessFeedback("");
+
+        if (!folderId || !fileName) {
+          renderFileAccessUsers();
+          return;
+        }
+
+        const url = `/file-access?folderId=${encodeURIComponent(folderId)}&name=${encodeURIComponent(fileName)}`;
+        const res = await authFetch(url);
+        const data = await res.json();
+
+        if (!res.ok) {
+          setFileAccessFeedback(data.error || "Erro ao carregar permissoes.", true);
+          renderFileAccessUsers();
+          return;
+        }
+
+        fileAccessAllowedUsers = Array.isArray(data.allowedUsers) ? data.allowedUsers : [];
+        renderFileAccessUsers();
+      }
+
+      btnSaveFileAccess.addEventListener("click", async () => {
+        const folderId = fileAccessFolderSelect.value;
+        const fileName = fileAccessFileSelect.value;
+        const allowedUsers = [...document.querySelectorAll("#fileAccessUsers input:checked")]
+          .map((input) => input.value);
+
+        if (!folderId || !fileName) {
+          setFileAccessFeedback("Selecione uma pasta e um arquivo.", true);
+          return;
+        }
+
+        const res = await authFetch("/file-access", {
+          method: "PUT",
+          body: JSON.stringify({ folderId, name: fileName, allowedUsers }),
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          setFileAccessFeedback(data.error || "Erro ao salvar permissoes.", true);
+          return;
+        }
+
+        fileAccessAllowedUsers = allowedUsers;
+        setFileAccessFeedback(
+          allowedUsers.length
+            ? "Permissoes individuais salvas."
+            : "Arquivo voltou a herdar o acesso da pasta."
+        );
+        renderFileAccessUsers();
+      });
+
+      fileAccessFolderSelect.addEventListener("change", loadFileAccessFiles);
+      fileAccessFileSelect.addEventListener("change", loadSelectedFileAccess);
+
       loadUsers();
+      loadFileAccessFolders();
     </script>
   </body>
 </html>

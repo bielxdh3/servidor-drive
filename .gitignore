@@ -1,0 +1,5 @@
+data/users.local.json
+data/file-expirations.json
+data/file-permissions.json
+temp/
+uploads/

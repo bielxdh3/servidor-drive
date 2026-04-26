@@ -1,4 +1,4 @@
-@import url(header.css);
-@import url(global.css);
-@import url(form.css);
-@import url(flex.css);
+@import url(header.css?v=12);
+@import url(global.css?v=12);
+@import url(form.css?v=12);
+@import url(flex.css?v=12);

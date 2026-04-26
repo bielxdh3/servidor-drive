@@ -1,7 +1,7 @@
 .upload-box {
   display: flex;
   justify-content: center;
-  margin-top: 100px;
+  margin-top: 44px;
   & form {
     /* color: white; */
 
@@ -9,7 +9,6 @@
       background: none;
       border: none;
       cursor: pointer;
-      transform: scale(1.3);
     }
     
   }

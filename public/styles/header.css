@@ -1,31 +1,50 @@
 h1 {
   color: white;
-  font: 800 2.5rem / 130% var(--ff-sora);
+  font: 800 4.5rem / 115% var(--ff-sora);
   display: flex;
-  gap: 10px;
+  gap: 14px;
   justify-content: center;
   align-items: center;
-  transform: scale(2);
-  margin-top: 100px;
+  margin-top: 78px;
   text-transform: uppercase;
 
 
   & small {
-    font: var(--display-sm);
+    font: 700 3.4rem / 115% var(--ff-sora);
     text-transform: lowercase;
     height: fit-content;
     background-image: linear-gradient(#044879 70%, #60a0ce);
-    width: 100px;
-    border-radius: 8px;
+    min-width: 128px;
+    padding: 0 10px 5px;
+    border-radius: 12px;
     text-align: center;
     /* background-color: var(--bg-brand); */
   }
 
   & img {
-    width: 38px;
-    height: 38px;
-    margin-bottom: 05px;
+    width: 58px;
+    height: 58px;
+    margin-bottom: 0;
     animation: 45s rotateLogo linear infinite;
+  }
+}
+
+@media (max-width: 720px) {
+  h1 {
+    font-size: 2.75rem;
+    gap: 10px;
+    margin-top: 84px;
+  }
+
+  h1 small {
+    font-size: 2rem;
+    min-width: 84px;
+    border-radius: 9px;
+  }
+
+  h1 img {
+    width: 42px;
+    height: 42px;
   }
 }
 

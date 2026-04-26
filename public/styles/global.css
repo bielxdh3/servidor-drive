@@ -40,19 +40,12 @@
 
 
 body {
-  background-color: var(--bg-secondary);
-  background-image: url(../assets/Linha\ \(1\).png);
+  background-color: var(--bg-primary);
   overflow-x: hidden;
-  overflow-y: hidden;
+  overflow-y: auto;
+  min-height: 100vh;
 }
 
 body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-
-  background: linear-gradient(rgba(2, 2, 2, 1) 0%, rgba(2, 2, 2, 0) 100%);
-
-  pointer-events: none;
-  z-index: -1;
+  display: none;
 }
