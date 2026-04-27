@@ -1,5 +1,14 @@
 data/users.local.json
 data/file-expirations.json
 data/file-permissions.json
+data/file-versions.json
+data/analytics.json
+data/audit-logs.json
+data/audit-logs-archive.json
+data/encrypted-files.json
+data/server-master.key
+node_modules/
 temp/
 uploads/
+*.credentials.json
+service-account*.json

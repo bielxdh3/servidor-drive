@@ -126,6 +126,26 @@
         border: 1px solid #044879;
       }
 
+      .btn-small.btn-download {
+        background-color: #044879;
+        border: 1px solid #60a0ce;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 34px;
+      }
+
+      .download-icon {
+        width: 16px;
+        height: 16px;
+        display: block;
+        fill: none;
+        stroke: white;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
       .btn-small.btn-share {
         background-color: #0d5f3f;
         border: 1px solid #1d9b63;
@@ -139,6 +159,116 @@
       .btn-small.btn-temporary {
         background-color: #6b4b00;
         border: 1px solid #d6a100;
+      }
+
+      .btn-icon-versions {
+        width: 34px;
+        min-width: 34px;
+        height: 31px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: #24222e;
+        border: 1px solid #044879;
+        color: #60a0ce;
+        border-radius: 8px;
+        cursor: pointer;
+        padding: 5px;
+        line-height: 1;
+      }
+
+      .file-title .file-open {
+        width: auto;
+        flex: 1 1 auto;
+      }
+
+      .btn-icon-versions svg {
+        width: 14px;
+        height: 14px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .versions-card {
+        width: min(620px, calc(100vw - 32px));
+      }
+
+      .versions-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        max-height: 420px;
+        overflow-y: auto;
+        margin-top: 12px;
+      }
+
+      .version-row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 12px;
+        align-items: center;
+        padding: 12px;
+        border: 1px solid #044879;
+        border-radius: 10px;
+        background: #111012;
+      }
+
+      .version-title {
+        color: white;
+        font: 800 0.95rem/1.25 var(--ff-robotoMono);
+      }
+
+      .version-meta,
+      .version-comment {
+        color: #8a8a8a;
+        font: var(--p-sm);
+        margin-top: 4px;
+      }
+
+      .version-section-title {
+        color: white;
+        font: 800 0.95rem/1.25 var(--ff-robotoMono);
+        margin-top: 8px;
+      }
+
+      .file-options {
+        position: relative;
+        display: inline-flex;
+      }
+
+      .btn-small.file-options-toggle {
+        min-width: 34px;
+        background-color: #044879;
+        border: 1px solid #60a0ce;
+      }
+
+      .file-options-menu {
+        position: absolute;
+        top: calc(100% + 8px);
+        right: 0;
+        z-index: 30;
+        display: none;
+        min-width: 150px;
+        padding: 8px;
+        background: rgba(17, 16, 18, 0.98);
+        border: 1px solid #044879;
+        border-radius: 10px;
+        box-shadow: 0 14px 36px rgba(0, 0, 0, 0.45);
+      }
+
+      .file-options.open .file-options-menu {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .file-options-menu .btn-small {
+        width: 100%;
+        text-align: left;
+        justify-content: flex-start;
       }
 
       #progressWrapper {
@@ -177,6 +307,32 @@
         color: #60a0ce;
         font: 700 0.75rem/1 var(--ff-robotoMono);
         text-align: right;
+      }
+
+      .encryption-options {
+        width: 356px;
+        margin-top: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        color: white;
+        font: var(--p-sm);
+      }
+
+      .encryption-options select,
+      .encryption-options input {
+        width: 100%;
+        background: rgba(17, 16, 18, 0.9);
+        border: 1px solid #044879;
+        border-radius: 8px;
+        color: white;
+        font: var(--p-sm);
+        padding: 8px 10px;
+      }
+
+      .encrypted-badge {
+        color: #60a0ce;
+        font: 700 0.75rem/1 var(--ff-robotoMono);
       }
 
       .folder-bar {
@@ -820,6 +976,8 @@
       <p class="user-badge">Olá, <span id="displayUsername">—</span></p>
       <span class="role-tag" id="roleTag">—</span>
       <a href="/admin.html" class="btn-topbar" id="adminLink" style="display: none">Admin</a>
+      <a href="/dashboard.html" class="btn-topbar" id="dashboardLink" style="display: none">Dashboard</a>
+      <a href="/audit.html" class="btn-topbar" id="auditLink" style="display: none">Auditoria</a>
       <button class="btn-topbar" id="btnLogout">Sair</button>
     </div>
 
@@ -844,6 +1002,7 @@
           <select class="folder-select" id="folderSelect"></select>
           <button type="button" class="folder-picker-trigger" id="folderPicker" aria-label="Selecionar pasta">Arquivos atuais</button>
           <button type="button" class="folder-action primary" id="createFolderBtn" style="display: none">Nova pasta</button>
+          <button type="button" class="folder-action" id="renameFolderBtn" style="display: none">Renomear</button>
           <button type="button" class="folder-action" id="editFolderAccessBtn" style="display: none">Acessos</button>
           <button type="button" class="folder-action" id="editFolderTemporaryBtn" style="display: none">Temporaria</button>
           <button type="button" class="folder-action" id="deleteFolderBtn" style="display: none">Excluir pasta</button>
@@ -852,7 +1011,7 @@
 
       <div class="upload-box" id="dropzone" style="display: none">
         <form id="form">
-          <input type="file" name="file" id="fileInput" style="display: none" />
+          <input type="file" name="file" id="fileInput" style="display: none" multiple />
           <button type="button" onclick="document.getElementById('fileInput').click()">
             <svg width="356" height="168" viewBox="0 0 356 168" fill="none" xmlns="http://www.w3.org/2000/svg">
               <defs>
@@ -881,6 +1040,27 @@
             </svg>
           </button>
         </form>
+
+        <div class="encryption-options" id="encryptionOptions">
+          <label for="encryptionLevel">Nivel de seguranca</label>
+          <select id="encryptionLevel">
+            <option value="none">Sem criptografia</option>
+            <option value="server-key">Padrao do servidor</option>
+            <option value="user-key">Privado da conta</option>
+            <option value="password">Senha compartilhavel</option>
+            <option value="dual">Dupla protecao</option>
+          </select>
+          <div id="encryptionPasswordField" style="display: none">
+            <input type="password" id="filePassword" placeholder="Senha com no minimo 8 caracteres" />
+          </div>
+          <select id="encryptedExpiresInDays" style="display: none">
+            <option value="">Nunca expirar</option>
+            <option value="1">Expirar em 24 horas</option>
+            <option value="7">Expirar em 7 dias</option>
+            <option value="30">Expirar em 30 dias</option>
+            <option value="90">Expirar em 90 dias</option>
+          </select>
+        </div>
 
         <div id="progressWrapper" style="display: none">
           <p id="progressFilename"></p>
@@ -1019,6 +1199,35 @@
       </div>
     </div>
 
+    <div class="preview-modal" id="folderPermissionsModal">
+      <div class="permissions-card">
+        <div class="permissions-box">
+          <p class="permissions-title">Permissoes da pasta: <span id="folderPermissionsName"></span></p>
+          <hr class="permissions-divider" />
+          <p class="permissions-owner">Dono: <span id="folderPermissionsOwner">sistema</span></p>
+
+          <p class="permissions-label">Usuarios especificos:</p>
+          <p class="permissions-help">Ler permite abrir a pasta. Editar permite renomear, alterar temporariedade e acessos.</p>
+          <div class="permissions-users" id="folderPermissionsUsers"></div>
+
+          <div class="permissions-actions">
+            <button type="button" class="permissions-action" id="folderPermissionsCancel">[Cancelar]</button>
+            <button type="button" class="permissions-action" id="folderPermissionsSave">[Salvar]</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="preview-modal" id="versionsModal">
+      <div class="action-card versions-card">
+        <h3>Historico: <span id="versionFilename"></span></h3>
+        <div class="versions-list" id="versionsList"></div>
+        <div class="action-buttons">
+          <button type="button" class="action-button" id="versionsClose">Fechar</button>
+        </div>
+      </div>
+    </div>
+
     <div class="action-modal" id="actionModal">
       <div class="action-card">
         <h3 id="actionTitle">Confirmar acao</h3>
@@ -1069,10 +1278,13 @@
           file_temporary_updated: "Atualizou temporariedade do arquivo",
           file_expired: "Arquivo temporario expirou",
           folder_created: "Criou pasta",
+          folder_renamed: "Renomeou pasta",
           folder_access_updated: "Atualizou acessos da pasta",
           folder_temporary_updated: "Atualizou temporariedade da pasta",
           folder_expired: "Pasta temporaria expirou",
           folder_deleted: "Excluiu pasta",
+          version_restored: "Restaurou versao",
+          version_deleted: "Deletou versao",
         };
 
         return labels[action] || "Atualizou arquivo";
@@ -1198,9 +1410,14 @@
       let currentPreviewUrl = null;
       let shareCurrentFile = "";
       let permissionsCurrentFile = "";
+      let versionsCurrentFile = "";
+      let openFileOptionsName = "";
       let actionHistory = [];
       let folders = [];
       let currentFolderId = "root";
+      let realtimeSocket = null;
+      let realtimeReconnectTimer = null;
+      let realtimeRefreshTimer = null;
 
       const navFiles = document.getElementById("navFiles");
       const navHistory = document.getElementById("navHistory");
@@ -1211,6 +1428,7 @@
       const folderSelect = document.getElementById("folderSelect");
       const folderPicker = document.getElementById("folderPicker");
       const createFolderBtn = document.getElementById("createFolderBtn");
+      const renameFolderBtn = document.getElementById("renameFolderBtn");
       const editFolderAccessBtn = document.getElementById("editFolderAccessBtn");
       const editFolderTemporaryBtn = document.getElementById("editFolderTemporaryBtn");
       const deleteFolderBtn = document.getElementById("deleteFolderBtn");
@@ -1237,6 +1455,16 @@
       const permissionsUsers = document.getElementById("permissionsUsers");
       const permissionsCancel = document.getElementById("permissionsCancel");
       const permissionsSave = document.getElementById("permissionsSave");
+      const folderPermissionsModal = document.getElementById("folderPermissionsModal");
+      const folderPermissionsName = document.getElementById("folderPermissionsName");
+      const folderPermissionsOwner = document.getElementById("folderPermissionsOwner");
+      const folderPermissionsUsers = document.getElementById("folderPermissionsUsers");
+      const folderPermissionsCancel = document.getElementById("folderPermissionsCancel");
+      const folderPermissionsSave = document.getElementById("folderPermissionsSave");
+      const versionsModal = document.getElementById("versionsModal");
+      const versionFilename = document.getElementById("versionFilename");
+      const versionsList = document.getElementById("versionsList");
+      const versionsClose = document.getElementById("versionsClose");
       const actionModal = document.getElementById("actionModal");
       const actionTitle = document.getElementById("actionTitle");
       const actionMessage = document.getElementById("actionMessage");
@@ -1257,6 +1485,12 @@
       if (permissions.manageUsers) {
         document.getElementById("adminLink").style.display = "inline-block";
       }
+      if (permissions.manageUsers || permissions.viewAnalytics) {
+        document.getElementById("dashboardLink").style.display = "inline-block";
+      }
+      if (permissions.manageUsers || permissions.viewAuditLogs) {
+        document.getElementById("auditLink").style.display = "inline-block";
+      }
 
       function forceLogout() {
         localStorage.clear();
@@ -1271,8 +1505,11 @@
         document.getElementById("sectionPending").style.display = "block";
       }
       navHistory.style.display = "block";
-      if (permissions.manageUsers) {
+      if (permissions.manageUsers || permissions.createFolders) {
         createFolderBtn.style.display = "inline-block";
+      }
+      if (permissions.manageUsers) {
+        renameFolderBtn.style.display = "inline-block";
         editFolderAccessBtn.style.display = "inline-block";
         editFolderTemporaryBtn.style.display = "inline-block";
         deleteFolderBtn.style.display = "inline-block";
@@ -1460,6 +1697,8 @@
           access: entry?.access || null,
           temporary: Boolean(entry?.temporary),
           expiresAt: entry?.expiresAt || null,
+          currentVersion: Number(entry?.currentVersion) || 0,
+          versionCount: Number(entry?.versionCount) || 0,
         };
       }
 
@@ -1581,9 +1820,17 @@
         renderFolderPicker();
 
         const currentFolder = getCurrentFolder();
-        editFolderAccessBtn.disabled = !currentFolder || currentFolder.isRoot;
-        editFolderTemporaryBtn.disabled = !currentFolder || currentFolder.isRoot;
-        deleteFolderBtn.disabled = !currentFolder || currentFolder.isRoot;
+        const canEditFolder = Boolean(currentFolder?.canEdit || permissions.manageUsers);
+        const canEditCurrentFolder = Boolean(currentFolder && !currentFolder.isRoot && canEditFolder);
+
+        renameFolderBtn.style.display = canEditCurrentFolder ? "inline-block" : "none";
+        editFolderAccessBtn.style.display = canEditCurrentFolder ? "inline-block" : "none";
+        editFolderTemporaryBtn.style.display = canEditCurrentFolder ? "inline-block" : "none";
+        deleteFolderBtn.style.display = canEditCurrentFolder ? "inline-block" : "none";
+        renameFolderBtn.disabled = !canEditCurrentFolder;
+        editFolderAccessBtn.disabled = !canEditCurrentFolder;
+        editFolderTemporaryBtn.disabled = !canEditCurrentFolder;
+        deleteFolderBtn.disabled = !canEditCurrentFolder;
       }
 
       async function loadFolders() {
@@ -1715,26 +1962,48 @@
         }
       }
 
+      async function renomearPastaAtual() {
+        const folder = getCurrentFolder();
+        if (!folder || folder.isRoot) return;
+
+        const nameResult = await askText("Renomear pasta", "Novo nome da pasta:", folder.name);
+        if (!nameResult.confirmed) return;
+
+        const cleanName = nameResult.value.trim();
+        if (!cleanName) {
+          await showMessage("Informe um nome valido.");
+          return;
+        }
+
+        try {
+          const updatedFolder = await authJsonFetch(`/folders/${encodeURIComponent(folder.id)}/name`, {
+            method: "PUT",
+            body: JSON.stringify({ name: cleanName }),
+          });
+
+          await loadFolders();
+          currentFolderId = updatedFolder.id;
+          renderFolderSelect();
+          if (!historyView.hidden) loadHistory();
+        } catch (error) {
+          await showMessage(error.message || "Nao foi possivel renomear a pasta.");
+        }
+      }
+
       async function editarAcessosPasta() {
         const folder = getCurrentFolder();
         if (!folder || folder.isRoot) return;
 
-        const usersResult = await askText(
-          "Acessos da pasta",
-          "Usuarios permitidos separados por virgula:",
-          (folder.allowedUsers || []).join(", ")
-        );
-        if (!usersResult.confirmed) return;
+        folderPermissionsName.textContent = folder.name;
+        folderPermissionsOwner.textContent = "carregando...";
+        folderPermissionsUsers.innerHTML = '<p class="permissions-help">Carregando permissoes...</p>';
+        folderPermissionsModal.classList.add("open");
 
         try {
-          await authJsonFetch(`/folders/${encodeURIComponent(folder.id)}/access`, {
-            method: "PUT",
-            body: JSON.stringify({ allowedUsers: usersResult.value }),
-          });
-
-          await loadFolders();
+          const data = await authJsonFetch(`/folders/${encodeURIComponent(folder.id)}/access`);
+          renderFolderPermissions(data);
         } catch (error) {
-          await showMessage(error.message);
+          folderPermissionsUsers.innerHTML = `<p class="permissions-help">${escapeHtml(error.message || "Nao foi possivel carregar os acessos.")}</p>`;
         }
       }
 
@@ -1850,23 +2119,81 @@
         return `Temporario ate ${formatUploadedAt(expiresAt)}`;
       }
 
-      function buildPreviewButton(name, scope) {
+      function buildPreviewButton(name, scope, isEncrypted = false) {
+        if (isEncrypted) return "";
         if (!getFilePreviewKind(name)) return "";
         return `<button class="btn-small btn-preview" onclick="abrirPreview('${escapeJsString(name)}', '${scope}')">Preview</button>`;
       }
 
+      function buildDownloadButton(name) {
+        return `<button class="btn-small btn-download" onclick="baixarArquivo('${escapeJsString(name)}')" title="Download" aria-label="Download"><svg class="download-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11"></path><path d="M7 10l5 5 5-5"></path><path d="M5 19h14"></path></svg></button>`;
+      }
+
+      function buildVersionsButton(name) {
+        return `<button type="button" class="btn-icon-versions" onclick="abrirVersoesArquivo('${escapeJsString(name)}')" title="Historico de versoes" aria-label="Historico de versoes"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h10"></path><path d="M4 18h7"></path><path d="M17 15l3 3-3 3"></path></svg></button>`;
+      }
+
       function buildShareButton(name) {
-        return `<button class="btn-small btn-share" onclick="abrirCompartilhamento('${escapeJsString(name)}')">Compartilhar</button>`;
+        return `<button class="btn-small btn-share" onclick="closeFileOptionsMenus(); abrirCompartilhamento('${escapeJsString(name)}')">Compartilhar</button>`;
       }
 
       function buildPermissionsButton(file) {
         if (!permissions.manageUsers && !file.canManageAccess) return "";
-        return `<button class="btn-small btn-permissions" onclick="abrirPermissoesArquivo('${escapeJsString(file.name)}')">Permissoes</button>`;
+        return `<button class="btn-small btn-permissions" onclick="closeFileOptionsMenus(); abrirPermissoesArquivo('${escapeJsString(file.name)}')">Permissoes</button>`;
       }
 
       function buildTemporaryButton(file) {
         if (!file.canEdit) return "";
-        return `<button class="btn-small btn-temporary" onclick="editarTemporarioArquivo('${escapeJsString(file.name)}')">Temporario</button>`;
+        return `<button class="btn-small btn-temporary" onclick="closeFileOptionsMenus(); editarTemporarioArquivo('${escapeJsString(file.name)}')">Temporario</button>`;
+      }
+
+      function closeFileOptionsMenus(exceptMenu = null) {
+        document.querySelectorAll(".file-options.open").forEach((menu) => {
+          if (menu !== exceptMenu) menu.classList.remove("open");
+        });
+        openFileOptionsName = exceptMenu?.dataset.fileName || "";
+      }
+
+      function toggleFileOptions(event, button) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const menu = button.closest(".file-options");
+        const shouldOpen = !menu.classList.contains("open");
+
+        if (shouldOpen) {
+          closeFileOptionsMenus(menu);
+          menu.classList.add("open");
+          openFileOptionsName = menu.dataset.fileName || "";
+        } else {
+          menu.classList.remove("open");
+          openFileOptionsName = "";
+        }
+      }
+
+      function keepFileOptionsOpen(event) {
+        event.stopImmediatePropagation();
+      }
+
+      function buildFileOptionsMenu(file, safeJsName) {
+        const actions = [
+          buildShareButton(file.name),
+          buildPermissionsButton(file),
+          buildTemporaryButton(file),
+          file.canEdit ? `<button class="btn-small btn-rename" onclick="closeFileOptionsMenus(); renomear('${safeJsName}')">Renomear</button>` : "",
+          file.canEdit ? `<button class="btn-small btn-move" onclick="closeFileOptionsMenus(); moverArquivo('${safeJsName}')">Mover</button>` : "",
+        ].filter(Boolean);
+
+        if (!actions.length) return "";
+        const isOpen = openFileOptionsName === file.name;
+
+        return `
+          <div class="file-options${isOpen ? " open" : ""}" data-file-name="${escapeHtml(file.name)}">
+            <button type="button" class="btn-small file-options-toggle" onclick="toggleFileOptions(event, this)" aria-label="Mais opcoes">...</button>
+            <div class="file-options-menu" onclick="keepFileOptionsOpen(event)">
+              ${actions.join("")}
+            </div>
+          </div>
+        `;
       }
 
       function getHistoryActionLabel(action) {
@@ -1882,10 +2209,13 @@
           file_temporary_updated: "Atualizou temporariedade do arquivo",
           file_expired: "Arquivo temporario expirou",
           folder_created: "Criou pasta",
+          folder_renamed: "Renomeou pasta",
           folder_access_updated: "Atualizou acessos da pasta",
           folder_temporary_updated: "Atualizou temporariedade da pasta",
           folder_expired: "Pasta temporaria expirou",
           folder_deleted: "Excluiu pasta",
+          version_restored: "Restaurou versao",
+          version_deleted: "Deletou versao",
         };
 
         return labels[action] || "Atualizou arquivo";
@@ -2023,20 +2353,242 @@
       }
 
       async function abrirArquivo(name) {
-        try {
-          const response = await authFetch(`/files/${encodeURIComponent(name)}?${getFolderQuery()}`);
-          const payload = await response.blob();
+        if (getFileEncryption(name)?.isEncrypted) {
+          await baixarArquivo(name);
+          return;
+        }
 
-          if (!response.ok) {
-            const message = await payload.text().catch(() => "");
-            throw new Error(message || "Nao foi possivel abrir o arquivo.");
+        const openedWindow = window.open("about:blank", "_blank");
+
+        try {
+          const payload = await authJsonFetch("/file-open-token", {
+            method: "POST",
+            body: JSON.stringify({
+              folderId: currentFolderId,
+              name,
+              download: true,
+            }),
+          });
+
+          if (openedWindow) {
+            openedWindow.opener = null;
+            openedWindow.location.href = payload.url;
+          } else {
+            window.open(payload.url, "_blank", "noopener");
+          }
+        } catch (error) {
+          if (openedWindow) openedWindow.close();
+          await showMessage(error.message || "Nao foi possivel abrir o arquivo.");
+        }
+      }
+
+      async function baixarArquivo(name) {
+        try {
+          const encryption = await getEncryptionMetadata(name);
+          if (encryption?.isEncrypted) {
+            let password = "";
+            if (encryption.requiresPassword) {
+              const passwordResult = await askText(
+                "Senha do arquivo",
+                `Digite a senha para descriptografar ${encryption.originalFilename || name}:`
+              );
+              if (!passwordResult.confirmed) return;
+              password = passwordResult.value;
+            }
+
+            const response = await authFetch(`/encrypted-download/${encodeURIComponent(name)}?${getFolderQuery()}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ password }),
+            });
+
+            if (!response.ok) {
+              const error = await response.json().catch(() => ({}));
+              throw new Error(error.error || "Nao foi possivel descriptografar o arquivo.");
+            }
+
+            const blob = await response.blob();
+            const downloadUrl = URL.createObjectURL(blob);
+            const anchor = document.createElement("a");
+            anchor.href = downloadUrl;
+            anchor.download = encryption.originalFilename || name;
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+            URL.revokeObjectURL(downloadUrl);
+            return;
           }
 
-          const fileUrl = URL.createObjectURL(payload);
-          window.open(fileUrl, "_blank", "noopener");
-          setTimeout(() => URL.revokeObjectURL(fileUrl), 60000);
+          const hiddenFrameId = "downloadFrame";
+          let hiddenFrame = document.getElementById(hiddenFrameId);
+          if (!hiddenFrame) {
+            hiddenFrame = document.createElement("iframe");
+            hiddenFrame.id = hiddenFrameId;
+            hiddenFrame.name = hiddenFrameId;
+            hiddenFrame.style.display = "none";
+            document.body.appendChild(hiddenFrame);
+          }
+
+          const payload = await authJsonFetch("/file-open-token", {
+            method: "POST",
+            body: JSON.stringify({
+              folderId: currentFolderId,
+              name,
+            }),
+          });
+
+          hiddenFrame.src = payload.downloadUrl || `${payload.url}?download=1`;
         } catch (error) {
-          await showMessage(error.message || "Nao foi possivel abrir o arquivo.");
+          await showMessage(error.message || "Nao foi possivel baixar o arquivo.");
+        }
+      }
+
+      function closeVersionsModal() {
+        versionsModal.classList.remove("open");
+        versionsCurrentFile = "";
+        versionsList.innerHTML = "";
+      }
+
+      function renderVersions(data) {
+        const versions = Array.isArray(data.versions) ? data.versions : [];
+        const fileActions = Array.isArray(data.actionHistory) ? data.actionHistory : [];
+        const canRestore = Boolean(data.canRestore);
+        const canDeleteVersions = Boolean(data.canDeleteVersions);
+        const currentVersion = Number(data.currentVersion) || 0;
+
+        const versionRows = versions.map((version) => {
+          const versionNumber = Number(version.version) || 0;
+          const isCurrent = versionNumber === currentVersion;
+          const safeComment = escapeHtml(version.comment || "");
+          const safeUser = escapeHtml(version.uploadedBy || "sistema");
+          const meta = `${formatFileSize(version.size)} • ${formatUploadedAt(version.uploadedAt)} • ${safeUser}`;
+
+          return `
+            <div class="version-row">
+              <div>
+                <p class="version-title">v${versionNumber}${isCurrent ? " • atual" : ""}</p>
+                <p class="version-meta">${meta}</p>
+                ${safeComment ? `<p class="version-comment">${safeComment}</p>` : ""}
+              </div>
+              <div class="btn-group">
+                <button type="button" class="btn-small btn-download" onclick="baixarVersaoArquivo(${versionNumber})" title="Download" aria-label="Download"><svg class="download-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11"></path><path d="M7 10l5 5 5-5"></path><path d="M5 19h14"></path></svg></button>
+                ${canRestore && !isCurrent ? `<button class="btn-small btn-preview" onclick="restaurarVersaoArquivo(${versionNumber})">Restaurar</button>` : ""}
+                ${canDeleteVersions && !isCurrent ? `<button class="btn-small btn-delete" onclick="deletarVersaoArquivo(${versionNumber})">Excluir</button>` : ""}
+              </div>
+            </div>
+          `;
+        }).join("");
+
+        const actionRows = fileActions.map((entry) => {
+          const action = escapeHtml(getHistoryActionLabel(entry.action));
+          const actor = escapeHtml(entry.actor || "sistema");
+          const timestamp = escapeHtml(formatUploadedAt(entry.timestamp));
+          const fileLabel = escapeHtml(getHistoryFileLabel(entry));
+          const folderLabel = entry.details?.folderName ? `Pasta: ${escapeHtml(entry.details.folderName)}` : "";
+
+          return `
+            <div class="version-row">
+              <div>
+                <p class="version-title">${action}</p>
+                <p class="version-meta">${actor} • ${timestamp}</p>
+                <p class="version-comment">${fileLabel}${folderLabel ? ` • ${folderLabel}` : ""}</p>
+              </div>
+            </div>
+          `;
+        }).join("");
+
+        versionsList.innerHTML = `
+          <p class="version-section-title">Versoes</p>
+          ${versionRows || '<p class="version-meta">Nenhuma versao registrada.</p>'}
+          <p class="version-section-title">Historico do arquivo</p>
+          ${actionRows || '<p class="version-meta">Nenhuma acao registrada para este arquivo.</p>'}
+        `;
+      }
+
+      async function abrirVersoesArquivo(name) {
+        versionsCurrentFile = name;
+        versionFilename.textContent = name;
+        versionsList.innerHTML = '<p class="version-meta">Carregando versoes...</p>';
+        versionsModal.classList.add("open");
+
+        try {
+          const data = await authJsonFetch(`/versions/${encodeURIComponent(name)}?${getFolderQuery()}`);
+          renderVersions(data);
+          await loadFiles();
+        } catch (error) {
+          versionsList.innerHTML = `<p class="version-meta">${escapeHtml(error.message || "Nao foi possivel carregar as versoes.")}</p>`;
+        }
+      }
+
+      async function baixarVersaoArquivo(versionNumber) {
+        if (!versionsCurrentFile) return;
+
+        try {
+          const hiddenFrameId = "downloadFrame";
+          let hiddenFrame = document.getElementById(hiddenFrameId);
+          if (!hiddenFrame) {
+            hiddenFrame = document.createElement("iframe");
+            hiddenFrame.id = hiddenFrameId;
+            hiddenFrame.name = hiddenFrameId;
+            hiddenFrame.style.display = "none";
+            document.body.appendChild(hiddenFrame);
+          }
+
+          const payload = await authJsonFetch("/version-open-token", {
+            method: "POST",
+            body: JSON.stringify({
+              folderId: currentFolderId,
+              name: versionsCurrentFile,
+              version: versionNumber,
+            }),
+          });
+
+          hiddenFrame.src = payload.downloadUrl;
+        } catch (error) {
+          await showMessage(error.message || "Nao foi possivel baixar a versao.");
+        }
+      }
+
+      async function restaurarVersaoArquivo(versionNumber) {
+        if (!versionsCurrentFile) return;
+
+        const confirmation = await askConfirm(
+          "Restaurar versao",
+          `Restaurar a versao ${versionNumber} como arquivo atual?`,
+          "Restaurar"
+        );
+        if (!confirmation.confirmed) return;
+
+        try {
+          await authJsonFetch(`/restore/${encodeURIComponent(versionsCurrentFile)}/v/${versionNumber}?${getFolderQuery()}`, {
+            method: "POST",
+          });
+          await abrirVersoesArquivo(versionsCurrentFile);
+          await loadFiles();
+          if (!historyView.hidden) loadHistory();
+        } catch (error) {
+          await showMessage(error.message || "Nao foi possivel restaurar a versao.");
+        }
+      }
+
+      async function deletarVersaoArquivo(versionNumber) {
+        if (!versionsCurrentFile) return;
+
+        const confirmation = await askConfirm(
+          "Excluir versao",
+          `Excluir permanentemente a versao ${versionNumber}?`,
+          "Excluir"
+        );
+        if (!confirmation.confirmed) return;
+
+        try {
+          await authJsonFetch(`/versions/${encodeURIComponent(versionsCurrentFile)}/v/${versionNumber}?${getFolderQuery()}`, {
+            method: "DELETE",
+          });
+          await abrirVersoesArquivo(versionsCurrentFile);
+          if (!historyView.hidden) loadHistory();
+        } catch (error) {
+          await showMessage(error.message || "Nao foi possivel deletar a versao.");
         }
       }
 
@@ -2106,6 +2658,118 @@
         } catch {
           shareLink.select();
           shareMessage.textContent = "Nao consegui copiar automaticamente. O link esta selecionado.";
+        }
+      }
+
+      function closeFolderPermissionsModal() {
+        folderPermissionsModal.classList.remove("open");
+        folderPermissionsUsers.innerHTML = "";
+      }
+
+      function renderFolderPermissions(data) {
+        folderPermissionsName.textContent = data.folderName || getCurrentFolder()?.name || "Pasta";
+        folderPermissionsOwner.textContent = data.owner || "sistema";
+
+        const users = Array.isArray(data.eligibleUsers) ? data.eligibleUsers : [];
+        const configuredUsers = data.users && typeof data.users === "object" ? data.users : {};
+
+        if (!users.length) {
+          folderPermissionsUsers.innerHTML = '<p class="permissions-help">Nenhum usuario disponivel.</p>';
+          return;
+        }
+
+        folderPermissionsUsers.innerHTML = users.map((user) => {
+          const userAccess = configuredUsers[user.username] || {};
+          const safeUsername = escapeHtml(user.username);
+          const safeValue = escapeHtml(user.username);
+
+          return `
+            <div class="permissions-user-row" data-user="${safeValue}">
+              <span title="${safeUsername}">${safeUsername}</span>
+              <label><input type="checkbox" class="perm-read" ${userAccess.read || userAccess.edit ? "checked" : ""} /> Ler</label>
+              <label><input type="checkbox" class="perm-edit" ${userAccess.edit ? "checked" : ""} /> Editar</label>
+            </div>
+          `;
+        }).join("");
+
+        folderPermissionsUsers.querySelectorAll(".permissions-user-row").forEach((row) => {
+          const readInput = row.querySelector(".perm-read");
+          const editInput = row.querySelector(".perm-edit");
+
+          editInput.addEventListener("change", () => {
+            if (editInput.checked) readInput.checked = true;
+          });
+
+          readInput.addEventListener("change", () => {
+            if (!readInput.checked) editInput.checked = false;
+          });
+        });
+      }
+
+      function scheduleRealtimeRefresh() {
+        clearTimeout(realtimeRefreshTimer);
+        realtimeRefreshTimer = setTimeout(() => {
+          loadFolders().then(() => {
+            loadFiles();
+            loadPending();
+            if (!historyView.hidden) loadHistory();
+          });
+        }, 150);
+      }
+
+      function connectRealtime() {
+        if (!token || realtimeSocket?.readyState === WebSocket.OPEN) return;
+
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        realtimeSocket = new WebSocket(`${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`);
+
+        realtimeSocket.addEventListener("message", (event) => {
+          let message = {};
+          try {
+            message = JSON.parse(event.data);
+          } catch {
+            return;
+          }
+
+          if (message.event === "data:changed") {
+            scheduleRealtimeRefresh();
+          }
+        });
+
+        realtimeSocket.addEventListener("close", () => {
+          clearTimeout(realtimeReconnectTimer);
+          realtimeReconnectTimer = setTimeout(connectRealtime, 3000);
+        });
+      }
+
+      async function salvarPermissoesPasta() {
+        const folder = getCurrentFolder();
+        if (!folder || folder.isRoot) return;
+
+        const users = {};
+        folderPermissionsUsers.querySelectorAll(".permissions-user-row").forEach((row) => {
+          const read = row.querySelector(".perm-read")?.checked;
+          const edit = row.querySelector(".perm-edit")?.checked;
+          if (read || edit) {
+            users[row.dataset.user] = { read: Boolean(read || edit), edit: Boolean(edit) };
+          }
+        });
+
+        folderPermissionsSave.disabled = true;
+
+        try {
+          await authJsonFetch(`/folders/${encodeURIComponent(folder.id)}/access`, {
+            method: "PUT",
+            body: JSON.stringify({ users }),
+          });
+
+          closeFolderPermissionsModal();
+          await loadFolders();
+          if (!historyView.hidden) loadHistory();
+        } catch (error) {
+          await showMessage(error.message || "Nao foi possivel salvar os acessos da pasta.");
+        } finally {
+          folderPermissionsSave.disabled = false;
         }
       }
 
@@ -2283,6 +2947,8 @@
             const safeJsName = escapeJsString(file.name);
             const temporaryLabel = file.expiresAt ? ` • ${formatExpirationLabel(file.expiresAt)}` : "";
             const metadata = `${formatFileSize(file.size)} • ${formatUploadedAt(file.uploadedAt)}${temporaryLabel}`;
+            const encrypted = Boolean(file.encryption?.isEncrypted);
+            const encryptionBadge = encrypted ? `<span class="encrypted-badge" title="Arquivo criptografado">LOCK</span>` : "";
 
             if (mode === "public") {
               return `
@@ -2291,21 +2957,18 @@
                     <div class="file-title">
                       <span class="file-icon">${getFileIcon(file.name)}</span>
                       <button type="button" class="file-name file-open" onclick="abrirArquivo('${safeJsName}')" title="${safeHtmlName}">${shortHtmlName}</button>
+                      ${encryptionBadge}
                     </div>
                     <span class="file-meta">${metadata}</span>
                   </div>
                   <div class="btn-group">
-                    ${buildPreviewButton(file.name, "public")}
-                    ${buildShareButton(file.name)}
-                    ${buildPermissionsButton(file)}
-                    ${buildTemporaryButton(file)}
+                    ${buildVersionsButton(file.name)}
+                    ${buildPreviewButton(file.name, "public", encrypted)}
+                    ${buildDownloadButton(file.name)}
                     ${file.canEdit
-                      ? `
-                        <button class="btn-small btn-rename" onclick="renomear('${safeJsName}')">Renomear</button>
-                        <button class="btn-small btn-move" onclick="moverArquivo('${safeJsName}')">Mover</button>
-                        <button class="btn-small btn-delete" onclick="excluir('${safeJsName}')">Excluir</button>
-                      `
+                      ? `<button class="btn-small btn-delete" onclick="excluir('${safeJsName}')">Excluir</button>`
                       : ""}
+                    ${buildFileOptionsMenu(file, safeJsName)}
                   </div>
                 </li>`;
             }
@@ -2316,11 +2979,12 @@
                   <div class="file-title">
                     <span class="file-icon">${getFileIcon(file.name)}</span>
                     <span class="file-name" title="${safeHtmlName}">${shortHtmlName}</span>
+                    ${encryptionBadge}
                   </div>
                   <span class="file-meta">${metadata}</span>
                 </div>
                 <div class="btn-group">
-                  ${buildPreviewButton(file.name, "pending")}
+                  ${buildPreviewButton(file.name, "pending", encrypted)}
                   ${permissions.approve
                     ? `
                       <button class="btn-small btn-approve" onclick="aprovar('${safeJsName}')">Aprovar</button>
@@ -2337,24 +3001,239 @@
 
       const dropzone = document.getElementById("dropzone");
       const fileInput = document.getElementById("fileInput");
+      const encryptionLevelInput = document.getElementById("encryptionLevel");
+      const filePasswordInput = document.getElementById("filePassword");
+      const encryptionPasswordField = document.getElementById("encryptionPasswordField");
+      const encryptedExpiresInput = document.getElementById("encryptedExpiresInDays");
+      const maxBatchUploadFiles = 10;
+      const largeUploadCompressionBytes = 10 * 1024 * 1024;
+      const largeChunkedUploadBytes = 5 * 1024 * 1024;
+      const uploadChunkBytes = 8 * 1024 * 1024;
 
-      async function enviarArquivo(file) {
+      function supportsUploadCompression() {
+        return typeof CompressionStream !== "undefined" && typeof Blob !== "undefined";
+      }
+
+      function getSelectedEncryptionOptions() {
+        const encryptionLevel = encryptionLevelInput?.value || "none";
+        const password = filePasswordInput?.value || "";
+        const expiresInDays = encryptedExpiresInput?.value || "";
+
+        if ((encryptionLevel === "password" || encryptionLevel === "dual") && password.length < 8) {
+          throw new Error("Senha de criptografia deve ter no minimo 8 caracteres.");
+        }
+
+        return { encryptionLevel, password, expiresInDays };
+      }
+
+      function appendEncryptionOptions(formData, options) {
+        formData.append("encryptionLevel", options.encryptionLevel || "none");
+        if (options.password) formData.append("password", options.password);
+        if (options.expiresInDays) formData.append("expiresInDays", options.expiresInDays);
+      }
+
+      function getFileEncryption(name) {
+        const file = publicFiles.find((item) => item.name === name) || pendingFiles.find((item) => item.name === name);
+        return file?.encryption || null;
+      }
+
+      async function getEncryptionMetadata(name) {
+        const response = await authFetch(`/encrypted/${encodeURIComponent(name)}/metadata?${getFolderQuery()}`);
+        const metadata = await response.json().catch(() => ({}));
+        if (response.status === 404) {
+          return getFileEncryption(name);
+        }
+        if (!response.ok) {
+          throw new Error(metadata.error || "Acesso negado a este arquivo");
+        }
+        return metadata?.isEncrypted ? metadata : null;
+      }
+
+      function shouldCompressUpload(file) {
+        if (!supportsUploadCompression()) return false;
+        if (!file || file.size < largeUploadCompressionBytes) return false;
+
+        const extension = file.name.split(".").pop()?.toLowerCase() || "";
+        const alreadyCompressed = new Set([
+          "zip", "rar", "7z", "gz", "bz2", "xz", "jpg", "jpeg", "png", "gif", "webp", "mp4",
+          "mov", "avi", "mkv", "mp3", "wav", "ogg", "pdf", "docx", "xlsx", "pptx",
+          "exe", "msi", "dll", "bin", "iso", "apk", "appx", "deb", "rpm", "dmg"
+        ]);
+
+        return !alreadyCompressed.has(extension);
+      }
+
+      async function gzipFileForUpload(file) {
+        if (!shouldCompressUpload(file)) {
+          return { file, compressed: false, originalSize: file.size };
+        }
+
+        const stream = file.stream().pipeThrough(new CompressionStream("gzip"));
+        const compressedBlob = await new Response(stream).blob();
+
+        if (compressedBlob.size >= file.size) {
+          return { file, compressed: false, originalSize: file.size };
+        }
+
+        const compressedFile = new File([compressedBlob], file.name, {
+          type: "application/gzip",
+          lastModified: file.lastModified,
+        });
+
+        return {
+          file: compressedFile,
+          compressed: true,
+          originalSize: file.size,
+          compressedSize: compressedBlob.size,
+        };
+      }
+
+      function createUploadId() {
+        if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+        return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      }
+
+      async function enviarArquivoEmBlocos(file, versionComment, encryptionOptions, onProgress) {
+        const uploadId = createUploadId();
+        const totalChunks = Math.ceil(file.size / uploadChunkBytes);
+        let finalPayload = null;
+
+        for (let index = 0; index < totalChunks; index += 1) {
+          const start = index * uploadChunkBytes;
+          const end = Math.min(file.size, start + uploadChunkBytes);
+          const chunk = file.slice(start, end);
+          let lastError = null;
+
+          for (let attempt = 1; attempt <= 3; attempt += 1) {
+            try {
+              const data = new FormData();
+              data.append("uploadId", uploadId);
+              data.append("originalName", file.name);
+              data.append("chunkIndex", String(index));
+              data.append("totalChunks", String(totalChunks));
+              if (index === 0 && versionComment) data.append("versionComment", versionComment);
+              if (index === 0) appendEncryptionOptions(data, encryptionOptions);
+              data.append("chunk", chunk, file.name);
+
+              finalPayload = await new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+
+                xhr.upload.addEventListener("progress", (e) => {
+                  if (!e.lengthComputable) return;
+                  const chunkProgress = e.loaded / e.total;
+                  const pct = Math.min(99, Math.round(((index + chunkProgress) / totalChunks) * 100));
+                  onProgress(pct);
+                });
+
+                xhr.addEventListener("load", () => {
+                  let payload = {};
+                  try {
+                    payload = JSON.parse(xhr.responseText || "{}");
+                  } catch {}
+
+                  if (xhr.status >= 400) {
+                    reject(new Error(payload.error || "Upload em blocos nao concluido."));
+                    return;
+                  }
+
+                  resolve(payload);
+                });
+
+                xhr.addEventListener("error", () => reject(new Error("Conexao interrompida durante o upload.")));
+                xhr.open("POST", `/upload-chunk?${getFolderQuery()}`);
+                xhr.setRequestHeader("Authorization", "Bearer " + token);
+                xhr.send(data);
+              });
+              lastError = null;
+              break;
+            } catch (error) {
+              lastError = error;
+              if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 600 * attempt));
+            }
+          }
+
+          if (lastError) throw lastError;
+        }
+
+        return finalPayload || {};
+      }
+
+      function getUploadBatch(files) {
+        return Array.from(files || []).filter((file) => file && file.name).slice(0, maxBatchUploadFiles);
+      }
+
+      async function enviarArquivos(files) {
+        const selectedFiles = getUploadBatch(files);
+        if (!selectedFiles.length) return;
+
+        if ((files?.length || 0) > maxBatchUploadFiles) {
+          await showMessage(`Limite de ${maxBatchUploadFiles} arquivos por envio. Vou enviar apenas os primeiros ${maxBatchUploadFiles}.`);
+        }
+
+        for (let index = 0; index < selectedFiles.length; index += 1) {
+          await enviarArquivo(selectedFiles[index], {
+            batchIndex: index + 1,
+            batchTotal: selectedFiles.length,
+          });
+        }
+      }
+
+      async function enviarArquivo(file, batchInfo = null) {
         const wrapper = document.getElementById("progressWrapper");
         const bar = document.getElementById("progressBar");
         const percent = document.getElementById("progressPercent");
         const filename = document.getElementById("progressFilename");
         const uploadFileName = shortenUploadFileName(file.name);
+        let versionComment = "";
+        let encryptionOptions;
+
+        if (publicFiles.some((item) => item.name === uploadFileName)) {
+          const commentResult = await askText(
+            "Nova versao",
+            "Arquivo ja existe. Descreva as mudancas (opcional):"
+          );
+          versionComment = commentResult.confirmed ? commentResult.value.trim() : "";
+        }
 
         wrapper.style.display = "flex";
-        filename.textContent = uploadFileName;
+        filename.textContent = batchInfo ? `${batchInfo.batchIndex}/${batchInfo.batchTotal} - ${uploadFileName}` : uploadFileName;
         filename.title = uploadFileName === file.name ? file.name : `Original: ${file.name}`;
         bar.style.width = "0%";
-        percent.textContent = "0%";
-
-        const data = new FormData();
-        data.append("file", file);
+        percent.textContent = file.size >= largeChunkedUploadBytes
+          ? "preparando blocos..."
+          : shouldCompressUpload(file) ? "compactando..." : "0%";
 
         try {
+          encryptionOptions = getSelectedEncryptionOptions();
+          if (file.size >= largeChunkedUploadBytes) {
+            const payload = await enviarArquivoEmBlocos(file, versionComment, encryptionOptions, (pct) => {
+              bar.style.width = pct + "%";
+              percent.textContent = pct + "%";
+            });
+
+            if (payload.fileName) {
+              filename.textContent = payload.fileName;
+              filename.title = payload.renamed ? `Original: ${payload.originalName}` : payload.fileName;
+            }
+
+            bar.style.width = "100%";
+            percent.textContent = "100%";
+            setTimeout(() => {
+              wrapper.style.display = "none";
+              bar.style.width = "0%";
+            }, 1200);
+          } else {
+          const data = new FormData();
+          const preparedUpload = await gzipFileForUpload(file);
+          if (preparedUpload.compressed) {
+            data.append("rootarkCompression", "gzip");
+            data.append("rootarkOriginalSize", String(preparedUpload.originalSize));
+          }
+          data.append("file", preparedUpload.file, file.name);
+          appendEncryptionOptions(data, encryptionOptions);
+          if (versionComment) data.append("versionComment", versionComment);
+          percent.textContent = "0%";
+
           await new Promise((resolve, reject) => {
           const xhr = new XMLHttpRequest();
 
@@ -2396,10 +3275,13 @@
           xhr.setRequestHeader("Authorization", "Bearer " + token);
           xhr.send(data);
           });
+          }
 
-          loadFiles();
-          loadPending();
-          if (!historyView.hidden) loadHistory();
+          if (!batchInfo || batchInfo.batchIndex === batchInfo.batchTotal) {
+            loadFiles();
+            loadPending();
+            if (!historyView.hidden) loadHistory();
+          }
         } catch (error) {
           wrapper.style.display = "none";
           bar.style.width = "0%";
@@ -2409,8 +3291,17 @@
       }
 
       fileInput.onchange = () => {
-        if (fileInput.files[0]) enviarArquivo(fileInput.files[0]);
+        enviarArquivos(fileInput.files);
+        fileInput.value = "";
       };
+
+      encryptionLevelInput?.addEventListener("change", () => {
+        const level = encryptionLevelInput.value;
+        const needsPassword = level === "password" || level === "dual";
+        encryptionPasswordField.style.display = needsPassword ? "block" : "none";
+        encryptedExpiresInput.style.display = level === "none" ? "none" : "block";
+        if (!needsPassword) filePasswordInput.value = "";
+      });
 
       dropzone.ondragover = (e) => {
         e.preventDefault();
@@ -2424,7 +3315,7 @@
       dropzone.ondrop = (e) => {
         e.preventDefault();
         dropzone.classList.remove("dragover");
-        if (e.dataTransfer.files[0]) enviarArquivo(e.dataTransfer.files[0]);
+        enviarArquivos(e.dataTransfer.files);
       };
 
       async function loadFiles() {
@@ -2532,6 +3423,7 @@
       shareDurationOptions.addEventListener("click", escolherDuracaoCompartilhamento);
       shareViewsOptions.addEventListener("click", escolherVisualizacoesCompartilhamento);
       createFolderBtn.addEventListener("click", criarPasta);
+      renameFolderBtn.addEventListener("click", renomearPastaAtual);
       editFolderAccessBtn.addEventListener("click", editarAcessosPasta);
       editFolderTemporaryBtn.addEventListener("click", editarTemporarioPasta);
       deleteFolderBtn.addEventListener("click", excluirPastaAtual);
@@ -2543,6 +3435,9 @@
       shareClose.addEventListener("click", closeShareModal);
       shareCreate.addEventListener("click", gerarLinkCompartilhamento);
       shareCopy.addEventListener("click", copiarLinkCompartilhamento);
+      folderPermissionsCancel.addEventListener("click", closeFolderPermissionsModal);
+      folderPermissionsSave.addEventListener("click", salvarPermissoesPasta);
+      versionsClose.addEventListener("click", closeVersionsModal);
       permissionsCancel.addEventListener("click", closeFilePermissionsModal);
       permissionsSave.addEventListener("click", salvarPermissoesArquivo);
       shareModal.addEventListener("click", (event) => {
@@ -2550,6 +3445,12 @@
       });
       filePermissionsModal.addEventListener("click", (event) => {
         if (event.target === filePermissionsModal) closeFilePermissionsModal();
+      });
+      folderPermissionsModal.addEventListener("click", (event) => {
+        if (event.target === folderPermissionsModal) closeFolderPermissionsModal();
+      });
+      versionsModal.addEventListener("click", (event) => {
+        if (event.target === versionsModal) closeVersionsModal();
       });
       actionModal.addEventListener("click", (event) => {
         if (event.target === actionModal && actionCancel.style.display !== "none") {
@@ -2562,6 +3463,9 @@
         }
       });
       document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          closeFileOptionsMenus();
+        }
         if (event.key === "Escape" && selectModal.classList.contains("open")) {
           selectCancel.click();
         }
@@ -2576,6 +3480,17 @@
         }
         if (event.key === "Escape" && filePermissionsModal.classList.contains("open")) {
           closeFilePermissionsModal();
+        }
+        if (event.key === "Escape" && folderPermissionsModal.classList.contains("open")) {
+          closeFolderPermissionsModal();
+        }
+        if (event.key === "Escape" && versionsModal.classList.contains("open")) {
+          closeVersionsModal();
+        }
+      });
+      document.addEventListener("pointerdown", (event) => {
+        if (!event.target.closest(".file-options")) {
+          closeFileOptionsMenus();
         }
       });
       renderShareDurationOptions();
@@ -2615,11 +3530,7 @@
         loadFiles();
         loadPending();
       });
-      setInterval(() => {
-        loadFiles();
-        loadPending();
-        if (!historyView.hidden) loadHistory();
-      }, 1000);
+      connectRealtime();
     </script>
   </body>
 </html>
