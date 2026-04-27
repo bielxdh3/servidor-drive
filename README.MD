@@ -39,5 +39,5 @@ Persistência: API REST integrada para manipulação de metadados das pastas e a
 
 - Gabriel Mocelin dos Pintos
 - Anthropic Claude AI
-- Jouberth Alves Macedo
+- Jouberth Alves Rola
 ```
