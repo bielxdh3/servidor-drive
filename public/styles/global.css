@@ -35,17 +35,25 @@
 
   /* GRADIENTE */
 
-  --blue-gradient: linear-gradient(#044879 0%, #60a0ce 100%)
+  --blue-gradient: linear-gradient(#044879 0%, #60a0ce 100%);
 }
-
 
 body {
   background-color: var(--bg-primary);
   overflow-x: hidden;
-  overflow-y: hidden;
   min-height: 100vh;
+}
+
+.index {
+  overflow-y: hidden;
 }
 
 body::before {
   display: none;
+}
+
+@media (width < 900px) {
+  body {
+    overflow-y: auto;
+  }
 }
