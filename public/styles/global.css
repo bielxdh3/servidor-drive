@@ -45,7 +45,7 @@ body {
 }
 
 .index {
-  overflow-y: hidden;
+  overflow-y: auto;
 }
 
 body::before {
