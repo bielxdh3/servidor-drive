@@ -641,6 +641,22 @@
         object-fit: contain;
       }
 
+      .preview-media {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 18px;
+      }
+
+      .preview-media audio,
+      .preview-media video {
+        width: min(100%, 900px);
+        max-height: 100%;
+        outline: none;
+      }
+
       .preview-frame {
         width: 100%;
         height: 100%;
@@ -657,15 +673,47 @@
         word-break: break-word;
       }
 
+      .preview-code-key {
+        color: #60a0ce;
+      }
+
+      .preview-code-string {
+        color: #9ad6ff;
+      }
+
+      .preview-code-number {
+        color: #7ee0b2;
+      }
+
+      .preview-code-comment {
+        color: #8a8a8a;
+      }
+
       .preview-empty {
         height: 100%;
         display: flex;
+        flex-direction: column;
+        gap: 14px;
         align-items: center;
         justify-content: center;
         color: #8a8a8a;
         font: var(--p-md);
         padding: 24px;
         text-align: center;
+      }
+
+      .file-thumb {
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        object-fit: cover;
+        border: 1px solid rgba(96, 160, 206, 0.5);
+        background: #0b0b0c;
+        display: none;
+      }
+
+      .file-thumb.loaded {
+        display: inline-block;
       }
 
       .share-card {
@@ -932,6 +980,20 @@
         color: #60a0ce;
       }
 
+      .trash-actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .trash-summary {
+        color: #8a8a8a;
+        font: var(--p-sm);
+        margin-bottom: 12px;
+      }
+
       .history-empty {
         justify-content: flex-start;
         font: var(--p-md);
@@ -984,6 +1046,7 @@
     <nav class="side-nav" aria-label="Navegacao principal">
       <button type="button" class="side-nav-button active" id="navFiles" onclick="openFilesTab()">Arquivos</button>
       <button type="button" class="side-nav-button" id="navHistory" onclick="openHistoryTab()">Historico</button>
+      <button type="button" class="side-nav-button" id="navTrash" onclick="openTrashTab()">Lixeira</button>
     </nav>
 
     <div class="container">
@@ -1111,6 +1174,22 @@
         </div>
         <ul class="history-list" id="historyList">
           <li class="history-empty">Nenhuma acao registrada ainda.</li>
+        </ul>
+      </section>
+
+      <section class="history-panel app-view" id="trashView" hidden>
+        <div class="history-header">
+          <div>
+            <h2>Lixeira</h2>
+            <p class="trash-summary" id="trashSummary">Arquivos e pastas excluidos ficam aqui antes da exclusao definitiva.</p>
+          </div>
+          <div class="trash-actions">
+            <button type="button" class="history-refresh" id="trashRefresh">Atualizar</button>
+            <button type="button" class="history-refresh" id="trashEmpty" style="display: none">Esvaziar</button>
+          </div>
+        </div>
+        <ul class="history-list" id="trashList">
+          <li class="history-empty">Nenhum item na lixeira.</li>
         </ul>
       </section>
     </div>
@@ -1283,6 +1362,8 @@
           folder_temporary_updated: "Atualizou temporariedade da pasta",
           folder_expired: "Pasta temporaria expirou",
           folder_deleted: "Excluiu pasta",
+          trash_file_restored: "Restaurou arquivo da lixeira",
+          trash_folder_restored: "Restaurou pasta da lixeira",
           version_restored: "Restaurou versao",
           version_deleted: "Deletou versao",
         };
@@ -1311,32 +1392,42 @@
       window.openFilesTab = function openFilesTab() {
         const filesView = document.getElementById("filesView");
         const historyView = document.getElementById("historyView");
+        const trashView = document.getElementById("trashView");
         const navFiles = document.getElementById("navFiles");
         const navHistory = document.getElementById("navHistory");
+        const navTrash = document.getElementById("navTrash");
 
         filesView.hidden = false;
         historyView.hidden = true;
+        trashView.hidden = true;
         filesView.style.display = "";
         historyView.style.display = "none";
+        trashView.style.display = "none";
         navFiles.classList.add("active");
         navHistory.classList.remove("active");
+        navTrash.classList.remove("active");
         window.scrollTo({ top: 0, left: 0, behavior: "auto" });
       };
 
       window.openHistoryTab = async function openHistoryTab() {
         const filesView = document.getElementById("filesView");
         const historyView = document.getElementById("historyView");
+        const trashView = document.getElementById("trashView");
         const historyList = document.getElementById("historyList");
         const navFiles = document.getElementById("navFiles");
         const navHistory = document.getElementById("navHistory");
+        const navTrash = document.getElementById("navTrash");
         const token = localStorage.getItem("token");
 
         filesView.hidden = true;
         historyView.hidden = false;
+        trashView.hidden = true;
         filesView.style.display = "none";
         historyView.style.display = "block";
+        trashView.style.display = "none";
         navFiles.classList.remove("active");
         navHistory.classList.add("active");
+        navTrash.classList.remove("active");
         window.scrollTo({ top: 0, left: 0, behavior: "auto" });
 
         historyList.innerHTML = '<li class="history-empty">Carregando historico...</li>';
@@ -1385,6 +1476,30 @@
           historyList.innerHTML = `<li class="history-empty">${rootarkEscapeHtml(error.message || "Falha ao carregar historico.")}</li>`;
         }
       };
+
+      window.openTrashTab = async function openTrashTab() {
+        const filesView = document.getElementById("filesView");
+        const historyView = document.getElementById("historyView");
+        const trashView = document.getElementById("trashView");
+        const navFiles = document.getElementById("navFiles");
+        const navHistory = document.getElementById("navHistory");
+        const navTrash = document.getElementById("navTrash");
+
+        filesView.hidden = true;
+        historyView.hidden = true;
+        trashView.hidden = false;
+        filesView.style.display = "none";
+        historyView.style.display = "none";
+        trashView.style.display = "block";
+        navFiles.classList.remove("active");
+        navHistory.classList.remove("active");
+        navTrash.classList.add("active");
+        window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+
+        if (typeof loadTrash === "function") {
+          loadTrash();
+        }
+      };
     </script>
 
     <script src="./background-matrix.js?v=12"></script>
@@ -1413,6 +1528,7 @@
       let versionsCurrentFile = "";
       let openFileOptionsName = "";
       let actionHistory = [];
+      let trashCanManage = false;
       let folders = [];
       let currentFolderId = "root";
       let realtimeSocket = null;
@@ -1421,10 +1537,16 @@
 
       const navFiles = document.getElementById("navFiles");
       const navHistory = document.getElementById("navHistory");
+      const navTrash = document.getElementById("navTrash");
       const filesView = document.getElementById("filesView");
       const historyView = document.getElementById("historyView");
+      const trashView = document.getElementById("trashView");
       const historyList = document.getElementById("historyList");
       const historyRefresh = document.getElementById("historyRefresh");
+      const trashList = document.getElementById("trashList");
+      const trashSummary = document.getElementById("trashSummary");
+      const trashRefresh = document.getElementById("trashRefresh");
+      const trashEmpty = document.getElementById("trashEmpty");
       const folderSelect = document.getElementById("folderSelect");
       const folderPicker = document.getElementById("folderPicker");
       const createFolderBtn = document.getElementById("createFolderBtn");
@@ -1505,6 +1627,7 @@
         document.getElementById("sectionPending").style.display = "block";
       }
       navHistory.style.display = "block";
+      navTrash.style.display = permissions.listFiles ? "block" : "none";
       if (permissions.manageUsers || permissions.createFolders) {
         createFolderBtn.style.display = "inline-block";
       }
@@ -1520,7 +1643,7 @@
           ...opts,
           headers: { Authorization: "Bearer " + token, ...(opts.headers || {}) },
         }).then((response) => {
-          if (response.status === 401) {
+          if (response.status === 401 && opts.logoutOnUnauthorized !== false) {
             forceLogout();
             throw new Error("Sessao expirada. Faca login novamente.");
           }
@@ -2012,9 +2135,9 @@
         if (!folder || folder.isRoot) return;
 
         const confirmation = await askConfirm(
-          "Excluir pasta",
-          `Excluir a pasta "${folder.name}" e todos os arquivos dela?`,
-          "Excluir"
+          "Mover pasta para lixeira",
+          `Mover a pasta "${folder.name}" e todos os arquivos dela para a lixeira?`,
+          "Mover"
         );
         if (!confirmation.confirmed) return;
 
@@ -2025,6 +2148,7 @@
           loadFiles();
           loadPending();
           if (!historyView.hidden) loadHistory();
+          if (!trashView.hidden) loadTrash();
         } catch (error) {
           await showMessage(error.message || "Nao foi possivel excluir a pasta.");
         }
@@ -2088,9 +2212,16 @@
 
         if (["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp"].includes(extension)) return "image";
         if (["pdf"].includes(extension)) return "pdf";
-        if (["txt", "doc", "docx"].includes(extension)) return "text";
+        if (["mp3", "wav", "ogg", "oga", "flac", "m4a"].includes(extension)) return "audio";
+        if (["mp4", "webm", "mov", "m4v"].includes(extension)) return "video";
+        if (["doc", "docx"].includes(extension)) return "document";
+        if ([
+          "txt", "json", "js", "mjs", "cjs", "css", "html", "htm", "md", "csv", "xml",
+          "yml", "yaml", "log", "ini", "env", "sql", "sh", "bat", "ps1", "py", "java",
+          "c", "cpp", "h", "hpp", "cs", "php", "rb", "go", "rs", "ts", "tsx", "jsx",
+        ].includes(extension)) return "text";
 
-        return null;
+        return "unsupported";
       }
 
       function formatFileSize(bytes) {
@@ -2121,7 +2252,6 @@
 
       function buildPreviewButton(name, scope, isEncrypted = false) {
         if (isEncrypted) return "";
-        if (!getFilePreviewKind(name)) return "";
         return `<button class="btn-small btn-preview" onclick="abrirPreview('${escapeJsString(name)}', '${scope}')">Preview</button>`;
       }
 
@@ -2194,6 +2324,11 @@
             </div>
           </div>
         `;
+      }
+
+      function buildThumbnail(file, scope) {
+        if (getFilePreviewKind(file.name) !== "image" || file.encryption?.isEncrypted) return "";
+        return `<img class="file-thumb" data-thumb-name="${escapeHtml(file.name)}" data-thumb-scope="${scope}" alt="" loading="lazy" />`;
       }
 
       function getHistoryActionLabel(action) {
@@ -2280,7 +2415,117 @@
         }
       }
 
+      function getTrashItemName(item) {
+        return item.originalFileName || item.originalFolderName || "Item desconhecido";
+      }
+
+      function renderTrash(items = []) {
+        if (!items.length) {
+          trashList.innerHTML = '<li class="history-empty">Nenhum item na lixeira.</li>';
+          trashSummary.textContent = "Arquivos e pastas excluidos ficam aqui antes da exclusao definitiva.";
+          return;
+        }
+
+        const totalSize = items.reduce((sum, item) => sum + (Number(item.sizeBytes) || 0), 0);
+        trashSummary.textContent = `${items.length} item(ns) na lixeira • ${formatFileSize(totalSize)}`;
+        trashList.innerHTML = items
+          .map((item) => {
+            const name = escapeHtml(getTrashItemName(item));
+            const folder = escapeHtml(item.originalFolderName || "Arquivos atuais");
+            const type = item.itemType === "folder" ? "Pasta" : "Arquivo";
+            const icon = item.itemType === "folder" ? "DIR" : getFileIcon(item.originalFileName || "");
+            const deletedBy = escapeHtml(item.deletedBy || "sistema");
+            const deletedAt = escapeHtml(formatUploadedAt(item.deletedAt));
+            const size = formatFileSize(item.sizeBytes);
+            const deleteButton = trashCanManage
+              ? `<button type="button" class="btn-small btn-delete" onclick="excluirDefinitivoLixeira('${escapeJsString(item.id)}')">Excluir definitivo</button>`
+              : "";
+
+            return `
+              <li class="history-item">
+                <div>
+                  <p class="history-action"><span class="file-icon">${icon}</span> ${type}: ${name}</p>
+                  <p class="history-file" title="${name}">Origem: ${folder}</p>
+                  <p class="history-file">${size}</p>
+                </div>
+                <div class="history-meta">
+                  <span>Excluido por: <strong>${deletedBy}</strong></span>
+                  <span>${deletedAt}</span>
+                  <div class="trash-actions">
+                    <button type="button" class="btn-small btn-approve" onclick="restaurarDaLixeira('${escapeJsString(item.id)}')">Restaurar</button>
+                    ${deleteButton}
+                  </div>
+                </div>
+              </li>`;
+          })
+          .join("");
+      }
+
+      async function loadTrash() {
+        trashList.innerHTML = '<li class="history-empty">Carregando lixeira...</li>';
+        try {
+          const payload = await authJsonFetch("/trash");
+          trashCanManage = Boolean(payload.canManageTrash);
+          trashEmpty.style.display = trashCanManage ? "inline-block" : "none";
+          renderTrash(payload.items || []);
+        } catch (error) {
+          trashList.innerHTML = `<li class="history-empty">${escapeHtml(error.message || "Falha ao carregar lixeira.")}</li>`;
+        }
+      }
+
+      async function restaurarDaLixeira(id) {
+        try {
+          await authJsonFetch(`/trash/${encodeURIComponent(id)}/restore`, { method: "POST" });
+          await loadFolders();
+          loadFiles();
+          loadPending();
+          loadTrash();
+          if (!historyView.hidden) loadHistory();
+        } catch (error) {
+          await showMessage(error.message || "Nao foi possivel restaurar o item.");
+        }
+      }
+
+      async function excluirDefinitivoLixeira(id) {
+        const confirmation = await askConfirm(
+          "Excluir definitivamente",
+          "Essa acao remove o item da lixeira e nao pode ser desfeita.",
+          "Excluir definitivo"
+        );
+        if (!confirmation.confirmed) return;
+
+        try {
+          await authJsonFetch(`/trash/${encodeURIComponent(id)}`, { method: "DELETE" });
+          loadTrash();
+        } catch (error) {
+          await showMessage(error.message || "Nao foi possivel excluir definitivamente.");
+        }
+      }
+
+      async function esvaziarLixeira() {
+        const confirmation = await askText("Esvaziar lixeira", "Digite DELETE para excluir definitivamente todos os itens:", "");
+        if (!confirmation.confirmed || confirmation.value !== "DELETE") return;
+
+        try {
+          await authJsonFetch("/trash", {
+            method: "DELETE",
+            body: JSON.stringify({ confirmation: "DELETE" }),
+          });
+          await loadFolders();
+          loadFiles();
+          loadPending();
+          loadTrash();
+        } catch (error) {
+          await showMessage(error.message || "Nao foi possivel esvaziar a lixeira.");
+        }
+      }
+
       function setActiveView(view) {
+        if (view === "trash") {
+          openTrashTab();
+          return;
+        }
+
         if (view === "history") {
           openHistoryTab();
           return;
@@ -2302,6 +2547,64 @@
         }
       }
 
+      function getPreviewUrl(scope, name) {
+        return `/preview/file/${scope}/${encodeURIComponent(name)}?${getFolderQuery()}`;
+      }
+
+      async function fetchPreviewBlob(scope, name) {
+        const response = await authFetch(getPreviewUrl(scope, name));
+        const payload = await response.blob();
+
+        if (!response.ok) {
+          const message = await payload.text().catch(() => "");
+          throw new Error(message || "Preview indisponivel.");
+        }
+
+        return payload;
+      }
+
+      function getDownloadPreviewHtml(name, scope) {
+        if (scope !== "public") {
+          return '<p>Preview indisponivel para este tipo de arquivo.</p>';
+        }
+
+        return `
+          <p>Preview indisponivel para este tipo de arquivo.</p>
+          <button type="button" class="btn-small btn-download" onclick="baixarArquivo('${escapeJsString(name)}')">Download</button>
+        `;
+      }
+
+      function highlightPreviewText(content, language) {
+        let escaped = escapeHtml(content || "Sem conteúdo disponível.");
+        if (["json", "js", "mjs", "cjs", "ts", "tsx", "jsx", "css"].includes(language)) {
+          escaped = escaped
+            .replace(/(&quot;[^&]*?&quot;)(\s*:)/g, '<span class="preview-code-key">$1</span>$2')
+            .replace(/(:\s*)(&quot;[^&]*?&quot;)/g, '$1<span class="preview-code-string">$2</span>')
+            .replace(/\b(true|false|null|undefined)\b/g, '<span class="preview-code-number">$1</span>')
+            .replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="preview-code-number">$1</span>')
+            .replace(/(\/\/.*)$/gm, '<span class="preview-code-comment">$1</span>');
+        }
+
+        return escaped;
+      }
+
+      async function hydrateImageThumbnails(container) {
+        const thumbs = [...container.querySelectorAll(".file-thumb:not(.loaded)")].slice(0, 12);
+        for (const thumb of thumbs) {
+          const name = thumb.dataset.thumbName;
+          const scope = thumb.dataset.thumbScope;
+          try {
+            const blob = await fetchPreviewBlob(scope, name);
+            const url = URL.createObjectURL(blob);
+            thumb.src = url;
+            thumb.classList.add("loaded");
+            thumb.onload = () => URL.revokeObjectURL(url);
+          } catch {
+            thumb.remove();
+          }
+        }
+      }
+
       function closePreview() {
         previewModal.classList.remove("open");
         previewBody.innerHTML = '<div class="preview-empty">Nenhuma prévia carregada.</div>';
@@ -2310,7 +2613,7 @@
         clearPreviewObjectUrl();
       }
 
-      async function abrirPreview(name, scope) {
+      async function abrirPreviewLegacy(name, scope) {
         const kind = getFilePreviewKind(name);
         if (!kind) return;
 
@@ -2348,6 +2651,52 @@
           previewSubtitle.textContent = "Prévia textual";
         } catch (error) {
           previewBody.innerHTML = `<div class="preview-empty">${escapeHtml(error.message || "Não foi possível carregar a prévia.")}</div>`;
+          previewSubtitle.textContent = "Falha ao carregar";
+        }
+      }
+
+      async function abrirPreview(name, scope) {
+        const kind = getFilePreviewKind(name);
+
+        clearPreviewObjectUrl();
+        previewModal.classList.add("open");
+        previewTitle.textContent = name;
+        previewSubtitle.textContent = "Carregando preview...";
+        previewBody.innerHTML = '<div class="preview-empty">Carregando preview...</div>';
+
+        try {
+          if (["image", "pdf", "audio", "video"].includes(kind)) {
+            const payload = await fetchPreviewBlob(scope, name);
+            currentPreviewUrl = URL.createObjectURL(payload);
+
+            if (kind === "image") {
+              previewBody.innerHTML = `<img src="${currentPreviewUrl}" alt="${escapeHtml(name)}" />`;
+              previewSubtitle.textContent = "Preview de imagem";
+            } else if (kind === "pdf") {
+              previewBody.innerHTML = `<iframe class="preview-frame" src="${currentPreviewUrl}" title="${escapeHtml(name)}"></iframe>`;
+              previewSubtitle.textContent = "Preview de PDF";
+            } else if (kind === "audio") {
+              previewBody.innerHTML = `<div class="preview-media"><audio controls src="${currentPreviewUrl}"></audio></div>`;
+              previewSubtitle.textContent = "Preview de audio";
+            } else {
+              previewBody.innerHTML = `<div class="preview-media"><video controls src="${currentPreviewUrl}"></video></div>`;
+              previewSubtitle.textContent = "Preview de video";
+            }
+
+            return;
+          }
+
+          if (kind === "unsupported") {
+            previewBody.innerHTML = `<div class="preview-empty">${getDownloadPreviewHtml(name, scope)}</div>`;
+            previewSubtitle.textContent = "Preview nao disponivel";
+            return;
+          }
+
+          const previewData = await authJsonFetch(`/preview/text/${scope}/${encodeURIComponent(name)}?${getFolderQuery()}`);
+          previewBody.innerHTML = `<pre class="preview-text">${highlightPreviewText(previewData.content, previewData.language || "text")}</pre>`;
+          previewSubtitle.textContent = previewData.format === "document" ? "Preview de documento" : "Preview textual";
+        } catch (error) {
+          previewBody.innerHTML = `<div class="preview-empty"><p>${escapeHtml(error.message || "Nao foi possivel carregar o preview.")}</p>${getDownloadPreviewHtml(name, scope)}</div>`;
           previewSubtitle.textContent = "Falha ao carregar";
         }
       }
@@ -2398,6 +2747,7 @@
 
             const response = await authFetch(`/encrypted-download/${encodeURIComponent(name)}?${getFolderQuery()}`, {
               method: "POST",
+              logoutOnUnauthorized: false,
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ password }),
             });
@@ -2713,6 +3063,7 @@
             loadFiles();
             loadPending();
             if (!historyView.hidden) loadHistory();
+            if (!trashView.hidden) loadTrash();
           });
         }, 150);
       }
@@ -2955,7 +3306,8 @@
                 <li>
                   <div class="file-info">
                     <div class="file-title">
-                      <span class="file-icon">${getFileIcon(file.name)}</span>
+                    <span class="file-icon">${getFileIcon(file.name)}</span>
+                      ${buildThumbnail(file, "public")}
                       <button type="button" class="file-name file-open" onclick="abrirArquivo('${safeJsName}')" title="${safeHtmlName}">${shortHtmlName}</button>
                       ${encryptionBadge}
                     </div>
@@ -2978,6 +3330,7 @@
                 <div class="file-info">
                   <div class="file-title">
                     <span class="file-icon">${getFileIcon(file.name)}</span>
+                    ${buildThumbnail(file, "pending")}
                     <span class="file-name" title="${safeHtmlName}">${shortHtmlName}</span>
                     ${encryptionBadge}
                   </div>
@@ -2997,6 +3350,7 @@
           .join("");
 
         updatePagination(mode, safePage, totalPages, filteredFiles.length);
+        hydrateImageThumbnails(list);
       }
 
       const dropzone = document.getElementById("dropzone");
@@ -3355,9 +3709,16 @@
       }
 
       async function aprovar(nome) {
-        await authFetch(`/approve/${encodeURIComponent(nome)}?${getFolderQuery()}`);
-        loadFiles();
-        loadPending();
+        const response = await authFetch(`/approve/${encodeURIComponent(nome)}?${getFolderQuery()}`);
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          await showMessage(payload.error || "Nao foi possivel aprovar o arquivo.");
+          loadPending();
+          return;
+        }
+
+        await loadFiles();
+        await loadPending();
         if (!historyView.hidden) loadHistory();
       }
 
@@ -3368,11 +3729,12 @@
       }
 
       async function excluir(nome) {
-        const confirmation = await askConfirm("Excluir arquivo", `Excluir ${nome}?`, "Excluir");
+        const confirmation = await askConfirm("Mover para lixeira", `Mover ${nome} para a lixeira?`, "Mover");
         if (!confirmation.confirmed) return;
         await authFetch(`/delete/${encodeURIComponent(nome)}?${getFolderQuery()}`);
         loadFiles();
         if (!historyView.hidden) loadHistory();
+        if (!trashView.hidden) loadTrash();
       }
 
       async function renomear(nomeAtual) {
@@ -3415,7 +3777,14 @@
         event.stopPropagation();
         openHistoryTab();
       });
+      navTrash.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openTrashTab();
+      });
       historyRefresh.addEventListener("click", openHistoryTab);
+      trashRefresh.addEventListener("click", loadTrash);
+      trashEmpty.addEventListener("click", esvaziarLixeira);
       folderSelect.addEventListener("change", () => {
         selectFolder(folderSelect.value);
       });

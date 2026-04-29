@@ -1,5 +1,11 @@
 data/*.json
 data/*.key
+data/*.sqlite
+data/*.sqlite-shm
+data/*.sqlite-wal
+data/backups/
+data/trash/
+trash/
 !data/README.md
 node_modules/
 temp/

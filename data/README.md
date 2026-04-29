@@ -12,6 +12,8 @@ Esta pasta guarda estado local do servidor e nao deve versionar dados reais.
 - `analytics.json`, `audit-logs.json` e `audit-logs-archive.json`: logs, IPs, user-agents e rastros de uso.
 - `file-permissions.json`, `file-expirations.json` e `file-versions.json`: permissoes, expiracoes e historico local de arquivos.
 - `encrypted-files.json` e `server-master.key`: metadados/chave de criptografia.
+- `rootark.sqlite`, `rootark.sqlite-wal`, `rootark.sqlite-shm`: banco SQLite local e arquivos auxiliares.
+- `backups/`: backups locais de JSON e SQLite.
 
 ## O que pode ir para o GitHub
 

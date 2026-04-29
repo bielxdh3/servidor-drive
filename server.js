@@ -11,6 +11,31 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const http = require("http");
 const WebSocket = require("ws");
+const cron = require("node-cron");
+const dbConfig = require("./db");
+const { runMigrations } = require("./db/migrations");
+const usersRepository = require("./repositories/usersRepository");
+const foldersRepository = require("./repositories/foldersRepository");
+const pendingUploadsRepository = require("./repositories/pendingUploadsRepository");
+const publicLinksRepository = require("./repositories/publicLinksRepository");
+const filePermissionsRepository = require("./repositories/filePermissionsRepository");
+const fileExpirationsRepository = require("./repositories/fileExpirationsRepository");
+const fileVersionsRepository = require("./repositories/fileVersionsRepository");
+const encryptedFilesRepository = require("./repositories/encryptedFilesRepository");
+const analyticsRepository = require("./repositories/analyticsRepository");
+const auditRepository = require("./repositories/auditRepository");
+const actionHistoryRepository = require("./repositories/actionHistoryRepository");
+const backupService = require("./services/backupService");
+const restoreService = require("./services/restoreService");
+const trashRepository = require("./repositories/trashRepository");
+const trashService = require("./services/trashService");
+const registerAuthRoutes = require("./src/routes/auth");
+const registerAnalyticsRoutes = require("./src/routes/analytics");
+const registerAuditRoutes = require("./src/routes/audit");
+const registerBackupRoutes = require("./src/routes/backups");
+const registerTrashRoutes = require("./src/routes/trash");
+const { createAuthenticate, createRealtimeAuthenticator } = require("./src/middlewares/auth");
+const { createRequirePermission } = require("./src/middlewares/permissions");
 
 const app = express();
 const server = http.createServer(app);
@@ -45,6 +70,7 @@ const ANALYTICS_RETENTION_MS = 1000 * 60 * 60 * 24 * 365;
 const ANALYTICS_SUMMARY_CACHE_MS = 5 * 60 * 1000;
 const MAX_AUDIT_LOGS = 10000;
 const AUDIT_RETENTION_MS = 1000 * 60 * 60 * 24 * 365;
+const MAX_TEXT_PREVIEW_BYTES = 1024 * 1024;
 const CHUNK_UPLOAD_DIR = path.resolve("./temp/.chunks");
 const SIMPLE_UPLOAD_INCOMING_DIR = path.resolve("./temp/.incoming");
 const MAX_UPLOAD_CHUNKS = 2000;
@@ -55,6 +81,18 @@ const openFileTokens = new Map();
 let analyticsSummaryCache = null;
 let s3ClientCache = null;
 let googleDriveClientCache = null;
+
+function shouldUseDatabase() {
+  return dbConfig.isDbEnabled();
+}
+
+function shouldReadJsonFallback() {
+  return dbConfig.isJsonReadFallbackEnabled();
+}
+
+function shouldWriteLegacyJson() {
+  return !shouldUseDatabase() || dbConfig.isLegacyJsonWriteEnabled();
+}
 
 const ENCRYPTION_LEVELS = {
   none: { description: "Arquivo nao criptografado", icon: "open", requiresKey: false },
@@ -446,11 +484,21 @@ function broadcastDataChanged(source, payload = {}) {
 }
 
 function loadUsers() {
+  if (shouldUseDatabase()) {
+    try {
+      const users = usersRepository.loadUsers();
+      if (users.length || !shouldReadJsonFallback()) return users;
+    } catch (error) {
+      console.error("Falha ao ler usuarios do SQLite:", error.message);
+      if (!shouldReadJsonFallback()) return [];
+    }
+  }
   return JSON.parse(fs.readFileSync(USERS_FILE, "utf-8"));
 }
 
 function saveUsers(users) {
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+  if (shouldUseDatabase()) usersRepository.saveUsers(users);
+  if (shouldWriteLegacyJson()) fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
 }
 
 function getBasePermissions() {
@@ -464,6 +512,8 @@ function getBasePermissions() {
     createFolders: false,
     viewAnalytics: false,
     viewAuditLogs: false,
+    manageBackups: false,
+    manageTrash: false,
   };
 }
 
@@ -512,12 +562,22 @@ function loadSeedUsers() {
 }
 
 function loadPendingUploads() {
+  if (shouldUseDatabase()) {
+    try {
+      const entries = pendingUploadsRepository.loadPendingUploads();
+      if (Object.keys(entries).length || !shouldReadJsonFallback()) return entries;
+    } catch (error) {
+      console.error("Falha ao ler uploads pendentes do SQLite:", error.message);
+      if (!shouldReadJsonFallback()) return {};
+    }
+  }
   if (!fs.existsSync(PENDING_UPLOADS_FILE)) return {};
   return JSON.parse(fs.readFileSync(PENDING_UPLOADS_FILE, "utf-8"));
 }
 
 function savePendingUploads(entries) {
-  fs.writeFileSync(PENDING_UPLOADS_FILE, JSON.stringify(entries, null, 2));
+  if (shouldUseDatabase()) pendingUploadsRepository.savePendingUploads(entries);
+  if (shouldWriteLegacyJson()) fs.writeFileSync(PENDING_UPLOADS_FILE, JSON.stringify(entries, null, 2));
   broadcastDataChanged("pending");
 }
 
@@ -535,17 +595,37 @@ function getDefaultFolders() {
 }
 
 function loadFolders() {
+  if (shouldUseDatabase()) {
+    try {
+      const folders = foldersRepository.loadFolders();
+      const jsonHasFolders = fs.existsSync(FOLDERS_FILE) && shouldReadJsonFallback();
+      if (folders.length > 1 || !jsonHasFolders) return folders;
+    } catch (error) {
+      console.error("Falha ao ler pastas do SQLite:", error.message);
+      if (!shouldReadJsonFallback()) return getDefaultFolders();
+    }
+  }
   if (!fs.existsSync(FOLDERS_FILE)) return getDefaultFolders();
   const folders = JSON.parse(fs.readFileSync(FOLDERS_FILE, "utf-8"));
   return Array.isArray(folders) ? folders : getDefaultFolders();
 }
 
 function saveFolders(folders) {
-  fs.writeFileSync(FOLDERS_FILE, JSON.stringify(folders, null, 2));
+  if (shouldUseDatabase()) foldersRepository.saveFolders(folders);
+  if (shouldWriteLegacyJson()) fs.writeFileSync(FOLDERS_FILE, JSON.stringify(folders, null, 2));
   broadcastDataChanged("folders");
 }
 
 function loadFilePermissions() {
+  if (shouldUseDatabase()) {
+    try {
+      const entries = filePermissionsRepository.loadFilePermissions();
+      if (Object.keys(entries).length || !shouldReadJsonFallback()) return entries;
+    } catch (error) {
+      console.error("Falha ao ler permissoes do SQLite:", error.message);
+      if (!shouldReadJsonFallback()) return {};
+    }
+  }
   if (!fs.existsSync(FILE_PERMISSIONS_FILE)) return {};
 
   try {
@@ -558,11 +638,21 @@ function loadFilePermissions() {
 }
 
 function saveFilePermissions(entries) {
-  fs.writeFileSync(FILE_PERMISSIONS_FILE, JSON.stringify(entries, null, 2));
+  if (shouldUseDatabase()) filePermissionsRepository.saveFilePermissions(entries);
+  if (shouldWriteLegacyJson()) fs.writeFileSync(FILE_PERMISSIONS_FILE, JSON.stringify(entries, null, 2));
   broadcastDataChanged("permissions");
 }
 
 function loadFileExpirations() {
+  if (shouldUseDatabase()) {
+    try {
+      const entries = fileExpirationsRepository.loadFileExpirations();
+      if (Object.keys(entries).length || !shouldReadJsonFallback()) return entries;
+    } catch (error) {
+      console.error("Falha ao ler expiracoes do SQLite:", error.message);
+      if (!shouldReadJsonFallback()) return {};
+    }
+  }
   if (!fs.existsSync(FILE_EXPIRATIONS_FILE)) return {};
 
   try {
@@ -575,11 +665,21 @@ function loadFileExpirations() {
 }
 
 function saveFileExpirations(entries) {
-  fs.writeFileSync(FILE_EXPIRATIONS_FILE, JSON.stringify(entries, null, 2));
+  if (shouldUseDatabase()) fileExpirationsRepository.saveFileExpirations(entries);
+  if (shouldWriteLegacyJson()) fs.writeFileSync(FILE_EXPIRATIONS_FILE, JSON.stringify(entries, null, 2));
   broadcastDataChanged("expirations");
 }
 
 function loadFileVersions() {
+  if (shouldUseDatabase()) {
+    try {
+      const entries = fileVersionsRepository.loadFileVersions();
+      if (Object.keys(entries).length || !shouldReadJsonFallback()) return entries;
+    } catch (error) {
+      console.error("Falha ao ler versoes do SQLite:", error.message);
+      if (!shouldReadJsonFallback()) return {};
+    }
+  }
   if (!fs.existsSync(FILE_VERSIONS_FILE)) return {};
 
   try {
@@ -592,11 +692,21 @@ function loadFileVersions() {
 }
 
 function saveFileVersions(entries) {
-  fs.writeFileSync(FILE_VERSIONS_FILE, JSON.stringify(entries, null, 2));
+  if (shouldUseDatabase()) fileVersionsRepository.saveFileVersions(entries);
+  if (shouldWriteLegacyJson()) fs.writeFileSync(FILE_VERSIONS_FILE, JSON.stringify(entries, null, 2));
   broadcastDataChanged("versions");
 }
 
 function loadEncryptedFiles() {
+  if (shouldUseDatabase()) {
+    try {
+      const entries = encryptedFilesRepository.loadEncryptedFiles();
+      if (Object.keys(entries).length || !shouldReadJsonFallback()) return entries;
+    } catch (error) {
+      console.error("Falha ao ler criptografia do SQLite:", error.message);
+      if (!shouldReadJsonFallback()) return {};
+    }
+  }
   if (!fs.existsSync(ENCRYPTED_FILES_FILE)) return {};
 
   try {
@@ -609,7 +719,8 @@ function loadEncryptedFiles() {
 }
 
 function saveEncryptedFiles(entries) {
-  fs.writeFileSync(ENCRYPTED_FILES_FILE, JSON.stringify(entries, null, 2));
+  if (shouldUseDatabase()) encryptedFilesRepository.saveEncryptedFiles(entries);
+  if (shouldWriteLegacyJson()) fs.writeFileSync(ENCRYPTED_FILES_FILE, JSON.stringify(entries, null, 2));
   broadcastDataChanged("encryption");
 }
 
@@ -634,6 +745,16 @@ function normalizeAnalytics(entries = {}) {
 }
 
 function loadAnalytics() {
+  if (shouldUseDatabase()) {
+    try {
+      const entries = analyticsRepository.loadAnalytics();
+      const hasEvents = Object.values(entries).some((items) => Array.isArray(items) && items.length);
+      if (hasEvents || !shouldReadJsonFallback()) return normalizeAnalytics(entries);
+    } catch (error) {
+      console.error("Falha ao ler analytics do SQLite:", error.message);
+      if (!shouldReadJsonFallback()) return getDefaultAnalytics();
+    }
+  }
   if (!fs.existsSync(ANALYTICS_FILE)) return getDefaultAnalytics();
 
   try {
@@ -645,7 +766,9 @@ function loadAnalytics() {
 }
 
 function saveAnalytics(entries) {
-  fs.writeFileSync(ANALYTICS_FILE, JSON.stringify(normalizeAnalytics(entries), null, 2));
+  const normalized = normalizeAnalytics(entries);
+  if (shouldUseDatabase()) analyticsRepository.saveAnalytics(normalized);
+  if (shouldWriteLegacyJson()) fs.writeFileSync(ANALYTICS_FILE, JSON.stringify(normalized, null, 2));
   broadcastDataChanged("analytics");
 }
 
@@ -776,16 +899,53 @@ function logAnalyticsEvent(type, payload = {}) {
 }
 
 function loadPublicLinks() {
+  if (shouldUseDatabase()) {
+    try {
+      const entries = publicLinksRepository.loadPublicLinks();
+      if (Object.keys(entries).length || !shouldReadJsonFallback()) return entries;
+    } catch (error) {
+      console.error("Falha ao ler links publicos do SQLite:", error.message);
+      if (!shouldReadJsonFallback()) return {};
+    }
+  }
   if (!fs.existsSync(PUBLIC_LINKS_FILE)) return {};
   return JSON.parse(fs.readFileSync(PUBLIC_LINKS_FILE, "utf-8"));
 }
 
 function savePublicLinks(entries) {
-  fs.writeFileSync(PUBLIC_LINKS_FILE, JSON.stringify(entries, null, 2));
+  if (shouldUseDatabase()) publicLinksRepository.savePublicLinks(entries);
+  if (shouldWriteLegacyJson()) fs.writeFileSync(PUBLIC_LINKS_FILE, JSON.stringify(entries, null, 2));
   broadcastDataChanged("shares");
 }
 
+function incrementPublicLinkViews(shareToken, link, links) {
+  if (shouldUseDatabase()) {
+    const updatedViews = publicLinksRepository.incrementPublicLinkViews(shareToken, link);
+    if (updatedViews !== null) {
+      broadcastDataChanged("shares");
+      if (shouldWriteLegacyJson() && links) {
+        links[shareToken].views = updatedViews;
+        fs.writeFileSync(PUBLIC_LINKS_FILE, JSON.stringify(links, null, 2));
+      }
+      return updatedViews;
+    }
+  }
+
+  link.views = (Number(link.views) || 0) + 1;
+  savePublicLinks(links);
+  return link.views;
+}
+
 function loadActionHistory() {
+  if (shouldUseDatabase()) {
+    try {
+      const entries = actionHistoryRepository.loadActionHistory();
+      if (entries.length || !shouldReadJsonFallback()) return entries;
+    } catch (error) {
+      console.error("Falha ao ler historico do SQLite:", error.message);
+      if (!shouldReadJsonFallback()) return [];
+    }
+  }
   if (!fs.existsSync(ACTION_HISTORY_FILE)) return [];
 
   try {
@@ -798,7 +958,8 @@ function loadActionHistory() {
 }
 
 function saveActionHistory(entries) {
-  fs.writeFileSync(ACTION_HISTORY_FILE, JSON.stringify(entries, null, 2));
+  if (shouldUseDatabase()) actionHistoryRepository.saveActionHistory(entries);
+  if (shouldWriteLegacyJson()) fs.writeFileSync(ACTION_HISTORY_FILE, JSON.stringify(entries, null, 2));
   broadcastDataChanged("history");
 }
 
@@ -827,6 +988,22 @@ const AUDIT_EVENTS = {
   "system.startup": { severity: "info" },
   "system.error": { severity: "error" },
   "system.anomaly.detected": { severity: "warning" },
+  "backup.created": { severity: "info" },
+  "backup.failed": { severity: "error" },
+  "backup.deleted": { severity: "warning" },
+  "backup.downloaded": { severity: "info" },
+  "backup.restore.started": { severity: "critical" },
+  "backup.restore.completed": { severity: "critical" },
+  "backup.restore.failed": { severity: "error" },
+  "trash.file.moved": { severity: "warning" },
+  "trash.folder.moved": { severity: "warning" },
+  "trash.file.restored": { severity: "info" },
+  "trash.folder.restored": { severity: "info" },
+  "trash.file.permanently_deleted": { severity: "critical" },
+  "trash.folder.permanently_deleted": { severity: "critical" },
+  "trash.emptied": { severity: "critical" },
+  "trash.restore.failed": { severity: "error" },
+  "trash.delete.failed": { severity: "error" },
 };
 
 function getDefaultAuditLogs() {
@@ -849,6 +1026,15 @@ function sanitizeAuditValue(value, maxLength = 500) {
 }
 
 function loadAuditLogs(file = AUDIT_LOGS_FILE) {
+  if (shouldUseDatabase() && file === AUDIT_LOGS_FILE) {
+    try {
+      const entries = auditRepository.loadAuditLogs();
+      if (entries.logs.length || !shouldReadJsonFallback()) return entries;
+    } catch (error) {
+      console.error("Falha ao ler auditoria do SQLite:", error.message);
+      if (!shouldReadJsonFallback()) return getDefaultAuditLogs();
+    }
+  }
   if (!fs.existsSync(file)) return getDefaultAuditLogs();
   try {
     const entries = JSON.parse(fs.readFileSync(file, "utf-8"));
@@ -860,7 +1046,11 @@ function loadAuditLogs(file = AUDIT_LOGS_FILE) {
 }
 
 function saveAuditLogs(entries, file = AUDIT_LOGS_FILE) {
-  fs.writeFileSync(file, JSON.stringify({ logs: Array.isArray(entries?.logs) ? entries.logs : [] }, null, 2));
+  const normalized = { logs: Array.isArray(entries?.logs) ? entries.logs : [] };
+  if (shouldUseDatabase() && file === AUDIT_LOGS_FILE) auditRepository.saveAuditLogs(normalized);
+  if (file !== AUDIT_LOGS_FILE || shouldWriteLegacyJson()) {
+    fs.writeFileSync(file, JSON.stringify(normalized, null, 2));
+  }
   if (file === AUDIT_LOGS_FILE) broadcastDataChanged("audit");
 }
 
@@ -1251,6 +1441,18 @@ function canViewAuditLogs(req) {
   return canManageAccess(req) || Boolean(req.user?.permissions?.viewAuditLogs);
 }
 
+function canManageBackups(req) {
+  return canManageAccess(req) || Boolean(req.user?.permissions?.manageBackups);
+}
+
+function canManageTrash(req) {
+  return canManageAccess(req) || Boolean(req.user?.permissions?.manageTrash);
+}
+
+function canMoveToTrash(req) {
+  return canManageAccess(req) || Boolean(req.user?.permissions?.delete);
+}
+
 function requireAnalyticsAccess(req, res, next) {
   if (!canViewAnalytics(req)) {
     return res.status(403).json({ error: "Permissao negada: viewAnalytics" });
@@ -1267,6 +1469,20 @@ function requireAuditAccess(req, res, next) {
     return res.status(403).json({ error: "Permissao negada: viewAuditLogs" });
   }
 
+  next();
+}
+
+function requireBackupAccess(req, res, next) {
+  if (!canManageBackups(req)) {
+    return res.status(403).json({ error: "Permissao negada: manageBackups" });
+  }
+  next();
+}
+
+function requireTrashManageAccess(req, res, next) {
+  if (!canManageTrash(req)) {
+    return res.status(403).json({ error: "Permissao negada: manageTrash" });
+  }
   next();
 }
 
@@ -1349,7 +1565,20 @@ function getEncryptedFileKey(folderId, fileName) {
 }
 
 function getEncryptedFileMetadata(folderId, fileName, entries = loadEncryptedFiles()) {
-  return entries[getEncryptedFileKey(folderId, fileName)] || null;
+  const name = path.basename(fileName || "");
+  const key = getEncryptedFileKey(folderId, name);
+  if (entries[key]) return entries[key];
+  if (entries[name]) return entries[name];
+
+  for (const [entryKey, entry] of Object.entries(entries || {})) {
+    const entryName = path.basename(entry?.fileName || entry?.originalFilename || entryKey);
+    const entryFolderId = entry?.folderId || (String(entryKey).includes("/") ? String(entryKey).split("/")[0] : ROOT_FOLDER_ID);
+    if (entryName === name && entryFolderId === (folderId || ROOT_FOLDER_ID)) {
+      return entry;
+    }
+  }
+
+  return null;
 }
 
 function getStoredVersionName(fileName, version) {
@@ -1687,9 +1916,28 @@ function getMimeType(fileName) {
     ".gif": "image/gif",
     ".webp": "image/webp",
     ".svg": "image/svg+xml",
+    ".bmp": "image/bmp",
     ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".mov": "video/quicktime",
+    ".m4v": "video/mp4",
     ".mp3": "audio/mpeg",
     ".wav": "audio/wav",
+    ".ogg": "audio/ogg",
+    ".oga": "audio/ogg",
+    ".m4a": "audio/mp4",
+    ".flac": "audio/flac",
+    ".js": "text/javascript; charset=utf-8",
+    ".mjs": "text/javascript; charset=utf-8",
+    ".cjs": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".html": "text/html; charset=utf-8",
+    ".htm": "text/html; charset=utf-8",
+    ".md": "text/markdown; charset=utf-8",
+    ".csv": "text/csv; charset=utf-8",
+    ".xml": "application/xml; charset=utf-8",
+    ".yml": "text/yaml; charset=utf-8",
+    ".yaml": "text/yaml; charset=utf-8",
     ".zip": "application/zip",
     ".exe": "application/octet-stream",
     ".msi": "application/octet-stream",
@@ -1702,6 +1950,26 @@ function getMimeType(fileName) {
   };
 
   return types[extension] || "application/octet-stream";
+}
+
+function getPreviewKind(fileName) {
+  const extension = path.extname(fileName || "").toLowerCase();
+  if ([".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp"].includes(extension)) return "image";
+  if (extension === ".pdf") return "pdf";
+  if ([".mp3", ".wav", ".ogg", ".oga", ".flac", ".m4a"].includes(extension)) return "audio";
+  if ([".mp4", ".webm", ".mov", ".m4v"].includes(extension)) return "video";
+  if ([".doc", ".docx"].includes(extension)) return "document";
+  if ([
+    ".txt", ".json", ".js", ".mjs", ".cjs", ".css", ".html", ".htm", ".md", ".csv",
+    ".xml", ".yml", ".yaml", ".log", ".ini", ".env", ".sql", ".sh", ".bat", ".ps1",
+    ".py", ".java", ".c", ".cpp", ".h", ".hpp", ".cs", ".php", ".rb", ".go", ".rs",
+    ".ts", ".tsx", ".jsx",
+  ].includes(extension)) return "text";
+  return "unsupported";
+}
+
+function isInlinePreviewFile(fileName) {
+  return ["image", "pdf", "audio", "video"].includes(getPreviewKind(fileName));
 }
 
 function getServerMasterKey() {
@@ -1872,6 +2140,64 @@ function saveEncryptedMetadata(folderId, fileName, metadata) {
   const entries = loadEncryptedFiles();
   entries[getEncryptedFileKey(folderId, fileName)] = metadata;
   saveEncryptedFiles(entries);
+}
+
+function promoteEncryptedMetadataAfterApproval(folderId, fileName, uploadedBy) {
+  const entries = loadEncryptedFiles();
+  const name = path.basename(fileName || "");
+  const exactKey = getEncryptedFileKey(folderId, name);
+  const legacyKeys = [exactKey, name];
+  let metadata = null;
+
+  for (const key of legacyKeys) {
+    if (entries[key]) {
+      metadata = entries[key];
+      break;
+    }
+  }
+
+  if (!metadata) {
+    for (const [key, entry] of Object.entries(entries)) {
+      const entryName = path.basename(entry?.fileName || entry?.originalFilename || key);
+      const entryFolderId = entry?.folderId || (String(key).includes("/") ? String(key).split("/")[0] : ROOT_FOLDER_ID);
+      if (entryName === name && entryFolderId === (folderId || ROOT_FOLDER_ID)) {
+        metadata = entry;
+        break;
+      }
+    }
+  }
+
+  if (!metadata) return null;
+
+  const owner = metadata.accessControl?.owner || metadata.uploadedBy || uploadedBy || "sistema";
+  const authorizedUsers = new Set(metadata.accessControl?.authorizedUsers || []);
+  if (owner) authorizedUsers.add(owner);
+  if (uploadedBy) authorizedUsers.add(uploadedBy);
+
+  const promoted = {
+    ...metadata,
+    folderId: folderId || ROOT_FOLDER_ID,
+    fileName: name,
+    accessControl: {
+      ...(metadata.accessControl || {}),
+      owner,
+      authorizedUsers: Array.from(authorizedUsers),
+    },
+    updatedAt: new Date().toISOString(),
+  };
+
+  for (const key of Object.keys(entries)) {
+    const entry = entries[key];
+    const entryName = path.basename(entry?.fileName || entry?.originalFilename || key);
+    const entryFolderId = entry?.folderId || (String(key).includes("/") ? String(key).split("/")[0] : ROOT_FOLDER_ID);
+    if ((key === name || key === exactKey || entryName === name) && entryFolderId === (folderId || ROOT_FOLDER_ID)) {
+      delete entries[key];
+    }
+  }
+
+  entries[exactKey] = promoted;
+  saveEncryptedFiles(entries);
+  return promoted;
 }
 
 function removeEncryptedMetadata(folderId, fileName) {
@@ -2313,6 +2639,51 @@ function deleteFolderContents(folder) {
   deleteCloudFolderLater(folderId);
 }
 
+function shouldAutoCleanupTrash() {
+  return String(process.env.TRASH_AUTO_CLEANUP_ENABLED || "false").toLowerCase() === "true";
+}
+
+function isTrashEnabled() {
+  return String(process.env.TRASH_ENABLED || "true").toLowerCase() !== "false";
+}
+
+function getTrashRetentionDays() {
+  const days = Number(process.env.TRASH_RETENTION_DAYS || 30);
+  return Number.isFinite(days) && days > 0 ? days : 30;
+}
+
+function cleanupExpiredTrashItems() {
+  if (!isTrashEnabled()) return;
+  if (!shouldAutoCleanupTrash()) return;
+
+  const cutoff = Date.now() - getTrashRetentionDays() * 24 * 60 * 60 * 1000;
+  const items = trashRepository.listTrashItems().filter((item) => {
+    const deletedAt = new Date(item.deletedAt).getTime();
+    return Number.isFinite(deletedAt) && deletedAt <= cutoff;
+  });
+
+  for (const item of items) {
+    try {
+      trashService.permanentlyDelete({ item, deletedBy: "system", loaders: getTrashLoaders() });
+      deleteCloudTrashItemLater(item);
+      auditLog(
+        item.itemType === "file" ? "trash.file.permanently_deleted" : "trash.folder.permanently_deleted",
+        { username: "system", role: "system" },
+        { type: "trash", id: item.id },
+        "auto_cleanup",
+        "success",
+        { retentionDays: getTrashRetentionDays(), itemType: item.itemType }
+      );
+    } catch (error) {
+      auditLog("trash.delete.failed", { username: "system", role: "system" }, { type: "trash", id: item.id }, "auto_cleanup", "failure", {
+        error: error.message,
+      });
+    }
+  }
+
+  if (items.length) broadcastDataChanged("trash", { action: "auto_cleanup", count: items.length });
+}
+
 function cleanupExpiredTemporaryItems() {
   const now = Date.now();
 
@@ -2460,7 +2831,7 @@ function getAccessibleFolderOrRespond(req, res, rawFolderId = ROOT_FOLDER_ID) {
 }
 
 function getPendingKey(folderId, fileName) {
-  return folderId === ROOT_FOLDER_ID ? fileName : `${folderId}/${fileName}`;
+  return `${folderId || ROOT_FOLDER_ID}/${path.basename(fileName || "")}`;
 }
 
 function isValidFileNameLength(fileName) {
@@ -2717,6 +3088,9 @@ async function ensurePreviewAccess(req, res, scope, rawName, rawFolderId = ROOT_
     return null;
   } else if (!hasFileAccess(req, target.folder, target.name)) {
     res.status(403).json({ error: "Acesso negado a este arquivo" });
+    return null;
+  } else if (isFileInTrash(target.folderId, target.name)) {
+    res.status(410).json({ error: "Arquivo esta na lixeira" });
     return null;
   }
 
@@ -3015,7 +3389,9 @@ function getFilteredAuditLogs(query = {}) {
 }
 
 function csvCell(value) {
-  return `"${String(value ?? "").replace(/"/g, '""')}"`;
+  let text = String(value ?? "");
+  if (/^[=+\-@]/.test(text)) text = `'${text}`;
+  return `"${text.replace(/"/g, '""')}"`;
 }
 
 function convertAuditLogsToCSV(logs) {
@@ -3064,28 +3440,129 @@ function checkAnomalies(req, username) {
   }
 }
 
+function scheduleAutomaticBackups() {
+  const backupsEnabled = String(process.env.BACKUP_ENABLED || "true").toLowerCase() !== "false";
+  const autoEnabled = String(process.env.BACKUP_AUTO_ENABLED || "true").toLowerCase() !== "false";
+  if (!backupsEnabled || !autoEnabled) return;
+
+  const [hourRaw, minuteRaw] = String(process.env.BACKUP_TIME || "03:00").split(":");
+  const hour = Number(hourRaw);
+  const minute = Number(minuteRaw);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    console.error("BACKUP_TIME invalido. Use HH:mm.");
+    return;
+  }
+
+  cron.schedule(`${minute} ${hour} * * *`, async () => {
+    try {
+      const backup = await backupService.createBackup({ type: "automatic", createdBy: "system" });
+      auditLog("backup.created", { username: "system" }, { type: "backup", id: backup.id }, "created", "success", {
+        filename: backup.filename,
+        automatic: true,
+      });
+    } catch (error) {
+      auditLog("backup.failed", { username: "system" }, { type: "backup", id: error.backup?.id || null }, "created", "failure", {
+        error: error.message,
+        automatic: true,
+      });
+    }
+  });
+}
+
+function getTrashLoaders() {
+  return {
+    loadFolders,
+    saveFolders,
+    loadFilePermissions,
+    saveFilePermissions,
+    loadFileExpirations,
+    saveFileExpirations,
+    loadFileVersions,
+    saveFileVersions,
+    loadEncryptedFiles,
+    saveEncryptedFiles,
+    loadPublicLinks,
+    savePublicLinks,
+  };
+}
+
+function serializeTrashItemForUser(item) {
+  return {
+    id: item.id,
+    itemType: item.itemType,
+    originalFolderId: item.originalFolderId,
+    originalFolderName: item.originalFolderName,
+    originalFileName: item.originalFileName,
+    deletedBy: item.deletedBy,
+    deletedAt: item.deletedAt,
+    sizeBytes: item.sizeBytes,
+    status: item.status,
+  };
+}
+
+function canRestoreTrashItem(req, item) {
+  if (canManageTrash(req)) return true;
+  if (item.deletedBy !== req.user?.username) return false;
+  const folder = getFolderById(item.originalFolderId);
+  return item.itemType === "file" && folder && hasFolderAccess(req, folder);
+}
+
+function isFileInTrash(folderId, fileName) {
+  return trashRepository.isFileTrashed(folderId || ROOT_FOLDER_ID, path.basename(fileName || ""));
+}
+
+function deleteCloudTrashItemLater(item) {
+  if (!item) return;
+  if (item.itemType === "folder") {
+    deleteCloudFolderLater(item.originalFolderId);
+    return;
+  }
+
+  if (item.itemType === "file" && item.originalFileName) {
+    deleteCloudFileLater(item.originalFolderId || ROOT_FOLDER_ID, item.originalFileName, "uploads");
+    const versions = item.restoreMetadata?.versions?.versions || [];
+    for (const version of versions) {
+      if (version.storedAs && version.storedAs !== item.originalFileName) {
+        deleteCloudFileLater(item.originalFolderId || ROOT_FOLDER_ID, version.storedAs, "uploads");
+      }
+    }
+  }
+}
+
 function initData() {
   if (!fs.existsSync("./data")) fs.mkdirSync("./data");
+  if (!fs.existsSync("./data/trash")) fs.mkdirSync("./data/trash", { recursive: true });
   if (!fs.existsSync("./temp")) fs.mkdirSync("./temp");
   if (!fs.existsSync(CHUNK_UPLOAD_DIR)) fs.mkdirSync(CHUNK_UPLOAD_DIR, { recursive: true });
   if (!fs.existsSync(SIMPLE_UPLOAD_INCOMING_DIR)) fs.mkdirSync(SIMPLE_UPLOAD_INCOMING_DIR, { recursive: true });
   if (!fs.existsSync("./uploads")) fs.mkdirSync("./uploads");
-  if (!fs.existsSync(PENDING_UPLOADS_FILE)) savePendingUploads({});
-  if (!fs.existsSync(PUBLIC_LINKS_FILE)) savePublicLinks({});
-  if (!fs.existsSync(ACTION_HISTORY_FILE)) saveActionHistory([]);
-  if (!fs.existsSync(FOLDERS_FILE)) saveFolders(getDefaultFolders());
-  if (!fs.existsSync(FILE_PERMISSIONS_FILE)) saveFilePermissions({});
-  if (!fs.existsSync(FILE_EXPIRATIONS_FILE)) saveFileExpirations({});
-  if (!fs.existsSync(FILE_VERSIONS_FILE)) saveFileVersions({});
-  if (!fs.existsSync(ENCRYPTED_FILES_FILE)) saveEncryptedFiles({});
-  if (!fs.existsSync(ANALYTICS_FILE)) saveAnalytics(getDefaultAnalytics());
-  if (!fs.existsSync(AUDIT_LOGS_FILE)) saveAuditLogs(getDefaultAuditLogs());
+
+  if (shouldUseDatabase()) {
+    runMigrations({ backup: String(process.env.DB_AUTO_BACKUP_ON_START || "false").toLowerCase() === "true" });
+  }
+
+  if (!shouldUseDatabase() || shouldWriteLegacyJson()) {
+    if (!fs.existsSync(PENDING_UPLOADS_FILE)) savePendingUploads({});
+    if (!fs.existsSync(PUBLIC_LINKS_FILE)) savePublicLinks({});
+    if (!fs.existsSync(ACTION_HISTORY_FILE)) saveActionHistory([]);
+    if (!fs.existsSync(FOLDERS_FILE)) saveFolders(getDefaultFolders());
+    if (!fs.existsSync(FILE_PERMISSIONS_FILE)) saveFilePermissions({});
+    if (!fs.existsSync(FILE_EXPIRATIONS_FILE)) saveFileExpirations({});
+    if (!fs.existsSync(FILE_VERSIONS_FILE)) saveFileVersions({});
+    if (!fs.existsSync(ENCRYPTED_FILES_FILE)) saveEncryptedFiles({});
+    if (!fs.existsSync(ANALYTICS_FILE)) saveAnalytics(getDefaultAnalytics());
+    if (!fs.existsSync(AUDIT_LOGS_FILE)) saveAuditLogs(getDefaultAuditLogs());
+  }
 
   for (const folder of loadFolders()) {
     ensureFolderDirectories(folder.id);
   }
 
-  if (!fs.existsSync(USERS_FILE)) {
+  const hasUsers = shouldUseDatabase()
+    ? usersRepository.loadUsers().length > 0
+    : fs.existsSync(USERS_FILE);
+
+  if (!hasUsers) {
     const seedUsers = loadSeedUsers();
     const users = seedUsers || getDefaultUsers();
 
@@ -3114,28 +3591,8 @@ app.use((req, res, next) => {
   next();
 });
 
-function authenticate(req, res, next) {
-  const auth = req.headers.authorization;
-  if (!auth || !auth.startsWith("Bearer ")) {
-    return res.status(401).json({ error: "Token ausente" });
-  }
-
-  try {
-    req.user = jwt.verify(auth.slice(7), JWT_SECRET);
-    next();
-  } catch {
-    res.status(401).json({ error: "Token invalido ou expirado" });
-  }
-}
-
-function authenticateRealtimeToken(token) {
-  if (!token) return null;
-  try {
-    return jwt.verify(token, JWT_SECRET);
-  } catch {
-    return null;
-  }
-}
+const authenticate = createAuthenticate({ jwt, jwtSecret: JWT_SECRET });
+const authenticateRealtimeToken = createRealtimeAuthenticator({ jwt, jwtSecret: JWT_SECRET });
 
 wss.on("connection", (socket, req) => {
   const params = new URL(req.url, "http://localhost").searchParams;
@@ -3164,64 +3621,23 @@ wss.on("connection", (socket, req) => {
   });
 });
 
-function requirePermission(permission) {
-  return (req, res, next) => {
-    if (!req.user?.permissions?.[permission]) {
-      return res.status(403).json({ error: `Permissao negada: ${permission}` });
-    }
-    next();
-  };
-}
+const requirePermission = createRequirePermission();
 
 app.get("/storage/status", authenticate, requirePermission("manageUsers"), (req, res) => {
   res.json(getCloudStorageStatus());
 });
 
-app.post("/auth/login", (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) {
-    return res.status(400).json({ error: "Usuario e senha obrigatorios" });
-  }
-
-  const users = loadUsers();
-  const user = users.find((u) => u.username === username);
-  if (!user || !bcrypt.compareSync(password, user.password)) {
-    auditLog("auth.login.failed", getAuditActor(req, username || "unknown_user"), {
-      type: "auth",
-      id: username || "unknown_user",
-    }, "attempted", "failure", {
-      reason: "invalid_credentials",
-      attemptedUsername: username || "",
-    });
-    return res.status(401).json({ error: "Credenciais invalidas" });
-  }
-
-  const token = jwt.sign(
-    { username: user.username, role: user.role, permissions: normalizeUserPermissions(user) },
-    JWT_SECRET,
-    { expiresIn: "8h" }
-  );
-
-  logAnalyticsEvent("login", {
-    username: user.username,
-    ip: getAuditActor(req, user.username).ip,
-  });
-  auditLog("auth.login.success", getAuditActor(req, user.username), { type: "user", id: user.username }, "authenticated", "success", {
-    username: user.username,
-    role: user.role,
-    tokenExpiry: "8h",
-  });
-  checkAnomalies(req, user.username);
-
-  res.json({ token, username: user.username, role: user.role, permissions: normalizeUserPermissions(user) });
-});
-
-app.get("/auth/me", authenticate, (req, res) => {
-  res.json({
-    username: req.user.username,
-    role: req.user.role,
-    permissions: normalizeUserPermissions(req.user),
-  });
+registerAuthRoutes(app, {
+  authenticate,
+  auditLog,
+  bcrypt,
+  checkAnomalies,
+  getAuditActor,
+  jwt,
+  jwtSecret: JWT_SECRET,
+  loadUsers,
+  logAnalyticsEvent,
+  normalizeUserPermissions,
 });
 
 app.get("/users", authenticate, requirePermission("manageUsers"), (req, res) => {
@@ -3759,6 +4175,7 @@ app.put("/folders/:id/temporary", authenticate, (req, res) => {
 });
 
 app.delete("/folders/:id", authenticate, (req, res) => {
+  if (!isTrashEnabled()) return res.status(503).json({ error: "Lixeira desativada" });
   const folderId = String(req.params.id || "");
 
   if (!folderId || folderId === ROOT_FOLDER_ID) {
@@ -3768,17 +4185,35 @@ app.delete("/folders/:id", authenticate, (req, res) => {
   const folders = loadFolders();
   const folder = folders.find((item) => item.id === folderId);
   if (!folder) return res.status(404).json({ error: "Pasta nao encontrada" });
+  if (!canMoveToTrash(req)) {
+    return res.status(403).json({ error: "Permissao negada: delete" });
+  }
   if (!hasFolderEditAccess(req, folder)) {
     return res.status(403).json({ error: "Permissao negada para excluir esta pasta" });
   }
 
-  saveFolders(folders.filter((item) => item.id !== folderId));
-  deleteFolderContents(folder);
-  auditLog("folder.deleted", getAuditActor(req), { type: "folder", id: folderId }, "deleted", "success", {
-    folderName: folder.name,
-  });
-  addActionHistory("folder_deleted", folder.name, req.user.username, { folderId });
-  res.json({ message: "Pasta excluida" });
+  try {
+    const paths = ensureFolderDirectories(folder.id);
+    const trashItem = trashService.moveFolderToTrash({
+      folder: { ...folder, ...paths },
+      deletedBy: req.user.username,
+      loaders: getTrashLoaders(),
+    });
+    auditLog("trash.folder.moved", getAuditActor(req), { type: "trash", id: trashItem.id }, "moved", "success", {
+      itemType: "folder",
+      originalFolderId: folderId,
+      folderName: folder.name,
+    });
+    addActionHistory("folder_deleted", folder.name, req.user.username, { folderId, trashId: trashItem.id });
+    broadcastDataChanged("trash", { folderId, itemType: "folder" });
+    return res.json({ message: "Pasta movida para lixeira", trashItem: serializeTrashItemForUser(trashItem) });
+  } catch (error) {
+    auditLog("trash.delete.failed", getAuditActor(req), { type: "folder", id: folderId }, "move_to_trash", "failure", {
+      error: error.message,
+    });
+    return res.status(500).json({ error: "Erro ao mover pasta para lixeira" });
+  }
+
 });
 
 app.get("/files/:name", authenticate, requirePermission("listFiles"), async (req, res) => {
@@ -3786,6 +4221,9 @@ app.get("/files/:name", authenticate, requirePermission("listFiles"), async (req
   if (!folder) return;
 
   const name = path.basename(req.params.name);
+  if (isFileInTrash(folder.id, name)) {
+    return res.status(410).json({ error: "Arquivo esta na lixeira" });
+  }
   const filePath = path.join(folder.uploadDir, name);
   await ensureCloudFileCached(folder.id, name, filePath, "uploads");
   if (!isExistingFile(filePath)) {
@@ -3826,6 +4264,9 @@ app.post("/file-open-token", authenticate, requirePermission("listFiles"), async
 
   if (!rawName || name !== rawName) {
     return res.status(400).json({ error: "Nome de arquivo invalido" });
+  }
+  if (isFileInTrash(folder.id, name)) {
+    return res.status(410).json({ error: "Arquivo esta na lixeira" });
   }
 
   const filePath = path.join(folder.uploadDir, name);
@@ -3924,6 +4365,9 @@ app.post("/encrypted-download/:filename", authenticate, requirePermission("listF
 
   const metadata = getEncryptedFileMetadata(folder.id, name);
   if (!metadata) return res.status(404).json({ error: "Arquivo criptografado nao encontrado" });
+  if (isFileInTrash(folder.id, name)) {
+    return res.status(410).json({ error: "Arquivo esta na lixeira" });
+  }
 
   if (!hasFileAccess(req, folder, name) || !canAccessEncryptedFile(req, metadata)) {
     auditLog("file.access.denied", getAuditActor(req), { type: "file", id: name }, "decrypt", "failure", {
@@ -4376,6 +4820,7 @@ app.get("/list", authenticate, requirePermission("listFiles"), async (req, res) 
     const encryptedFiles = loadEncryptedFiles();
     const visibleFiles = files
       .filter((file) => !isStoredVersionFile(folder.id, file.name, fileVersions))
+      .filter((file) => !isFileInTrash(folder.id, file.name))
       .filter((file) => hasFileAccess(req, folder, file.name, filePermissions))
       .filter((file) => canAccessEncryptedFile(req, getEncryptedFileMetadata(folder.id, file.name, encryptedFiles)))
       .map((file) => {
@@ -4657,82 +5102,58 @@ app.get("/history", authenticate, requirePermission("listFiles"), (req, res) => 
   }
 });
 
-app.get("/analytics/summary", authenticate, requireAnalyticsAccess, (req, res) => {
-  res.json(getAnalyticsSummary());
+registerAnalyticsRoutes(app, {
+  authenticate,
+  getActiveUsers,
+  getAnalyticsSummary,
+  getFileTypes,
+  getMostDownloadedFiles,
+  getRecentAnalyticsEvents,
+  getUploadsByMonth,
+  getUploadsByUser,
+  requireAnalyticsAccess,
 });
 
-app.get("/analytics/uploads-by-month", authenticate, requireAnalyticsAccess, (req, res) => {
-  res.json(getUploadsByMonth(req.query.months));
+registerAuditRoutes(app, {
+  auditLog,
+  authenticate,
+  convertAuditLogsToCSV,
+  countBy,
+  findSuspiciousIPs,
+  getAuditActor,
+  getFilteredAuditLogs,
+  loadAuditLogs,
+  requireAuditAccess,
 });
 
-app.get("/analytics/uploads-by-user", authenticate, requireAnalyticsAccess, (req, res) => {
-  res.json(getUploadsByUser(req.query.limit));
+registerBackupRoutes(app, {
+  auditLog,
+  authenticate,
+  backupService,
+  getAuditActor,
+  requireBackupAccess,
+  restoreService,
 });
 
-app.get("/analytics/active-users", authenticate, requireAnalyticsAccess, (req, res) => {
-  res.json(getActiveUsers(req.query.days));
-});
-
-app.get("/analytics/file-types", authenticate, requireAnalyticsAccess, (req, res) => {
-  res.json(getFileTypes());
-});
-
-app.get("/analytics/downloads-by-file", authenticate, requireAnalyticsAccess, (req, res) => {
-  res.json(getMostDownloadedFiles(req.query.limit));
-});
-
-app.get("/analytics/recent", authenticate, requireAnalyticsAccess, (req, res) => {
-  res.json(getRecentAnalyticsEvents(req.query.limit));
-});
-
-app.get("/audit/logs", authenticate, requireAuditAccess, (req, res) => {
-  const page = Math.max(1, Number(req.query.page) || 1);
-  const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
-  const logs = getFilteredAuditLogs(req.query);
-  const start = (page - 1) * limit;
-
-  res.json({
-    total: logs.length,
-    page,
-    limit,
-    logs: logs.slice(start, start + limit),
-  });
-});
-
-app.get("/audit/summary", authenticate, requireAuditAccess, (req, res) => {
-  const logs = loadAuditLogs().logs;
-  const critical = logs
-    .filter((log) => log.severity === "critical")
-    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-    .slice(0, 10);
-
-  res.json({
-    totalLogs: logs.length,
-    bySeverity: countBy(logs, "severity"),
-    byEventType: countBy(logs, "eventType"),
-    byResult: countBy(logs, "result"),
-    recentCritical: critical,
-    failedLogins: logs.filter((log) => log.eventType === "auth.login.failed").length,
-    suspiciousIPs: findSuspiciousIPs(logs),
-  });
-});
-
-app.get("/audit/export", authenticate, requireAuditAccess, (req, res) => {
-  const format = String(req.query.format || "json").toLowerCase();
-  const logs = getFilteredAuditLogs(req.query);
-
-  auditLog("system.config.changed", getAuditActor(req), { type: "audit", id: "export" }, "exported", "success", {
-    format,
-    count: logs.length,
-  });
-
-  if (format === "csv") {
-    res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", "attachment; filename=audit-logs.csv");
-    return res.send(convertAuditLogsToCSV(logs));
-  }
-
-  res.json(logs);
+registerTrashRoutes(app, {
+  addActionHistory,
+  auditLog,
+  authenticate,
+  broadcastDataChanged,
+  canManageTrash,
+  canRestoreTrashItem,
+  deleteCloudTrashItemLater,
+  ensureFolderDirectories,
+  getAuditActor,
+  getFolderById,
+  getTrashLoaders,
+  isTrashEnabled,
+  requirePermission,
+  requireTrashManageAccess,
+  rootFolderId: ROOT_FOLDER_ID,
+  serializeTrashItemForUser,
+  trashRepository,
+  trashService,
 });
 
 app.post("/share", authenticate, requirePermission("listFiles"), (req, res) => {
@@ -4866,6 +5287,9 @@ app.post("/share/:token/view", async (req, res) => {
     savePublicLinks(links);
     return res.status(404).json({ error: "Arquivo nao encontrado" });
   }
+  if (isFileInTrash(folderId, fileName)) {
+    return res.status(410).json({ error: "Arquivo esta na lixeira" });
+  }
 
   const filePath = path.join(getFolderStoragePath("./uploads", folderId), fileName);
   await ensureCloudFileCached(folderId, fileName, filePath, "uploads");
@@ -4884,11 +5308,10 @@ app.post("/share/:token/view", async (req, res) => {
     createdAt: new Date().toISOString(),
     expiresAt: viewerExpiresAt,
   };
-  currentViews += 1;
-  link.views = currentViews;
   link.lastViewedAt = new Date().toISOString();
   setShareViewerCookie(req, res, shareToken, viewerId, expiresAt);
-  savePublicLinks(links);
+  currentViews = incrementPublicLinkViews(shareToken, link, links);
+  link.views = currentViews;
 
   res.json({
     url: `/share/${shareToken}/file`,
@@ -4936,6 +5359,9 @@ app.get("/share/:token/file", async (req, res) => {
     delete links[shareToken];
     savePublicLinks(links);
     return res.status(404).send("Arquivo nao encontrado");
+  }
+  if (isFileInTrash(folderId, fileName)) {
+    return res.status(410).send("Arquivo esta na lixeira");
   }
 
   const filePath = path.join(getFolderStoragePath("./uploads", folderId), fileName);
@@ -4987,8 +5413,13 @@ app.get("/preview/file/:scope/:name", authenticate, async (req, res) => {
   const target = await ensurePreviewAccess(req, res, req.params.scope, req.params.name, req.query.folderId);
   if (!target) return;
 
+  if (!isInlinePreviewFile(target.name)) {
+    return res.status(415).json({ error: "Preview inline indisponivel para este tipo de arquivo" });
+  }
+
   sendOptimizedFile(req, res, target.filePath, target.name, "inline", {
     cacheControl: "private, max-age=600",
+    contentType: getMimeType(target.name),
   });
 });
 
@@ -4997,24 +5428,26 @@ app.get("/preview/text/:scope/:name", authenticate, async (req, res) => {
   if (!target) return;
 
   const extension = path.extname(target.name).toLowerCase();
+  const kind = getPreviewKind(target.name);
 
   try {
-    if (extension === ".txt") {
+    if (kind === "text") {
+      const stats = fs.statSync(target.filePath);
+      if (stats.size > MAX_TEXT_PREVIEW_BYTES) {
+        return res.status(413).json({ error: "Arquivo muito grande para preview textual. Use download." });
+      }
       const content = fs.readFileSync(target.filePath, "utf-8");
-      res.json({ content, format: "text" });
-      return;
+      return res.json({ content, format: "text", language: extension.replace(".", "") || "text" });
     }
 
     if (extension === ".docx") {
       const result = await mammoth.extractRawText({ path: target.filePath });
-      res.json({ content: result.value, format: "text" });
-      return;
+      return res.json({ content: result.value, format: "document", language: "docx" });
     }
 
     if (extension === ".doc") {
       const document = await wordExtractor.extract(target.filePath);
-      res.json({ content: document.getBody(), format: "text" });
-      return;
+      return res.json({ content: document.getBody(), format: "document", language: "doc" });
     }
 
     res.status(400).json({ error: "Tipo de arquivo sem preview textual" });
@@ -5045,6 +5478,7 @@ app.get("/approve/:name", authenticate, requirePermission("approve"), (req, res)
       uploadedBy || req.user.username,
       pendingEntry.versionComment || ""
     );
+    promoteEncryptedMetadataAfterApproval(folder.id, name, uploadedBy || req.user.username);
     syncFileVersionsToCloud(folder.id, name);
     deleteCloudFileLater(folder.id, name, "temp");
 
@@ -5109,9 +5543,14 @@ app.get("/reject/:name", authenticate, requirePermission("approve"), (req, res) 
 });
 
 app.get("/delete/:name", authenticate, (req, res) => {
+  if (!isTrashEnabled()) return res.status(503).json({ error: "Lixeira desativada" });
   const name = path.basename(req.params.name);
   const folder = getAccessibleFolderOrRespond(req, res, req.query.folderId);
   if (!folder) return;
+
+  if (!canMoveToTrash(req)) {
+    return res.status(403).json({ error: "Permissao negada: delete" });
+  }
 
   if (!hasFileEditAccess(req, folder, name)) {
     return res.status(403).json({ error: "Permissao negada para editar este arquivo" });
@@ -5120,28 +5559,37 @@ app.get("/delete/:name", authenticate, (req, res) => {
   const filePath = path.join(folder.uploadDir, name);
   const fileSize = isExistingFile(filePath) ? fs.statSync(filePath).size : 0;
 
-  fs.unlink(filePath, (err) => {
-    if (err) return res.status(500).json({ error: "Erro ao excluir" });
-    deleteCloudFileLater(folder.id, name, "uploads");
-    removePublicLinksForFile(name, folder.id);
-    removeFilePermission(folder.id, name);
-    removeFileExpiration(folder.id, name);
-    removeFileVersions(folder.id, name);
-    removeEncryptedMetadata(folder.id, name);
+  try {
+    const trashItem = trashService.moveFileToTrash({
+      folder,
+      fileName: name,
+      deletedBy: req.user.username,
+      loaders: getTrashLoaders(),
+    });
     logAnalyticsEvent("deletion", {
       filename: name,
       deletedBy: req.user.username,
       size: fileSize,
       folderId: folder.id,
       folderName: folder.name,
+      trashed: true,
     });
-    auditLog("file.delete", getAuditActor(req), { type: "file", id: name, metadata: { size: fileSize } }, "deleted", "success", {
+    auditLog("trash.file.moved", getAuditActor(req), { type: "trash", id: trashItem.id }, "moved", "success", {
       folderId: folder.id,
       folderName: folder.name,
+      fileName: name,
+      size: fileSize,
     });
-    addActionHistory("deleted", name, req.user.username, { folderId: folder.id, folderName: folder.name });
-    res.json({ message: "Excluido" });
-  });
+    addActionHistory("deleted", name, req.user.username, { folderId: folder.id, folderName: folder.name, trashId: trashItem.id });
+    broadcastDataChanged("trash", { folderId: folder.id, fileName: name, itemType: "file" });
+    res.json({ message: "Movido para lixeira", trashItem: serializeTrashItemForUser(trashItem) });
+  } catch (error) {
+    auditLog("trash.delete.failed", getAuditActor(req), { type: "file", id: name }, "move_to_trash", "failure", {
+      folderId: folder.id,
+      error: error.message,
+    });
+    res.status(500).json({ error: "Erro ao mover arquivo para lixeira" });
+  }
 });
 
 app.put("/rename", authenticate, (req, res) => {
@@ -5274,12 +5722,15 @@ app.put("/move", authenticate, (req, res) => {
 });
 
 initData();
+scheduleAutomaticBackups();
 cleanupExpiredTemporaryItems();
+cleanupExpiredTrashItems();
 repairCompressedTempUploads().catch((error) => {
   console.error("Falha ao reparar uploads temporarios:", error.message);
 });
 cleanupOrphanTempUploads();
 cleanupIncomingUploads();
 setInterval(cleanupExpiredTemporaryItems, 60 * 1000);
+setInterval(cleanupExpiredTrashItems, 60 * 60 * 1000);
 setInterval(cleanupIncomingUploads, 60 * 1000);
 server.listen(3000, () => console.log("Servidor rodando em http://localhost:3000"));

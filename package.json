@@ -3,16 +3,23 @@
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
-    "start": "node --watch server.js"
+    "start": "node --watch server.js",
+    "db:migrate": "node db/migrations.js",
+    "db:migrate-json": "node db/migrate-json-to-sqlite.js",
+    "db:backup": "node db/backup.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1037.0",
+    "archiver": "^7.0.1",
     "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^12.9.0",
     "express": "^4.18.2",
     "googleapis": "^171.4.0",
     "jsonwebtoken": "^9.0.2",
     "mammoth": "^1.12.0",
     "multer": "^1.4.5-lts.1",
+    "node-cron": "^4.2.1",
+    "unzipper": "^0.12.3",
     "word-extractor": "^1.0.4",
     "ws": "^8.20.0"
   }
