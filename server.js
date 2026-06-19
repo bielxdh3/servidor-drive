@@ -4,11 +4,13 @@ const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
 const zlib = require("zlib");
+const net = require("net");
 const { pipeline } = require("stream/promises");
 const mammoth = require("mammoth");
 const WordExtractor = require("word-extractor");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const QRCode = require("qrcode");
 const http = require("http");
 const WebSocket = require("ws");
 const cron = require("node-cron");
@@ -55,6 +57,7 @@ const SERVER_MASTER_KEY_FILE = "./data/server-master.key";
 const ANALYTICS_FILE = "./data/analytics.json";
 const AUDIT_LOGS_FILE = "./data/audit-logs.json";
 const AUDIT_ARCHIVE_FILE = "./data/audit-logs-archive.json";
+const QUARANTINE_FILE = "./data/quarantine.json";
 const CLOUD_STORAGE_PROVIDER = String(process.env.CLOUD_STORAGE_PROVIDER || "local").toLowerCase();
 const CLOUD_STORAGE_PREFIX = String(process.env.CLOUD_STORAGE_PREFIX || "rootark").replace(/^\/+|\/+$/g, "") || "rootark";
 const ROOT_FOLDER_ID = "root";
@@ -62,6 +65,7 @@ const MAX_FILE_NAME_LENGTH = 30;
 const MAX_FILE_VERSIONS = 10;
 const MAX_SHARE_EXPIRATION_MINUTES = 60 * 24 * 30;
 const MAX_SHARE_VIEWS = 1000;
+const MAX_SHARE_DOWNLOADS = 1000;
 const SHARE_VIEW_SESSION_MS = 10 * 60 * 1000;
 const MAX_TEMPORARY_EXPIRATION_MS = 1000 * 60 * 60 * 24 * 365;
 const OPEN_FILE_TOKEN_TTL_MS = 10 * 60 * 1000;
@@ -75,6 +79,23 @@ const CHUNK_UPLOAD_DIR = path.resolve("./temp/.chunks");
 const SIMPLE_UPLOAD_INCOMING_DIR = path.resolve("./temp/.incoming");
 const MAX_UPLOAD_CHUNKS = 2000;
 const SINGLE_UPLOAD_MAX_BYTES = 8 * 1024 * 1024;
+const UPLOAD_SCAN_ENABLED = parseEnvBoolean(process.env.UPLOAD_SCAN_ENABLED, true);
+const UPLOAD_SCAN_PROVIDER = String(process.env.UPLOAD_SCAN_PROVIDER || "clamav").toLowerCase();
+const CLAMAV_HOST = process.env.CLAMAV_HOST || "127.0.0.1";
+const CLAMAV_PORT = Number(process.env.CLAMAV_PORT || 3310);
+const UPLOAD_BLOCK_EXECUTABLES = parseEnvBoolean(process.env.UPLOAD_BLOCK_EXECUTABLES, true);
+const UPLOAD_QUARANTINE_DIR = path.resolve(process.env.UPLOAD_QUARANTINE_DIR || "./data/quarantine");
+const UPLOAD_FAIL_CLOSED = parseEnvBoolean(process.env.UPLOAD_FAIL_CLOSED, false);
+const UPLOAD_SUSPICIOUS_EXTENSIONS = new Set(
+  String(process.env.UPLOAD_SUSPICIOUS_EXTENSIONS || ".exe,.bat,.cmd,.scr,.msi,.ps1,.vbs,.jar,.com")
+    .split(",")
+    .map((extension) => extension.trim().toLowerCase())
+    .filter(Boolean)
+);
+const WEBDAV_ENABLED = parseEnvBoolean(process.env.WEBDAV_ENABLED, false);
+const WEBDAV_PATH = normalizeWebDavMountPath(process.env.WEBDAV_PATH || "/dav");
+const WEBDAV_ALLOW_DELETE = parseEnvBoolean(process.env.WEBDAV_ALLOW_DELETE, false);
+const WEBDAV_ALLOW_MOVE = parseEnvBoolean(process.env.WEBDAV_ALLOW_MOVE, false);
 const ENCRYPTION_ITERATIONS = 100000;
 const wordExtractor = new WordExtractor();
 const openFileTokens = new Map();
@@ -92,6 +113,21 @@ function shouldReadJsonFallback() {
 
 function shouldWriteLegacyJson() {
   return !shouldUseDatabase() || dbConfig.isLegacyJsonWriteEnabled();
+}
+
+function parseEnvBoolean(value, fallback = false) {
+  if (value === undefined || value === null || value === "") return fallback;
+  return ["1", "true", "yes", "sim", "on"].includes(String(value).trim().toLowerCase());
+}
+
+function normalizeWebDavMountPath(value) {
+  const normalized = `/${String(value || "/dav").trim().replace(/^\/+|\/+$/g, "")}`;
+  return normalized === "/" ? "/dav" : normalized;
+}
+
+function isWebDavRequestPath(requestPath) {
+  const cleanPath = String(requestPath || "");
+  return cleanPath === WEBDAV_PATH || cleanPath.startsWith(`${WEBDAV_PATH}/`);
 }
 
 const ENCRYPTION_LEVELS = {
@@ -581,6 +617,27 @@ function savePendingUploads(entries) {
   broadcastDataChanged("pending");
 }
 
+function getDefaultQuarantine() {
+  return { items: [] };
+}
+
+function loadQuarantine() {
+  if (!fs.existsSync(QUARANTINE_FILE)) return getDefaultQuarantine();
+  try {
+    const entries = JSON.parse(fs.readFileSync(QUARANTINE_FILE, "utf-8"));
+    return { items: Array.isArray(entries?.items) ? entries.items : [] };
+  } catch (error) {
+    console.error("Falha ao ler quarentena:", error.message);
+    return getDefaultQuarantine();
+  }
+}
+
+function saveQuarantine(entries) {
+  const normalized = { items: Array.isArray(entries?.items) ? entries.items : [] };
+  fs.writeFileSync(QUARANTINE_FILE, JSON.stringify(normalized, null, 2));
+  broadcastDataChanged("quarantine");
+}
+
 function getDefaultFolders() {
   return [
     {
@@ -966,8 +1023,16 @@ function saveActionHistory(entries) {
 const AUDIT_EVENTS = {
   "auth.login.success": { severity: "info" },
   "auth.login.failed": { severity: "warning" },
+  "auth.login.blocked": { severity: "warning" },
+  "auth.login.rate_limited": { severity: "warning" },
   "auth.token.invalid": { severity: "warning" },
   "file.upload": { severity: "info" },
+  "upload.scan.clean": { severity: "info" },
+  "upload.scan.failed": { severity: "warning" },
+  "upload.scan.infected": { severity: "critical" },
+  "upload.scan.suspicious": { severity: "warning" },
+  "upload.quarantined": { severity: "warning" },
+  "quarantine.deleted": { severity: "critical" },
   "file.download": { severity: "info" },
   "file.delete": { severity: "warning" },
   "file.approve": { severity: "info" },
@@ -977,6 +1042,12 @@ const AUDIT_EVENTS = {
   "file.access.denied": { severity: "warning" },
   "file.version.restore": { severity: "warning" },
   "file.version.delete": { severity: "warning" },
+  "share.created": { severity: "info" },
+  "share.opened": { severity: "info" },
+  "share.password.failed": { severity: "warning" },
+  "share.downloaded": { severity: "info" },
+  "share.expired": { severity: "info" },
+  "share.limit_reached": { severity: "warning" },
   "user.created": { severity: "info" },
   "user.updated": { severity: "info" },
   "user.deleted": { severity: "critical" },
@@ -1074,6 +1145,83 @@ function getAuditActor(req, fallbackUsername = "system") {
     ip,
     userAgent: req?.headers?.["user-agent"] || null,
   };
+}
+
+function getSafeWebDavAuditPath(req) {
+  try {
+    const pathname = new URL(req.originalUrl || req.url || WEBDAV_PATH, "http://localhost").pathname;
+    return pathname.startsWith(WEBDAV_PATH) ? pathname : WEBDAV_PATH;
+  } catch {
+    return WEBDAV_PATH;
+  }
+}
+
+function sendWebDavUnauthorized(req, res, reason = "invalid_credentials") {
+  res.setHeader("WWW-Authenticate", 'Basic realm="Root.ark WebDAV", charset="UTF-8"');
+  auditLog(
+    "webdav.login.failed",
+    getAuditActor(req, "anonymous"),
+    { type: "webdav", id: WEBDAV_PATH },
+    "authenticate",
+    "failure",
+    { reason, method: req.method, path: getSafeWebDavAuditPath(req) }
+  );
+  res.status(401).send("Authentication required");
+  return false;
+}
+
+function authenticateWebDavRequest(req, res) {
+  const header = String(req.headers.authorization || "");
+  if (!header.toLowerCase().startsWith("basic ")) {
+    return sendWebDavUnauthorized(req, res, "missing_basic_auth");
+  }
+
+  let username = "";
+  let password = "";
+  try {
+    const decoded = Buffer.from(header.slice(6), "base64").toString("utf-8");
+    const separator = decoded.indexOf(":");
+    if (separator === -1) return sendWebDavUnauthorized(req, res, "malformed_basic_auth");
+    username = decoded.slice(0, separator).trim();
+    password = decoded.slice(separator + 1);
+  } catch {
+    return sendWebDavUnauthorized(req, res, "malformed_basic_auth");
+  }
+
+  const user = loadUsers().find((entry) => sameUsername(entry.username, username));
+  if (!user || !bcrypt.compareSync(password, user.password)) {
+    return sendWebDavUnauthorized(req, res, "invalid_credentials");
+  }
+
+  req.user = {
+    username: user.username,
+    role: user.role,
+    permissions: normalizeUserPermissions(user),
+  };
+  return true;
+}
+
+function parseWebDavSegments(req) {
+  const pathname = new URL(req.originalUrl || req.url || WEBDAV_PATH, "http://localhost").pathname;
+  if (!isWebDavRequestPath(pathname)) return null;
+
+  const suffix = pathname.slice(WEBDAV_PATH.length).replace(/^\/+|\/+$/g, "");
+  if (!suffix) return [];
+
+  return suffix.split("/").map((segment) => {
+    const decoded = decodeURIComponent(segment);
+    if (
+      !decoded ||
+      decoded === "." ||
+      decoded === ".." ||
+      decoded.includes("/") ||
+      decoded.includes("\\") ||
+      decoded.includes("\0")
+    ) {
+      throw new Error("Caminho WebDAV invalido");
+    }
+    return decoded;
+  });
 }
 
 function archiveAuditLogs(logs) {
@@ -1250,6 +1398,73 @@ function getShareMaxViews(rawValue) {
   return rounded;
 }
 
+function getShareMaxDownloads(rawValue) {
+  const downloads = Number(rawValue);
+  if (!Number.isFinite(downloads)) return 0;
+
+  const rounded = Math.floor(downloads);
+  if (rounded < 0 || rounded > MAX_SHARE_DOWNLOADS) return null;
+
+  return rounded;
+}
+
+function getSharePasswordHash(password) {
+  const value = typeof password === "string" ? password.trim() : "";
+  if (!value) return null;
+  if (value.length < 4 || value.length > 128) return undefined;
+  return bcrypt.hashSync(value, 10);
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function hasSharePassword(link) {
+  return Boolean(link?.passwordHash || link?.password_hash);
+}
+
+function getSharePasswordCookieName(token) {
+  return `rootark_share_pwd_${token}`;
+}
+
+function setSharePasswordCookie(req, res, token) {
+  res.cookie(getSharePasswordCookieName(token), "ok", {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: req.secure || req.get("x-forwarded-proto") === "https",
+    maxAge: 1000 * 60 * 60,
+  });
+}
+
+function hasValidSharePasswordSession(req, token, link) {
+  if (!hasSharePassword(link)) return true;
+  return getCookieValue(req, getSharePasswordCookieName(token)) === "ok";
+}
+
+function getShareFailurePage(message = "Este link nao esta disponivel.") {
+  const safeMessage = escapeHtml(message);
+  return `<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow, noarchive" />
+    <title>Root.ark - Link indisponivel</title>
+    <style>
+      body{min-height:100vh;margin:0;display:grid;place-items:center;background:#020202;color:#fff;font-family:Arial,sans-serif}
+      .card{width:min(460px,calc(100% - 32px));padding:26px;border:1px solid #044879;border-radius:18px;background:#111012;text-align:center;box-shadow:0 24px 80px rgba(0,0,0,.45)}
+      h1{margin:0 0 10px;font-size:2rem} p{color:#b8b8b8;line-height:1.5}
+    </style>
+  </head>
+  <body><main class="card"><h1>ROOT.ark</h1><p>${safeMessage}</p></main></body>
+</html>`;
+}
+
 function getTemporaryExpiresAt(rawValue) {
   if (rawValue === null || rawValue === undefined || rawValue === "" || rawValue === false) {
     return null;
@@ -1332,88 +1547,497 @@ function renderPublicSharePage(token) {
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex, nofollow, noarchive" />
-    <meta property="og:title" content="Root.ark - Link publico" />
-    <meta property="og:description" content="Abra o link no navegador para acessar o arquivo." />
-    <title>Root.ark - Link publico</title>
+    <meta property="og:title" content="Root.ark - Compartilhamento" />
+    <meta property="og:description" content="Acesse um arquivo compartilhado com segurança pelo Root.ark." />
+    <title>Root.ark - Compartilhamento</title>
     <style>
+      :root {
+        --blue: #044879;
+        --blue-soft: #60a0ce;
+        --panel: #111012;
+        --muted: #b8b8b8;
+      }
+
+      * { box-sizing: border-box; }
+
       body {
         min-height: 100vh;
         margin: 0;
-        display: grid;
-        place-items: center;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
         background: #020202;
         color: white;
         font-family: Arial, sans-serif;
       }
 
-      .card {
-        width: min(420px, calc(100% - 32px));
-        padding: 24px;
-        border: 1px solid #044879;
-        border-radius: 16px;
-        background: #111012;
-        text-align: center;
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background:
+          radial-gradient(circle at 50% 0%, rgba(4, 72, 121, 0.35), transparent 34%),
+          linear-gradient(180deg, rgba(4, 72, 121, 0.18), transparent 44%),
+          #020202;
+        pointer-events: none;
       }
 
-      button, a {
+      .card {
+        position: relative;
+        z-index: 1;
+        width: min(760px, 100%);
+        padding: 26px;
+        border: 1px solid var(--blue);
+        border-radius: 20px;
+        background: rgba(17, 16, 18, 0.94);
+        box-shadow: 0 28px 90px rgba(0, 0, 0, 0.55);
+      }
+
+      .brand {
+        text-align: center;
+        margin-bottom: 22px;
+      }
+
+      .brand h1 {
+        margin: 0;
+        font-size: clamp(2.2rem, 8vw, 4rem);
+        letter-spacing: -0.08em;
+      }
+
+      .brand span {
         display: inline-block;
-        margin-top: 16px;
-        padding: 10px 14px;
-        border-radius: 10px;
-        border: 1px solid #044879;
-        background: #044879;
-        color: white;
-        cursor: pointer;
-        text-decoration: none;
+        background: var(--blue);
+        border-radius: 14px;
+        padding: 0 8px;
+        letter-spacing: -0.06em;
+      }
+
+      .file-box {
+        border: 1px solid rgba(4, 72, 121, 0.8);
+        border-radius: 16px;
+        padding: 18px;
+        background: rgba(2, 2, 2, 0.42);
+      }
+
+      h2 {
+        margin: 0 0 8px;
+        overflow-wrap: anywhere;
       }
 
       p {
-        color: #b8b8b8;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+
+      .meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 14px 0;
+      }
+
+      .pill {
+        border: 1px solid rgba(96, 160, 206, 0.55);
+        color: var(--blue-soft);
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-size: 0.85rem;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 18px;
+      }
+
+      button, a {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 42px;
+        padding: 10px 14px;
+        border-radius: 10px;
+        border: 1px solid var(--blue);
+        background: transparent;
+        color: var(--blue-soft);
+        cursor: pointer;
+        text-decoration: none;
+        font-weight: 700;
+      }
+
+      .primary {
+        background: var(--blue);
+        color: white;
+      }
+
+      input {
+        width: 100%;
+        margin-top: 10px;
+        padding: 12px;
+        border-radius: 10px;
+        border: 1px solid var(--blue);
+        background: rgba(17, 16, 18, 0.9);
+        color: white;
+      }
+
+      .hidden { display: none !important; }
+
+      .preview {
+        margin-top: 18px;
+        border: 1px solid rgba(4, 72, 121, 0.7);
+        border-radius: 14px;
+        overflow: hidden;
+        min-height: 220px;
+        background: #050505;
+      }
+
+      .preview iframe,
+      .preview video,
+      .preview audio,
+      .preview img {
+        width: 100%;
+        max-height: 520px;
+        border: 0;
+        display: block;
+      }
+
+      .preview audio { margin: 40px auto; width: calc(100% - 36px); }
+
+      .qr {
+        margin-top: 16px;
+        display: grid;
+        place-items: center;
+      }
+
+      .qr img {
+        width: 172px;
+        height: 172px;
+        border-radius: 14px;
+        background: white;
+        padding: 8px;
+      }
+
+      .status {
+        min-height: 22px;
+      }
+
+      button:disabled {
+        opacity: .5;
+        cursor: not-allowed;
+      }
+
+      @media (max-width: 560px) {
+        body { padding: 14px; }
+        .card { padding: 18px; }
+        .actions { flex-direction: column; }
+        button, a { width: 100%; }
       }
     </style>
   </head>
   <body>
     <main class="card">
-      <h1>Root.ark</h1>
-      <p id="message">Preparando arquivo...</p>
-      <button type="button" id="openButton" hidden>Abrir arquivo</button>
+      <div class="brand">
+        <h1>ROOT<span>.ark</span></h1>
+        <p>Compartilhamento publico seguro</p>
+      </div>
+      <section class="file-box">
+        <h2 id="fileName">Validando link...</h2>
+        <p class="status" id="status">Aguarde um instante.</p>
+
+        <div id="passwordBox" class="hidden">
+          <p>Este link esta protegido. Digite a senha para continuar.</p>
+          <input type="password" id="sharePassword" placeholder="Senha do link" autocomplete="current-password" />
+          <div class="actions">
+            <button type="button" class="primary" id="passwordButton">Acessar</button>
+          </div>
+        </div>
+
+        <div id="contentBox" class="hidden">
+          <div class="meta" id="meta"></div>
+          <div class="actions">
+            <a class="primary" id="downloadButton" href="/share/${safeToken}/download">Download</a>
+            <button type="button" id="previewButton">Preview</button>
+            <button type="button" id="copyButton">Copiar link</button>
+            <button type="button" id="qrButton">QR Code</button>
+          </div>
+          <div class="preview hidden" id="previewBox"></div>
+          <div class="qr hidden" id="qrBox"></div>
+        </div>
+      </section>
     </main>
     <script>
-      const message = document.getElementById("message");
-      const openButton = document.getElementById("openButton");
+      const token = "${safeToken}";
+      const fileName = document.getElementById("fileName");
+      const status = document.getElementById("status");
+      const passwordBox = document.getElementById("passwordBox");
+      const contentBox = document.getElementById("contentBox");
+      const passwordInput = document.getElementById("sharePassword");
+      const passwordButton = document.getElementById("passwordButton");
+      const meta = document.getElementById("meta");
+      const previewButton = document.getElementById("previewButton");
+      const previewBox = document.getElementById("previewBox");
+      const qrButton = document.getElementById("qrButton");
+      const qrBox = document.getElementById("qrBox");
+      const copyButton = document.getElementById("copyButton");
 
-      async function openSharedFile() {
-        openButton.hidden = true;
-        message.textContent = "Validando link...";
-
-        try {
-          const response = await fetch("/share/${safeToken}/view", {
-            method: "POST",
-            headers: { "X-Rootark-Share-View": "1" },
-          });
-          const payload = await response.json().catch(() => ({}));
-
-          if (!response.ok) {
-            throw new Error(payload.error || "Link indisponivel.");
-          }
-
-          message.textContent = "Abrindo arquivo...";
-          window.location.href = payload.url;
-        } catch (error) {
-          message.textContent = error.message || "Nao foi possivel abrir o link.";
-          openButton.hidden = false;
-        }
+      function formatSize(bytes) {
+        const size = Number(bytes) || 0;
+        if (size < 1024) return size + " B";
+        if (size < 1024 * 1024) return Math.round(size / 1024) + " KB";
+        if (size < 1024 * 1024 * 1024) return (size / 1024 / 1024).toFixed(1) + " MB";
+        return (size / 1024 / 1024 / 1024).toFixed(1) + " GB";
       }
 
-      openButton.addEventListener("click", openSharedFile);
-      openSharedFile();
+      function renderAccess(data) {
+        passwordBox.classList.add("hidden");
+        contentBox.classList.remove("hidden");
+        fileName.textContent = data.fileName || "Arquivo compartilhado";
+        status.textContent = "Link valido ate " + new Date(data.expiresAt).toLocaleString("pt-BR") + ".";
+        meta.innerHTML = [
+          data.fileType ? '<span class="pill">' + data.fileType + '</span>' : "",
+          '<span class="pill">' + formatSize(data.size) + '</span>',
+          data.remainingViews !== null ? '<span class="pill">' + data.remainingViews + ' visualizacoes restantes</span>' : '<span class="pill">Visualizacoes ilimitadas</span>',
+          data.remainingDownloads !== null ? '<span class="pill">' + data.remainingDownloads + ' downloads restantes</span>' : '<span class="pill">Downloads ilimitados</span>'
+        ].filter(Boolean).join("");
+        previewButton.hidden = !data.canPreview;
+      }
+
+      async function accessShare(password = "") {
+        status.textContent = "Validando link...";
+        const response = await fetch("/share/" + token + "/password", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password })
+        });
+        const data = await response.json().catch(() => ({}));
+
+        if (response.status === 401 && data.passwordRequired) {
+          fileName.textContent = "Link protegido";
+          status.textContent = "Informe a senha para continuar.";
+          passwordBox.classList.remove("hidden");
+          contentBox.classList.add("hidden");
+          return;
+        }
+
+        if (!response.ok) {
+          fileName.textContent = "Link indisponivel";
+          status.textContent = data.error || "Nao foi possivel acessar este compartilhamento.";
+          passwordBox.classList.add("hidden");
+          contentBox.classList.add("hidden");
+          return;
+        }
+
+        renderAccess(data);
+      }
+
+      passwordButton.addEventListener("click", () => accessShare(passwordInput.value));
+      passwordInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") accessShare(passwordInput.value);
+      });
+
+      previewButton.addEventListener("click", () => {
+        previewBox.classList.toggle("hidden");
+        if (!previewBox.dataset.loaded) {
+          previewBox.innerHTML = '<iframe src="/share/' + token + '/preview" title="Preview"></iframe>';
+          previewBox.dataset.loaded = "1";
+        }
+      });
+
+      qrButton.addEventListener("click", () => {
+        qrBox.classList.toggle("hidden");
+        if (!qrBox.dataset.loaded) {
+          qrBox.innerHTML = '<img alt="QR Code do link" src="/share/' + token + '/qr" />';
+          qrBox.dataset.loaded = "1";
+        }
+      });
+
+      copyButton.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(window.location.href);
+          status.textContent = "Link copiado.";
+        } catch {
+          status.textContent = "Nao foi possivel copiar automaticamente.";
+        }
+      });
+
+      accessShare();
     </script>
   </body>
 </html>`;
 }
-
 function buildPublicShareUrl(req, token) {
   return `${req.protocol}://${req.get("host")}/share/${token}`;
+}
+
+function getShareAuditActor(req) {
+  return getAuditActor({ ...req, user: { username: "public", role: "public" } }, "public");
+}
+
+function logShareAudit(req, eventType, token, link, action, result, details = {}) {
+  auditLog(
+    eventType,
+    getShareAuditActor(req),
+    { type: "public_link", id: token },
+    action,
+    result,
+    {
+      fileName: link?.fileName || null,
+      folderId: link?.folderId || ROOT_FOLDER_ID,
+      ...details,
+    }
+  );
+}
+
+function getShareFileInfo(link) {
+  const folderId = link.folderId || ROOT_FOLDER_ID;
+  const fileName = path.basename(link.fileName || "");
+  if (!fileName || fileName !== link.fileName) return null;
+
+  const filePath = path.join(getFolderStoragePath("./uploads", folderId), fileName);
+  return { folderId, fileName, filePath };
+}
+
+async function ensureShareFileAvailable(link) {
+  const info = getShareFileInfo(link);
+  if (!info) return null;
+  if (isFileInTrash(info.folderId, info.fileName)) return null;
+  await ensureCloudFileCached(info.folderId, info.fileName, info.filePath, "uploads");
+  if (!isExistingFile(info.filePath)) return null;
+  if (getEncryptedFileMetadata(info.folderId, info.fileName)) return null;
+  return info;
+}
+
+function getPublicShareTypeLabel(fileName) {
+  const extension = path.extname(fileName || "").replace(".", "").toUpperCase();
+  return extension || "Arquivo";
+}
+
+function getPublicShareCanPreview(fileName) {
+  return ["image", "pdf", "audio", "video"].includes(getPreviewKind(fileName));
+}
+
+function isShareViewerActive(req, token, link) {
+  const { viewers } = cleanupShareViewers(link);
+  const viewerId = getCookieValue(req, `rootark_share_${token}`);
+  return Boolean(viewerId && viewers[viewerId]);
+}
+
+function createShareViewer(req, res, token, link, expiresAt) {
+  const { viewers } = cleanupShareViewers(link);
+  const viewerId = crypto.randomBytes(16).toString("hex");
+  viewers[viewerId] = {
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Math.min(Date.now() + SHARE_VIEW_SESSION_MS, expiresAt)).toISOString(),
+  };
+  link.activeViewers = viewers;
+  setShareViewerCookie(req, res, token, viewerId, expiresAt);
+}
+
+function getShareLimitState(link) {
+  const maxViews = Number(link.maxViews) || 0;
+  const views = Number(link.views) || 0;
+  const maxDownloads = Number(link.maxDownloads) || 0;
+  const downloads = Number(link.downloads) || 0;
+
+  return {
+    maxViews,
+    views,
+    maxDownloads,
+    downloads,
+    remainingViews: maxViews > 0 ? Math.max(0, maxViews - views) : null,
+    remainingDownloads: maxDownloads > 0 ? Math.max(0, maxDownloads - downloads) : null,
+  };
+}
+
+function validateShareToken(rawToken) {
+  const token = String(rawToken || "");
+  return /^[a-f0-9]{48}$/i.test(token) ? token : "";
+}
+
+function getShareAccessCookieRequired(link) {
+  return hasSharePassword(link) || (Number(link.maxViews) || 0) > 0;
+}
+
+async function resolveShareAccess(req, res, token, options = {}) {
+  const links = loadPublicLinks();
+  const link = links[token];
+  if (!link) return { status: 404, error: "Link indisponivel." };
+
+  const expiresAt = new Date(link.expiresAt).getTime();
+  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+    delete links[token];
+    savePublicLinks(links);
+    logShareAudit(req, "share.expired", token, link, "expired", "failure");
+    return { status: 410, error: "Link indisponivel." };
+  }
+
+  const passwordHash = link.passwordHash || link.password_hash || null;
+  if (passwordHash && !hasValidSharePasswordSession(req, token, link)) {
+    if (!options.password) return { status: 401, error: "Senha obrigatoria.", passwordRequired: true };
+    if (!bcrypt.compareSync(String(options.password), passwordHash)) {
+      logShareAudit(req, "share.password.failed", token, link, "password", "failure");
+      return { status: 401, error: "Nao foi possivel acessar este link.", passwordRequired: true };
+    }
+    setSharePasswordCookie(req, res, token);
+  }
+
+  const limits = getShareLimitState(link);
+  const viewerAlreadyActive = isShareViewerActive(req, token, link);
+  if (options.countView && !viewerAlreadyActive && limits.maxViews > 0 && limits.views >= limits.maxViews) {
+    logShareAudit(req, "share.limit_reached", token, link, "view", "failure", { limit: "views" });
+    return { status: 410, error: "Link indisponivel." };
+  }
+
+  if (options.requireViewer && getShareAccessCookieRequired(link) && !viewerAlreadyActive && !options.countView) {
+    return { status: 403, error: "Abra a pagina do compartilhamento novamente." };
+  }
+
+  if (options.countDownload && limits.maxDownloads > 0 && limits.downloads >= limits.maxDownloads) {
+    logShareAudit(req, "share.limit_reached", token, link, "download", "failure", { limit: "downloads" });
+    return { status: 410, error: "Link indisponivel." };
+  }
+
+  const fileInfo = await ensureShareFileAvailable(link);
+  if (!fileInfo) return { status: 404, error: "Link indisponivel." };
+
+  if (options.countView && !viewerAlreadyActive) {
+    createShareViewer(req, res, token, link, expiresAt);
+    link.lastViewedAt = new Date().toISOString();
+    link.views = incrementPublicLinkViews(token, link, links);
+    logShareAudit(req, "share.opened", token, link, "opened", "success");
+  } else {
+    const cleaned = cleanupShareViewers(link);
+    if (cleaned.changed) savePublicLinks(links);
+  }
+
+  if (options.countDownload) {
+    link.downloads = (Number(link.downloads) || 0) + 1;
+    link.lastDownloadedAt = new Date().toISOString();
+    links[token] = link;
+    savePublicLinks(links);
+    logShareAudit(req, "share.downloaded", token, link, "downloaded", "success");
+  }
+
+  return { link, fileInfo, limits: getShareLimitState(link), expiresAt };
+}
+
+function getSharePublicPayload(link, fileInfo, limits) {
+  const stats = fs.statSync(fileInfo.filePath);
+  return {
+    fileName: fileInfo.fileName,
+    fileType: getPublicShareTypeLabel(fileInfo.fileName),
+    size: stats.size,
+    expiresAt: link.expiresAt,
+    views: Number(link.views) || 0,
+    maxViews: Number(link.maxViews) || 0,
+    downloads: Number(link.downloads) || 0,
+    maxDownloads: Number(link.maxDownloads) || 0,
+    remainingViews: limits.remainingViews,
+    remainingDownloads: limits.remainingDownloads,
+    canPreview: getPublicShareCanPreview(fileInfo.fileName),
+  };
 }
 
 function getFolderById(folderId = ROOT_FOLDER_ID) {
@@ -1431,6 +2055,10 @@ function hasFolderAccess(req, folder) {
 
 function canManageAccess(req) {
   return req.user?.role === "admin" || req.user?.permissions?.manageUsers;
+}
+
+function sameUsername(left, right) {
+  return String(left || "").trim().toLowerCase() === String(right || "").trim().toLowerCase();
 }
 
 function canViewAnalytics(req) {
@@ -1746,6 +2374,8 @@ function isStoredVersionFile(folderId, fileName, entries = loadFileVersions()) {
 
   for (const [key, value] of Object.entries(entries)) {
     if (!key.startsWith(`${folderId || ROOT_FOLDER_ID}/`)) continue;
+    const primaryName = path.basename(key);
+    if (name === primaryName) continue;
 
     const history = normalizeVersionHistory(value);
     if (history.versions.some((version) => version.storedAs === name && version.version !== history.currentVersion)) {
@@ -2130,7 +2760,7 @@ function canAccessEncryptedFile(req, metadata) {
   }
 
   if (level === "user-key" || level === "dual") {
-    return getEncryptedAuthorizedUsers(metadata).has(req.user?.username);
+    return Array.from(getEncryptedAuthorizedUsers(metadata)).some((username) => sameUsername(username, req.user?.username));
   }
 
   return false;
@@ -2458,7 +3088,12 @@ function hasFileAccess(req, folder, fileName, entries = loadFilePermissions()) {
   const permissions = normalizeFilePermissionEntry(entry);
   const userAccess = permissions.users[req.user?.username];
 
-  return permissions.public || Boolean(userAccess?.read) || Boolean(userAccess?.edit);
+  return (
+    permissions.public ||
+    sameUsername(permissions.owner, req.user?.username) ||
+    Boolean(userAccess?.read) ||
+    Boolean(userAccess?.edit)
+  );
 }
 
 function hasFileEditAccess(req, folder, fileName, entries = loadFilePermissions()) {
@@ -2469,6 +3104,7 @@ function hasFileEditAccess(req, folder, fileName, entries = loadFilePermissions(
   if (!entry) return Boolean(req.user?.permissions?.delete);
 
   const permissions = normalizeFilePermissionEntry(entry);
+  if (sameUsername(permissions.owner, req.user?.username)) return true;
   if (permissions.public && Object.keys(permissions.users).length === 0) {
     return Boolean(req.user?.permissions?.delete);
   }
@@ -2798,6 +3434,203 @@ function isSafeChildPath(baseDir, targetPath) {
   return resolvedTarget === basePath || resolvedTarget.startsWith(`${basePath}${path.sep}`);
 }
 
+function sanitizeQuarantineFilename(name) {
+  const base = path.basename(String(name || "upload.bin")).replace(/[<>:"/\\|?*\x00-\x1F]/g, "_").trim();
+  return (base || "upload.bin").slice(0, 120);
+}
+
+function getClamAvPort() {
+  return Number.isInteger(CLAMAV_PORT) && CLAMAV_PORT > 0 ? CLAMAV_PORT : 3310;
+}
+
+function scanFileWithClamAv(filePath) {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection({ host: CLAMAV_HOST, port: getClamAvPort() });
+    const chunks = [];
+    let settled = false;
+
+    function finish(error, result) {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      if (error) reject(error);
+      else resolve(result);
+    }
+
+    socket.setTimeout(5000, () => finish(new Error("ClamAV indisponivel: timeout")));
+    socket.on("error", (error) => finish(error));
+    socket.on("data", (chunk) => chunks.push(chunk));
+    socket.on("end", () => {
+      const response = Buffer.concat(chunks).toString("utf-8").trim();
+      if (/FOUND$/i.test(response)) {
+        const virus = response.replace(/^stream:\s*/i, "").replace(/\s+FOUND$/i, "");
+        return finish(null, { status: "infected", provider: "clamav", virus, raw: response.slice(0, 300) });
+      }
+      if (/OK$/i.test(response)) {
+        return finish(null, { status: "clean", provider: "clamav", raw: response.slice(0, 300) });
+      }
+      return finish(new Error(response || "Resposta invalida do ClamAV"));
+    });
+
+    socket.on("connect", () => {
+      socket.write(Buffer.from("zINSTREAM\0"));
+      const input = fs.createReadStream(filePath);
+      input.on("data", (chunk) => {
+        const size = Buffer.alloc(4);
+        size.writeUInt32BE(chunk.length, 0);
+        socket.write(size);
+        socket.write(chunk);
+      });
+      input.on("end", () => socket.write(Buffer.alloc(4)));
+      input.on("error", (error) => finish(error));
+    });
+  });
+}
+
+function quarantineUploadedFile(req, options) {
+  const folderId = options.folderId || ROOT_FOLDER_ID;
+  const originalFilename = path.basename(options.originalName || options.fileName || "upload.bin");
+  const storedQuarantineFilename = `${Date.now()}-${crypto.randomBytes(8).toString("hex")}-${sanitizeQuarantineFilename(originalFilename)}`;
+  const destinationPath = path.join(UPLOAD_QUARANTINE_DIR, storedQuarantineFilename);
+
+  fs.mkdirSync(UPLOAD_QUARANTINE_DIR, { recursive: true });
+  if (!isSafeChildPath(UPLOAD_QUARANTINE_DIR, destinationPath)) {
+    throw new Error("Caminho de quarentena invalido");
+  }
+
+  try {
+    fs.renameSync(options.filePath, destinationPath);
+  } catch (error) {
+    fs.copyFileSync(options.filePath, destinationPath);
+    fs.rmSync(options.filePath, { force: true });
+  }
+
+  const entries = loadQuarantine();
+  const item = {
+    id: crypto.randomUUID(),
+    originalFilename,
+    storedQuarantineFilename,
+    uploader: req.user?.username || "anonymous",
+    folderId,
+    size: Number(options.size) || fs.statSync(destinationPath).size,
+    reason: options.reason || "blocked",
+    scanResult: options.scanResult || {},
+    timestamp: new Date().toISOString(),
+  };
+  entries.items.unshift(item);
+  saveQuarantine(entries);
+
+  auditLog("upload.quarantined", getAuditActor(req), { type: "quarantine", id: item.id }, "quarantined", "success", {
+    filename: originalFilename,
+    folderId,
+    reason: item.reason,
+    result: item.scanResult?.status || "blocked",
+  });
+
+  return item;
+}
+
+async function scanUploadBeforePending(req, options) {
+  if (!UPLOAD_SCAN_ENABLED) {
+    return { allowed: true, scanResult: { status: "skipped", provider: "disabled" } };
+  }
+
+  const fileName = path.basename(options.fileName || options.originalName || "");
+  const folderId = options.folderId || ROOT_FOLDER_ID;
+  const extension = path.extname(fileName).toLowerCase();
+  const auditTarget = { type: "file", id: fileName };
+
+  if (UPLOAD_BLOCK_EXECUTABLES && UPLOAD_SUSPICIOUS_EXTENSIONS.has(extension)) {
+    const scanResult = { status: "suspicious", provider: "extension-block", extension };
+    auditLog("upload.scan.suspicious", getAuditActor(req), auditTarget, "scan", "failure", {
+      filename: fileName,
+      folderId,
+      reason: "suspicious_extension",
+      extension,
+    });
+    const quarantine = quarantineUploadedFile(req, {
+      ...options,
+      reason: "suspicious_extension",
+      scanResult,
+    });
+    return {
+      allowed: false,
+      status: 415,
+      error: "Upload bloqueado por politica de seguranca.",
+      quarantine,
+      scanResult,
+    };
+  }
+
+  if (UPLOAD_SCAN_PROVIDER !== "clamav") {
+    auditLog("upload.scan.clean", getAuditActor(req), auditTarget, "scan", "success", {
+      filename: fileName,
+      folderId,
+      provider: UPLOAD_SCAN_PROVIDER,
+      result: "skipped",
+    });
+    return { allowed: true, scanResult: { status: "skipped", provider: UPLOAD_SCAN_PROVIDER } };
+  }
+
+  try {
+    const scanResult = await scanFileWithClamAv(options.filePath);
+    if (scanResult.status === "infected") {
+      auditLog("upload.scan.infected", getAuditActor(req), auditTarget, "scan", "failure", {
+        filename: fileName,
+        folderId,
+        provider: "clamav",
+        virus: scanResult.virus,
+      });
+      const quarantine = quarantineUploadedFile(req, {
+        ...options,
+        reason: "clamav_infected",
+        scanResult,
+      });
+      return {
+        allowed: false,
+        status: 422,
+        error: "Upload bloqueado pela verificacao de seguranca.",
+        quarantine,
+        scanResult,
+      };
+    }
+
+    auditLog("upload.scan.clean", getAuditActor(req), auditTarget, "scan", "success", {
+      filename: fileName,
+      folderId,
+      provider: "clamav",
+      result: scanResult.status,
+    });
+    return { allowed: true, scanResult };
+  } catch (error) {
+    const scanResult = { status: "failed", provider: "clamav", error: error.message };
+    auditLog("upload.scan.failed", getAuditActor(req), auditTarget, "scan", "failure", {
+      filename: fileName,
+      folderId,
+      provider: "clamav",
+      failClosed: UPLOAD_FAIL_CLOSED,
+      error: error.message,
+    });
+
+    if (UPLOAD_FAIL_CLOSED) {
+      const quarantine = quarantineUploadedFile(req, {
+        ...options,
+        reason: "scan_failed_fail_closed",
+        scanResult,
+      });
+      return {
+        allowed: false,
+        status: 503,
+        error: "Upload bloqueado: scanner indisponivel.",
+        quarantine,
+        scanResult,
+      };
+    }
+
+    return { allowed: true, scanResult };
+  }
+}
+
 function removePendingEntriesForFolder(folderId) {
   const entries = loadPendingUploads();
   let changed = false;
@@ -2984,7 +3817,9 @@ function cleanupOrphanTempUploads(directory = path.resolve("./temp")) {
       if (pendingNames.has(path.resolve(fullPath))) continue;
 
       const stats = fs.statSync(fullPath);
-      if (now - stats.mtimeMs > 30 * 1000) {
+      const internalTempFile = /\.(upload|part|repair|decompressed)$/i.test(entry.name);
+      const maxAge = internalTempFile ? 5 * 60 * 1000 : 24 * 60 * 60 * 1000;
+      if (now - stats.mtimeMs > maxAge) {
         fs.rmSync(fullPath, { force: true });
       }
     }
@@ -3017,6 +3852,50 @@ function getPendingUploadEntry(folderId, fileName) {
 
 function getPendingUploadOwner(folderId, fileName) {
   return getPendingUploadEntry(folderId, fileName)?.uploadedBy || null;
+}
+
+function getApprovalFolderById(folderId) {
+  const folder = getFolderById(folderId || ROOT_FOLDER_ID);
+  if (!folder) return null;
+  return { ...folder, ...ensureFolderDirectories(folder.id) };
+}
+
+async function findPendingApprovalTarget(req, requestedFolder, fileName) {
+  const name = path.basename(fileName || "");
+  if (!name) return null;
+
+  const candidates = [];
+  const pushCandidate = (folderId) => {
+    const folder = getApprovalFolderById(folderId);
+    if (!folder) return;
+    if (!canManageAccess(req) && !hasFolderAccess(req, folder)) return;
+    if (candidates.some((candidate) => candidate.folder.id === folder.id)) return;
+    candidates.push({
+      folder,
+      pendingPath: path.join(folder.tempDir, name),
+    });
+  };
+
+  pushCandidate(requestedFolder?.id || ROOT_FOLDER_ID);
+
+  const pendingUploads = loadPendingUploads();
+  for (const [key, entry] of Object.entries(pendingUploads)) {
+    const entryName = path.basename(entry?.fileName || key);
+    if (entryName !== name) continue;
+    const folderId = entry?.folderId || (String(key).includes("/") ? String(key).split("/")[0] : ROOT_FOLDER_ID);
+    pushCandidate(folderId);
+  }
+
+  for (const folder of loadFolders()) {
+    pushCandidate(folder.id);
+  }
+
+  for (const candidate of candidates) {
+    await ensureCloudFileCached(candidate.folder.id, name, candidate.pendingPath, "temp");
+    if (isExistingFile(candidate.pendingPath)) return candidate;
+  }
+
+  return null;
 }
 
 function canAccessPendingFile(req, folderId, fileName) {
@@ -3127,6 +4006,7 @@ function listFilesWithDetails(directory, callback) {
             name,
             size: stats.size,
             uploadedAt: stats.birthtime.toISOString(),
+            modifiedAt: stats.mtime.toISOString(),
           });
         }
       } catch (error) {
@@ -3141,6 +4021,15 @@ function listFilesWithDetails(directory, callback) {
     }
 
     callback(null, items);
+  });
+}
+
+function listFilesWithDetailsAsync(directory) {
+  return new Promise((resolve, reject) => {
+    listFilesWithDetails(directory, (error, files) => {
+      if (error) reject(error);
+      else resolve(files);
+    });
   });
 }
 
@@ -3511,6 +4400,44 @@ function isFileInTrash(folderId, fileName) {
   return trashRepository.isFileTrashed(folderId || ROOT_FOLDER_ID, path.basename(fileName || ""));
 }
 
+function hydrateFolderForWebDav(folder) {
+  if (!folder) return null;
+  return { ...folder, ...ensureFolderDirectories(folder.id) };
+}
+
+function findWebDavFolderByName(req, segment) {
+  const target = String(segment || "").trim();
+  return loadFolders()
+    .filter((folder) => !folder.deletedAt && folder.id !== ROOT_FOLDER_ID && hasFolderAccess(req, folder))
+    .find((folder) => folder.id === target || sameUsername(folder.name, target));
+}
+
+function getWebDavAccessibleFolders(req) {
+  return loadFolders()
+    .filter((folder) => !folder.deletedAt && folder.id !== ROOT_FOLDER_ID && hasFolderAccess(req, folder))
+    .map(hydrateFolderForWebDav);
+}
+
+function getWebDavRootFolder() {
+  return hydrateFolderForWebDav(getFolderById(ROOT_FOLDER_ID) || getDefaultFolders()[0]);
+}
+
+function isWebDavFileExpired(folderId, fileName) {
+  const entry = getFileExpirationEntry(folderId, fileName);
+  if (!entry?.expiresAt) return false;
+  const expiresAt = new Date(entry.expiresAt).getTime();
+  return Number.isFinite(expiresAt) && expiresAt <= Date.now();
+}
+
+function isWebDavEncryptedFile(folderId, fileName) {
+  return Boolean(getEncryptedFileMetadata(folderId, fileName));
+}
+
+function isWebDavInternalStoredFile(folderId, fileName) {
+  const name = path.basename(fileName || "");
+  return isStoredVersionFile(folderId, name) || /\.v\d+$/i.test(name);
+}
+
 function deleteCloudTrashItemLater(item) {
   if (!item) return;
   if (item.itemType === "folder") {
@@ -3532,6 +4459,7 @@ function deleteCloudTrashItemLater(item) {
 function initData() {
   if (!fs.existsSync("./data")) fs.mkdirSync("./data");
   if (!fs.existsSync("./data/trash")) fs.mkdirSync("./data/trash", { recursive: true });
+  if (!fs.existsSync(UPLOAD_QUARANTINE_DIR)) fs.mkdirSync(UPLOAD_QUARANTINE_DIR, { recursive: true });
   if (!fs.existsSync("./temp")) fs.mkdirSync("./temp");
   if (!fs.existsSync(CHUNK_UPLOAD_DIR)) fs.mkdirSync(CHUNK_UPLOAD_DIR, { recursive: true });
   if (!fs.existsSync(SIMPLE_UPLOAD_INCOMING_DIR)) fs.mkdirSync(SIMPLE_UPLOAD_INCOMING_DIR, { recursive: true });
@@ -3552,7 +4480,10 @@ function initData() {
     if (!fs.existsSync(ENCRYPTED_FILES_FILE)) saveEncryptedFiles({});
     if (!fs.existsSync(ANALYTICS_FILE)) saveAnalytics(getDefaultAnalytics());
     if (!fs.existsSync(AUDIT_LOGS_FILE)) saveAuditLogs(getDefaultAuditLogs());
+    if (!fs.existsSync(QUARANTINE_FILE)) saveQuarantine(getDefaultQuarantine());
   }
+
+  if (!fs.existsSync(QUARANTINE_FILE)) saveQuarantine(getDefaultQuarantine());
 
   for (const folder of loadFolders()) {
     ensureFolderDirectories(folder.id);
@@ -3576,7 +4507,10 @@ function initData() {
 }
 
 app.set("trust proxy", true);
-app.use(express.json());
+app.use((req, res, next) => {
+  if (WEBDAV_ENABLED && isWebDavRequestPath(req.path)) return next();
+  return express.json()(req, res, next);
+});
 app.use((req, res, next) => {
   if (req.path === "/" || req.path.endsWith(".html")) {
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
@@ -3623,8 +4557,54 @@ wss.on("connection", (socket, req) => {
 
 const requirePermission = createRequirePermission();
 
+if (WEBDAV_ENABLED) {
+  registerWebDavRoutes();
+}
+
 app.get("/storage/status", authenticate, requirePermission("manageUsers"), (req, res) => {
   res.json(getCloudStorageStatus());
+});
+
+function requireQuarantineAccess(req, res, next) {
+  if (!canManageAccess(req)) {
+    return res.status(403).json({ error: "Permissao negada: manageUsers" });
+  }
+  next();
+}
+
+app.get("/quarantine", authenticate, requireQuarantineAccess, (req, res) => {
+  const entries = loadQuarantine();
+  res.json(entries.items.map((item) => ({
+    id: item.id,
+    originalFilename: item.originalFilename,
+    uploader: item.uploader,
+    folderId: item.folderId,
+    size: item.size,
+    reason: item.reason,
+    scanResult: item.scanResult,
+    timestamp: item.timestamp,
+  })));
+});
+
+app.delete("/quarantine/:id", authenticate, requireQuarantineAccess, (req, res) => {
+  const id = String(req.params.id || "").trim();
+  const entries = loadQuarantine();
+  const item = entries.items.find((entry) => entry.id === id);
+  if (!item) return res.status(404).json({ error: "Arquivo em quarentena nao encontrado" });
+
+  const quarantinePath = path.join(UPLOAD_QUARANTINE_DIR, path.basename(item.storedQuarantineFilename || ""));
+  if (!isSafeChildPath(UPLOAD_QUARANTINE_DIR, quarantinePath)) {
+    return res.status(400).json({ error: "Registro de quarentena invalido" });
+  }
+
+  fs.rmSync(quarantinePath, { force: true });
+  saveQuarantine({ items: entries.items.filter((entry) => entry.id !== id) });
+  auditLog("quarantine.deleted", getAuditActor(req), { type: "quarantine", id }, "deleted", "success", {
+    filename: item.originalFilename,
+    folderId: item.folderId,
+    reason: item.reason,
+  });
+  res.json({ message: "Arquivo removido da quarentena" });
 });
 
 registerAuthRoutes(app, {
@@ -4216,6 +5196,8 @@ app.delete("/folders/:id", authenticate, (req, res) => {
 
 });
 
+app.get("/files/search", authenticate, requirePermission("listFiles"), handleFileSearch);
+
 app.get("/files/:name", authenticate, requirePermission("listFiles"), async (req, res) => {
   const folder = getReadableFolderOrRespond(req, res, req.query.folderId);
   if (!folder) return;
@@ -4657,6 +5639,18 @@ app.post("/upload-chunk", authenticate, requirePermission("upload"), prepareUplo
     const finalPath = path.join(req.uploadFolder.tempDir, metadata.fileName);
     await assembleChunkedUpload(sessionDir, finalPath, totalChunks);
     const stats = fs.statSync(finalPath);
+    const scan = await scanUploadBeforePending(req, {
+      filePath: finalPath,
+      fileName: metadata.fileName,
+      originalName: metadata.originalName,
+      folderId,
+      size: stats.size,
+    });
+    if (!scan.allowed) {
+      fs.rmSync(sessionDir, { recursive: true, force: true });
+      return res.status(scan.status || 400).json({ error: scan.error || "Upload bloqueado por seguranca" });
+    }
+
     let encryptionMetadata = null;
     try {
       encryptionMetadata = encryptFileInPlace(finalPath, {
@@ -4719,6 +5713,17 @@ app.post("/upload", authenticate, requirePermission("upload"), prepareUploadFold
   } catch (error) {
     fs.rmSync(req.file.path, { force: true });
     return res.status(500).json({ error: "Nao foi possivel finalizar o upload" });
+  }
+
+  const scan = await scanUploadBeforePending(req, {
+    filePath: finalTempPath,
+    fileName,
+    originalName,
+    folderId: req.uploadFolder?.id || ROOT_FOLDER_ID,
+    size: req.file.size,
+  });
+  if (!scan.allowed) {
+    return res.status(scan.status || 400).json({ error: scan.error || "Upload bloqueado por seguranca" });
   }
 
   let encryptionMetadata = null;
@@ -4806,51 +5811,539 @@ app.put("/file-temporary", authenticate, (req, res) => {
   });
 });
 
+function getFileListCaches() {
+  return {
+    filePermissions: loadFilePermissions(),
+    fileExpirations: loadFileExpirations(),
+    fileVersions: loadFileVersions(),
+    encryptedFiles: loadEncryptedFiles(),
+    publicLinks: cleanupExpiredPublicLinks(),
+  };
+}
+
+function hasPublicLinkForFile(folderId, fileName, publicLinks = {}) {
+  return Object.values(publicLinks).some((link) => {
+    if (!link || link.revokedAt) return false;
+    return (link.folderId || ROOT_FOLDER_ID) === folderId && link.fileName === fileName;
+  });
+}
+
+function buildVisibleFileEntry(req, folder, file, caches = getFileListCaches()) {
+  if (isStoredVersionFile(folder.id, file.name, caches.fileVersions)) return null;
+  if (isFileInTrash(folder.id, file.name)) return null;
+  if (!hasFileAccess(req, folder, file.name, caches.filePermissions)) return null;
+
+  const encryption = getEncryptedFileMetadata(folder.id, file.name, caches.encryptedFiles);
+  if (!canAccessEncryptedFile(req, encryption)) return null;
+
+  const entry = getFilePermissionEntry(folder.id, file.name, caches.filePermissions);
+  const normalizedEntry = normalizeFilePermissionEntry(entry);
+  const expiration = getFileExpirationEntry(folder.id, file.name, caches.fileExpirations);
+  const versions = getVersionHistory(folder.id, file.name, caches.fileVersions);
+  const shared = Boolean(normalizedEntry.public) || Object.keys(normalizedEntry.users || {}).length > 0 || hasPublicLinkForFile(folder.id, file.name, caches.publicLinks);
+
+  return {
+    ...file,
+    folderId: folder.id,
+    folderName: folder.name,
+    uploadedBy: normalizedEntry.owner || null,
+    owner: normalizedEntry.owner || null,
+    isShared: shared,
+    isEncrypted: Boolean(encryption),
+    expiresAt: expiration?.expiresAt || null,
+    temporary: Boolean(expiration?.expiresAt),
+    access: {
+      public: normalizedEntry.public,
+      owner: normalizedEntry.owner,
+      users: normalizedEntry.users,
+    },
+    currentVersion: versions.currentVersion || 0,
+    versionCount: versions.versions.length,
+    encryption: getPublicEncryptionMetadata(encryption),
+    canEdit: hasFileEditAccess(req, folder, file.name, caches.filePermissions),
+    canManageAccess: canManageAccess(req) || hasFileEditAccess(req, folder, file.name, caches.filePermissions),
+  };
+}
+
+async function listVisibleFilesForFolder(req, folder, caches = getFileListCaches()) {
+  await syncFolderCacheFromCloud(folder.id, "uploads");
+  const files = await listFilesWithDetailsAsync(folder.uploadDir);
+  return files
+    .map((file) => buildVisibleFileEntry(req, folder, file, caches))
+    .filter(Boolean);
+}
+
+async function getWebDavVisibleFiles(req, folder) {
+  const visible = await listVisibleFilesForFolder(req, folder);
+  return visible.filter((file) => !isWebDavEncryptedFile(folder.id, file.name) && !isWebDavInternalStoredFile(folder.id, file.name));
+}
+
+async function resolveWebDavFile(req, folder, fileName) {
+  const name = path.basename(String(fileName || ""));
+  if (!name || name !== fileName) return null;
+  if (!folder || !hasFolderAccess(req, folder)) return null;
+  if (isWebDavInternalStoredFile(folder.id, name)) return null;
+  if (isFileInTrash(folder.id, name)) return null;
+  if (isWebDavFileExpired(folder.id, name)) return null;
+  if (isWebDavEncryptedFile(folder.id, name)) {
+    return { blocked: true, status: 403, message: "Arquivos criptografados nao estao disponiveis via WebDAV neste MVP" };
+  }
+  if (!hasFileAccess(req, folder, name)) return null;
+
+  const filePath = path.join(folder.uploadDir, name);
+  await ensureCloudFileCached(folder.id, name, filePath, "uploads");
+  if (!isExistingFile(filePath)) return null;
+
+  return {
+    type: "file",
+    folder,
+    name,
+    filePath,
+    stats: fs.statSync(filePath),
+  };
+}
+
+async function resolveWebDavTarget(req, segments) {
+  const rootFolder = getWebDavRootFolder();
+
+  if (!segments.length) {
+    return { type: "root", folder: rootFolder };
+  }
+
+  if (segments.length === 1) {
+    const folder = findWebDavFolderByName(req, segments[0]);
+    if (folder) return { type: "folder", folder: hydrateFolderForWebDav(folder) };
+    return resolveWebDavFile(req, rootFolder, segments[0]);
+  }
+
+  if (segments.length === 2) {
+    const folder = findWebDavFolderByName(req, segments[0]);
+    if (!folder) return null;
+    return resolveWebDavFile(req, hydrateFolderForWebDav(folder), segments[1]);
+  }
+
+  return null;
+}
+
+function getWebDavUploadTarget(req, segments) {
+  if (!Array.isArray(segments) || !segments.length || segments.length > 2) return null;
+
+  let folder = getWebDavRootFolder();
+  let fileName = segments[0];
+
+  if (segments.length === 2) {
+    const matchedFolder = findWebDavFolderByName(req, segments[0]);
+    if (!matchedFolder) return null;
+    folder = hydrateFolderForWebDav(matchedFolder);
+    fileName = segments[1];
+  } else if (findWebDavFolderByName(req, segments[0])) {
+    return null;
+  }
+
+  if (!folder || !hasFolderAccess(req, folder)) return null;
+  const safeName = path.basename(fileName);
+  if (!safeName || safeName !== fileName || safeName === "." || safeName === "..") return null;
+  return { folder, fileName: safeName };
+}
+
+function escapeXml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function encodeWebDavHrefSegment(segment) {
+  return encodeURIComponent(segment).replace(/%20/g, "%20");
+}
+
+function getWebDavHref(segments = [], isCollection = false) {
+  const suffix = segments.map(encodeWebDavHrefSegment).join("/");
+  return `${WEBDAV_PATH}${suffix ? `/${suffix}` : ""}${isCollection ? "/" : ""}`;
+}
+
+function buildWebDavPropResponse({ href, displayName, isCollection, size = 0, modifiedAt = new Date(), contentType = "application/octet-stream" }) {
+  const resourcetype = isCollection ? "<D:collection/>" : "";
+  const fileProps = isCollection
+    ? ""
+    : `
+          <D:getcontentlength>${Number(size) || 0}</D:getcontentlength>
+          <D:getcontenttype>${escapeXml(contentType)}</D:getcontenttype>`;
+
+  return `
+      <D:response>
+        <D:href>${escapeXml(href)}</D:href>
+        <D:propstat>
+          <D:prop>
+            <D:displayname>${escapeXml(displayName)}</D:displayname>
+            <D:resourcetype>${resourcetype}</D:resourcetype>
+            <D:getlastmodified>${new Date(modifiedAt).toUTCString()}</D:getlastmodified>${fileProps}
+          </D:prop>
+          <D:status>HTTP/1.1 200 OK</D:status>
+        </D:propstat>
+      </D:response>`;
+}
+
+async function sendWebDavPropfind(req, res, segments) {
+  const depth = String(req.headers.depth || "1");
+  const target = await resolveWebDavTarget(req, segments);
+  if (!target || target.blocked) return res.status(target?.status || 404).send(target?.message || "Not found");
+
+  const responses = [];
+
+  if (target.type === "root") {
+    responses.push(buildWebDavPropResponse({
+      href: getWebDavHref([], true),
+      displayName: "Root.ark",
+      isCollection: true,
+      modifiedAt: new Date(),
+    }));
+
+    if (depth !== "0") {
+      for (const folder of getWebDavAccessibleFolders(req)) {
+        responses.push(buildWebDavPropResponse({
+          href: getWebDavHref([folder.name], true),
+          displayName: folder.name,
+          isCollection: true,
+          modifiedAt: folder.updatedAt || folder.createdAt || new Date(),
+        }));
+      }
+
+      const files = await getWebDavVisibleFiles(req, target.folder);
+      for (const file of files) {
+        responses.push(buildWebDavPropResponse({
+          href: getWebDavHref([file.name]),
+          displayName: file.name,
+          isCollection: false,
+          size: file.size,
+          modifiedAt: file.modifiedAt || file.uploadedAt || new Date(),
+          contentType: getMimeType(file.name),
+        }));
+      }
+    }
+  } else if (target.type === "folder") {
+    responses.push(buildWebDavPropResponse({
+      href: getWebDavHref([target.folder.name], true),
+      displayName: target.folder.name,
+      isCollection: true,
+      modifiedAt: target.folder.updatedAt || target.folder.createdAt || new Date(),
+    }));
+
+    if (depth !== "0") {
+      const files = await getWebDavVisibleFiles(req, target.folder);
+      for (const file of files) {
+        responses.push(buildWebDavPropResponse({
+          href: getWebDavHref([target.folder.name, file.name]),
+          displayName: file.name,
+          isCollection: false,
+          size: file.size,
+          modifiedAt: file.modifiedAt || file.uploadedAt || new Date(),
+          contentType: getMimeType(file.name),
+        }));
+      }
+    }
+  } else if (target.type === "file") {
+    const parent = target.folder.id === ROOT_FOLDER_ID ? [] : [target.folder.name];
+    responses.push(buildWebDavPropResponse({
+      href: getWebDavHref([...parent, target.name]),
+      displayName: target.name,
+      isCollection: false,
+      size: target.stats.size,
+      modifiedAt: target.stats.mtime,
+      contentType: getMimeType(target.name),
+    }));
+  }
+
+  auditLog("webdav.list", getAuditActor(req), { type: "webdav", id: getSafeWebDavAuditPath(req) }, "list", "success", {
+    depth,
+    path: getSafeWebDavAuditPath(req),
+  });
+  return res
+    .status(207)
+    .set("Content-Type", "application/xml; charset=utf-8")
+    .send(`<?xml version="1.0" encoding="utf-8"?><D:multistatus xmlns:D="DAV:">${responses.join("")}</D:multistatus>`);
+}
+
+async function sendWebDavFile(req, res, segments, headOnly = false) {
+  const target = await resolveWebDavTarget(req, segments);
+  if (!target || target.type !== "file") return res.status(target?.status || 404).send(target?.message || "Not found");
+
+  auditLog("webdav.download", getAuditActor(req), { type: "file", id: target.name }, "download", "success", {
+    folderId: target.folder.id,
+    method: req.method,
+    path: getSafeWebDavAuditPath(req),
+  });
+
+  if (headOnly) {
+    res.setHeader("Content-Type", getMimeType(target.name));
+    res.setHeader("Content-Length", target.stats.size);
+    res.setHeader("Last-Modified", target.stats.mtime.toUTCString());
+    return res.status(200).end();
+  }
+
+  return sendOptimizedFile(req, res, target.filePath, target.name, "attachment", { logDownload: false });
+}
+
+async function handleWebDavPut(req, res, segments) {
+  if (!req.user?.permissions?.upload) return res.status(403).send("Upload permission required");
+
+  const target = getWebDavUploadTarget(req, segments);
+  if (!target) return res.status(409).send("Invalid upload target");
+
+  const contentLength = Number(req.headers["content-length"]) || 0;
+  if (contentLength > SINGLE_UPLOAD_MAX_BYTES) {
+    return res.status(413).send("File too large for WebDAV MVP upload");
+  }
+
+  const incomingPath = path.join(SIMPLE_UPLOAD_INCOMING_DIR, `${Date.now()}-${crypto.randomBytes(8).toString("hex")}.webdav`);
+  fs.mkdirSync(SIMPLE_UPLOAD_INCOMING_DIR, { recursive: true });
+
+  try {
+    await pipeline(req, fs.createWriteStream(incomingPath));
+    const written = fs.statSync(incomingPath).size;
+    if (written > SINGLE_UPLOAD_MAX_BYTES) {
+      fs.rmSync(incomingPath, { force: true });
+      return res.status(413).send("File too large for WebDAV MVP upload");
+    }
+
+    const finalFileName = getAvailableUploadFileName(target.fileName, target.folder.id, true);
+    const finalPath = path.join(target.folder.tempDir, finalFileName);
+    fs.mkdirSync(target.folder.tempDir, { recursive: true });
+    fs.renameSync(incomingPath, finalPath);
+    const scan = await scanUploadBeforePending(req, {
+      filePath: finalPath,
+      fileName: finalFileName,
+      originalName: target.fileName,
+      folderId: target.folder.id,
+      size: written,
+    });
+    if (!scan.allowed) {
+      return res.status(scan.status || 400).send(scan.error || "Upload bloqueado por seguranca");
+    }
+
+    req.uploadFolder = target.folder;
+    registerPendingUpload(req, {
+      fileName: finalFileName,
+      originalName: target.fileName,
+      size: written,
+      mimeType: getMimeType(target.fileName),
+    });
+
+    auditLog("webdav.upload", getAuditActor(req), { type: "file", id: finalFileName }, "upload", "success", {
+      folderId: target.folder.id,
+      path: getSafeWebDavAuditPath(req),
+      pendingApproval: true,
+      originalName: target.fileName,
+    });
+    broadcastDataChanged("pending", { action: "webdav_upload", folderId: target.folder.id, fileName: finalFileName });
+    return res.status(201).send("Created");
+  } catch (error) {
+    fs.rmSync(incomingPath, { force: true });
+    auditLog("webdav.error", getAuditActor(req), { type: "webdav", id: getSafeWebDavAuditPath(req) }, "upload", "failure", {
+      error: error.message,
+      path: getSafeWebDavAuditPath(req),
+    });
+    return res.status(500).send("Upload failed");
+  }
+}
+
+function handleWebDavMkcol(req, res, segments) {
+  if (!canCreateFolders(req)) return res.status(403).send("Folder creation permission required");
+  if (!Array.isArray(segments) || segments.length !== 1) return res.status(409).send("Nested WebDAV folders are not supported in this MVP");
+
+  const name = sanitizeFolderName(segments[0]);
+  if (!name || name !== segments[0]) return res.status(400).send("Invalid folder name");
+  if (findWebDavFolderByName(req, name)) return res.status(405).send("Collection already exists");
+
+  const folders = loadFolders();
+  const folder = {
+    id: createFolderId(),
+    name,
+    createdBy: req.user.username,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    users: {},
+    allowedUsers: [],
+    isRoot: false,
+  };
+  folders.push(folder);
+  saveFolders(folders);
+  ensureFolderDirectories(folder.id);
+  auditLog("webdav.mkdir", getAuditActor(req), { type: "folder", id: folder.id }, "created", "success", {
+    folderName: folder.name,
+    path: getSafeWebDavAuditPath(req),
+  });
+  addActionHistory("folder_created_webdav", folder.name, req.user.username, { folderId: folder.id, folderName: folder.name });
+  broadcastDataChanged("folders", { action: "webdav_mkdir", folderId: folder.id });
+  return res.status(201).send("Created");
+}
+
+function sendWebDavOptions(req, res) {
+  const methods = ["OPTIONS", "PROPFIND", "GET", "HEAD", "PUT", "MKCOL", "LOCK", "UNLOCK"];
+  if (WEBDAV_ALLOW_DELETE) methods.push("DELETE");
+  if (WEBDAV_ALLOW_MOVE) methods.push("MOVE");
+  res.setHeader("DAV", "1");
+  res.setHeader("MS-Author-Via", "DAV");
+  res.setHeader("Allow", methods.join(", "));
+  return res.status(204).end();
+}
+
+function registerWebDavRoutes() {
+  const handler = async (req, res) => {
+    try {
+      if (req.method === "OPTIONS") return sendWebDavOptions(req, res);
+      if (!authenticateWebDavRequest(req, res)) return;
+
+      const segments = parseWebDavSegments(req);
+      if (!segments) return res.status(404).send("Not found");
+
+      if (req.method === "PROPFIND") return sendWebDavPropfind(req, res, segments);
+      if (req.method === "GET") return sendWebDavFile(req, res, segments, false);
+      if (req.method === "HEAD") return sendWebDavFile(req, res, segments, true);
+      if (req.method === "PUT") return handleWebDavPut(req, res, segments);
+      if (req.method === "MKCOL") return handleWebDavMkcol(req, res, segments);
+
+      if (req.method === "DELETE") {
+        auditLog("webdav.delete", getAuditActor(req), { type: "webdav", id: getSafeWebDavAuditPath(req) }, "delete", "failure", {
+          reason: WEBDAV_ALLOW_DELETE ? "not_implemented" : "disabled",
+        });
+        return res.status(405).send("DELETE is disabled for WebDAV MVP");
+      }
+
+      if (req.method === "MOVE") return res.status(405).send("MOVE is disabled for WebDAV MVP");
+      if (req.method === "LOCK" || req.method === "UNLOCK") return res.status(501).send("WebDAV locking is not supported in this MVP");
+      return res.status(405).send("Method not allowed");
+    } catch (error) {
+      auditLog("webdav.error", getAuditActor(req, "anonymous"), { type: "webdav", id: getSafeWebDavAuditPath(req) }, req.method, "failure", {
+        error: error.message,
+        path: getSafeWebDavAuditPath(req),
+      });
+      return res.status(error.message.includes("Caminho WebDAV") ? 400 : 500).send("WebDAV request failed");
+    }
+  };
+
+  app.all(WEBDAV_PATH, handler);
+  app.all(`${WEBDAV_PATH}/*`, handler);
+}
+
+function parseSearchBoolean(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const normalized = String(value).trim().toLowerCase();
+  if (["true", "1", "yes", "sim"].includes(normalized)) return true;
+  if (["false", "0", "no", "nao", "não"].includes(normalized)) return false;
+  return null;
+}
+
+function parseSearchNumber(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+function parseSearchDate(value, endOfDay = false) {
+  if (!value) return null;
+  const raw = String(value).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw) && Number.isNaN(Date.parse(raw))) return null;
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? new Date(`${raw}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}`) : new Date(raw);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function normalizeSearchExtension(value) {
+  if (!value) return "";
+  const normalized = String(value).trim().toLowerCase().replace(/^\.+/, "");
+  if (!normalized || !/^[a-z0-9]{1,16}$/.test(normalized)) return "";
+  return `.${normalized}`;
+}
+
+function isDateWithinRange(file, startDate, endDate) {
+  if (!startDate && !endDate) return true;
+  const candidates = [file.uploadedAt, file.modifiedAt].filter(Boolean).map((date) => new Date(date)).filter((date) => !Number.isNaN(date.getTime()));
+  if (!candidates.length) return false;
+  return candidates.some((date) => (!startDate || date >= startDate) && (!endDate || date <= endDate));
+}
+
+function getSearchFolders(req, rawFolderId) {
+  const folderId = String(rawFolderId || ROOT_FOLDER_ID);
+  if (["all", "global", "*"].includes(folderId.toLowerCase())) {
+    return loadFolders()
+      .filter((folder) => !folder.deletedAt && hasFolderAccess(req, folder))
+      .map((folder) => ({ ...folder, ...ensureFolderDirectories(folder.id) }));
+  }
+
+  const folder = getFolderById(folderId);
+  return folder && !folder.deletedAt && hasFolderAccess(req, folder) ? [{ ...folder, ...ensureFolderDirectories(folder.id) }] : null;
+}
+
+function filterSearchResults(files, filters) {
+  return files.filter((file) => {
+    if (filters.q && !file.name.toLowerCase().includes(filters.q)) return false;
+    if (filters.extension && path.extname(file.name).toLowerCase() !== filters.extension) return false;
+    if (filters.minSize !== null && file.size < filters.minSize) return false;
+    if (filters.maxSize !== null && file.size > filters.maxSize) return false;
+    if (filters.owner && !String(file.owner || file.uploadedBy || "").toLowerCase().includes(filters.owner)) return false;
+    if (filters.isShared !== null && Boolean(file.isShared) !== filters.isShared) return false;
+    if (filters.isEncrypted !== null && Boolean(file.isEncrypted) !== filters.isEncrypted) return false;
+    if (!isDateWithinRange(file, filters.startDate, filters.endDate)) return false;
+    return true;
+  });
+}
+
+function sortSearchResults(files, sortBy, sortOrder) {
+  const direction = sortOrder === "desc" ? -1 : 1;
+  const sorted = files.slice();
+  sorted.sort((left, right) => {
+    if (sortBy === "size") return ((left.size || 0) - (right.size || 0)) * direction;
+    if (sortBy === "date") {
+      const leftDate = new Date(left.modifiedAt || left.uploadedAt || 0).getTime() || 0;
+      const rightDate = new Date(right.modifiedAt || right.uploadedAt || 0).getTime() || 0;
+      return (leftDate - rightDate) * direction;
+    }
+    return left.name.localeCompare(right.name, "pt-BR", { sensitivity: "base" }) * direction;
+  });
+  return sorted;
+}
+
 app.get("/list", authenticate, requirePermission("listFiles"), async (req, res) => {
   const folder = getReadableFolderOrRespond(req, res, req.query.folderId);
   if (!folder) return;
 
-  await syncFolderCacheFromCloud(folder.id, "uploads");
-  listFilesWithDetails(folder.uploadDir, (err, files) => {
-    if (err) return res.status(500).json({ error: "Erro ao listar" });
-
-    const filePermissions = loadFilePermissions();
-    const fileExpirations = loadFileExpirations();
-    const fileVersions = loadFileVersions();
-    const encryptedFiles = loadEncryptedFiles();
-    const visibleFiles = files
-      .filter((file) => !isStoredVersionFile(folder.id, file.name, fileVersions))
-      .filter((file) => !isFileInTrash(folder.id, file.name))
-      .filter((file) => hasFileAccess(req, folder, file.name, filePermissions))
-      .filter((file) => canAccessEncryptedFile(req, getEncryptedFileMetadata(folder.id, file.name, encryptedFiles)))
-      .map((file) => {
-        const entry = getFilePermissionEntry(folder.id, file.name, filePermissions);
-        const normalizedEntry = normalizeFilePermissionEntry(entry);
-        const expiration = getFileExpirationEntry(folder.id, file.name, fileExpirations);
-        const versions = getVersionHistory(folder.id, file.name, fileVersions);
-        const encryption = getEncryptedFileMetadata(folder.id, file.name, encryptedFiles);
-
-        return {
-          ...file,
-          folderId: folder.id,
-          expiresAt: expiration?.expiresAt || null,
-          temporary: Boolean(expiration?.expiresAt),
-          access: {
-            public: normalizedEntry.public,
-            owner: normalizedEntry.owner,
-            users: normalizedEntry.users,
-          },
-          currentVersion: versions.currentVersion || 0,
-          versionCount: versions.versions.length,
-          encryption: getPublicEncryptionMetadata(encryption),
-          canEdit: hasFileEditAccess(req, folder, file.name, filePermissions),
-          canManageAccess: canManageAccess(req) || hasFileEditAccess(req, folder, file.name, filePermissions),
-        };
-      });
-
+  try {
+    const visibleFiles = await listVisibleFilesForFolder(req, folder);
     res.json(visibleFiles);
-  });
+  } catch (error) {
+    res.status(500).json({ error: "Erro ao listar" });
+  }
 });
+
+async function handleFileSearch(req, res) {
+  const foldersToSearch = getSearchFolders(req, req.query.folderId);
+  if (!foldersToSearch) return res.status(403).json({ error: "Acesso negado a esta pasta" });
+
+  const sortBy = ["name", "size", "date"].includes(String(req.query.sortBy || "").toLowerCase()) ? String(req.query.sortBy).toLowerCase() : "name";
+  const sortOrder = String(req.query.sortOrder || "asc").toLowerCase() === "desc" ? "desc" : "asc";
+  const filters = {
+    q: String(req.query.q || "").trim().toLowerCase().slice(0, 120),
+    extension: normalizeSearchExtension(req.query.extension),
+    minSize: parseSearchNumber(req.query.minSize),
+    maxSize: parseSearchNumber(req.query.maxSize),
+    startDate: parseSearchDate(req.query.startDate),
+    endDate: parseSearchDate(req.query.endDate, true),
+    owner: String(req.query.owner || "").trim().toLowerCase().slice(0, 80),
+    isShared: parseSearchBoolean(req.query.isShared),
+    isEncrypted: parseSearchBoolean(req.query.isEncrypted),
+  };
+
+  try {
+    const caches = getFileListCaches();
+    const lists = await Promise.all(foldersToSearch.map((folder) => listVisibleFilesForFolder(req, folder, caches).catch(() => [])));
+    const results = sortSearchResults(filterSearchResults(lists.flat(), filters), sortBy, sortOrder);
+    res.json(results);
+  } catch (error) {
+    res.status(500).json({ error: "Erro ao buscar arquivos" });
+  }
+}
 
 app.get("/versions/:filename", authenticate, requirePermission("listFiles"), (req, res) => {
   const rawName = typeof req.params.filename === "string" ? req.params.filename.trim() : "";
@@ -5161,6 +6654,8 @@ app.post("/share", authenticate, requirePermission("listFiles"), (req, res) => {
   const name = path.basename(rawName);
   const expiresInMinutes = getShareExpirationMinutes(req.body.expiresInMinutes);
   const maxViews = getShareMaxViews(req.body.maxViews);
+  const maxDownloads = getShareMaxDownloads(req.body.maxDownloads);
+  const passwordHash = getSharePasswordHash(req.body.password);
   const folder = getReadableFolderOrRespond(req, res, req.body.folderId);
   if (!folder) return;
 
@@ -5182,6 +6677,16 @@ app.post("/share", authenticate, requirePermission("listFiles"), (req, res) => {
     return res.status(400).json({
       error: `Limite de visualizacoes invalido. Use 0 para ilimitado ou ate ${MAX_SHARE_VIEWS}.`,
     });
+  }
+
+  if (maxDownloads === null) {
+    return res.status(400).json({
+      error: `Limite de downloads invalido. Use 0 para ilimitado ou ate ${MAX_SHARE_DOWNLOADS}.`,
+    });
+  }
+
+  if (passwordHash === undefined) {
+    return res.status(400).json({ error: "Senha do link deve ter entre 4 e 128 caracteres." });
   }
 
   const filePath = path.join(folder.uploadDir, name);
@@ -5209,6 +6714,9 @@ app.post("/share", authenticate, requirePermission("listFiles"), (req, res) => {
     createdBy: req.user.username,
     views: 0,
     maxViews,
+    downloads: 0,
+    maxDownloads,
+    passwordHash,
     activeViewers: {},
   };
 
@@ -5218,6 +6726,16 @@ app.post("/share", authenticate, requirePermission("listFiles"), (req, res) => {
     folderId: folder.id,
     folderName: folder.name,
     maxViews,
+    maxDownloads,
+    passwordProtected: Boolean(passwordHash),
+  });
+  auditLog("share.created", getAuditActor(req), { type: "file", id: name }, "created", "success", {
+    folderId: folder.id,
+    token: shareToken,
+    expiresAt,
+    maxViews,
+    maxDownloads,
+    passwordProtected: Boolean(passwordHash),
   });
   res.status(201).json({
     token: shareToken,
@@ -5226,157 +6744,123 @@ app.post("/share", authenticate, requirePermission("listFiles"), (req, res) => {
     expiresAt,
     views: 0,
     maxViews,
+    downloads: 0,
+    maxDownloads,
+    passwordProtected: Boolean(passwordHash),
     remainingViews: maxViews > 0 ? maxViews : null,
+    remainingDownloads: maxDownloads > 0 ? maxDownloads : null,
   });
 });
 
 app.get("/share/:token", (req, res) => {
   const shareToken = String(req.params.token || "");
   if (!/^[a-f0-9]{48}$/i.test(shareToken)) {
-    return res.status(404).send("Link nao encontrado");
+    return res.status(404).type("html").send(getShareFailurePage("Este link nao esta disponivel."));
+  }
+
+  const links = loadPublicLinks();
+  const link = links[shareToken];
+  if (!link) {
+    return res.status(404).type("html").send(getShareFailurePage("Este link nao esta disponivel."));
+  }
+
+  const expiresAt = new Date(link.expiresAt).getTime();
+  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+    delete links[shareToken];
+    savePublicLinks(links);
+    return res.status(410).type("html").send(getShareFailurePage("Este link nao esta disponivel."));
   }
 
   res.type("html").send(renderPublicSharePage(shareToken));
 });
 
+app.post("/share/:token/password", async (req, res) => {
+  const shareToken = validateShareToken(req.params.token);
+  if (!shareToken) return res.status(404).json({ error: "Link indisponivel." });
+
+  const access = await resolveShareAccess(req, res, shareToken, {
+    password: req.body?.password || "",
+    countView: true,
+  });
+
+  if (access.error) {
+    return res.status(access.status || 400).json({
+      error: access.error,
+      passwordRequired: Boolean(access.passwordRequired),
+    });
+  }
+
+  res.json(getSharePublicPayload(access.link, access.fileInfo, access.limits));
+});
+
 app.post("/share/:token/view", async (req, res) => {
-  const shareToken = String(req.params.token || "");
-  if (!/^[a-f0-9]{48}$/i.test(shareToken)) {
-    return res.status(404).json({ error: "Link nao encontrado" });
-  }
+  const shareToken = validateShareToken(req.params.token);
+  if (!shareToken) return res.status(404).json({ error: "Link indisponivel." });
 
-  if (req.get("x-rootark-share-view") !== "1") {
-    return res.status(400).json({ error: "Visualizacao invalida" });
-  }
-
-  const links = loadPublicLinks();
-  const link = links[shareToken];
-
-  if (!link) {
-    return res.status(404).json({ error: "Link nao encontrado" });
-  }
-
-  const expiresAt = new Date(link.expiresAt).getTime();
-  const maxViews = Number(link.maxViews) || 0;
-  let currentViews = Number(link.views) || 0;
-
-  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
-    delete links[shareToken];
-    savePublicLinks(links);
-    return res.status(410).json({ error: "Link expirado" });
-  }
-
-  const { viewers: activeViewers, changed: cleanedViewers } = cleanupShareViewers(link);
-  let changed = cleanedViewers;
-
-  if (maxViews > 0 && currentViews >= maxViews) {
-    if (Object.keys(activeViewers).length === 0) {
-      delete links[shareToken];
-      savePublicLinks(links);
-    } else if (changed) {
-      savePublicLinks(links);
-    }
-
-    return res.status(410).json({ error: "Link expirado por limite de visualizacoes" });
-  }
-
-  const folderId = link.folderId || ROOT_FOLDER_ID;
-  const fileName = path.basename(link.fileName || "");
-  if (!fileName || fileName !== link.fileName) {
-    delete links[shareToken];
-    savePublicLinks(links);
-    return res.status(404).json({ error: "Arquivo nao encontrado" });
-  }
-  if (isFileInTrash(folderId, fileName)) {
-    return res.status(410).json({ error: "Arquivo esta na lixeira" });
-  }
-
-  const filePath = path.join(getFolderStoragePath("./uploads", folderId), fileName);
-  await ensureCloudFileCached(folderId, fileName, filePath, "uploads");
-  if (!isExistingFile(filePath)) {
-    delete links[shareToken];
-    savePublicLinks(links);
-    return res.status(404).json({ error: "Arquivo nao encontrado" });
-  }
-  if (getEncryptedFileMetadata(folderId, fileName)) {
-    return res.status(403).json({ error: "Links publicos nao estao disponiveis para arquivos criptografados" });
-  }
-
-  const viewerId = crypto.randomBytes(16).toString("hex");
-  const viewerExpiresAt = new Date(Math.min(Date.now() + SHARE_VIEW_SESSION_MS, expiresAt)).toISOString();
-  activeViewers[viewerId] = {
-    createdAt: new Date().toISOString(),
-    expiresAt: viewerExpiresAt,
-  };
-  link.lastViewedAt = new Date().toISOString();
-  setShareViewerCookie(req, res, shareToken, viewerId, expiresAt);
-  currentViews = incrementPublicLinkViews(shareToken, link, links);
-  link.views = currentViews;
+  const access = await resolveShareAccess(req, res, shareToken, { countView: true });
+  if (access.error) return res.status(access.status || 400).json({ error: access.error, passwordRequired: Boolean(access.passwordRequired) });
 
   res.json({
+    ...getSharePublicPayload(access.link, access.fileInfo, access.limits),
     url: `/share/${shareToken}/file`,
-    views: currentViews,
-    maxViews,
-    remainingViews: maxViews > 0 ? Math.max(0, maxViews - currentViews) : null,
   });
 });
 
+app.get("/share/:token/download", async (req, res) => {
+  const shareToken = validateShareToken(req.params.token);
+  if (!shareToken) return res.status(404).type("html").send(getShareFailurePage("Este link nao esta disponivel."));
+
+  const access = await resolveShareAccess(req, res, shareToken, {
+    requireViewer: true,
+    countDownload: true,
+  });
+  if (access.error) return res.status(access.status || 400).type("html").send(getShareFailurePage(access.error));
+
+  sendOptimizedFile(req, res, access.fileInfo.filePath, access.fileInfo.fileName, "attachment", {
+    cacheControl: "private, max-age=600",
+  });
+});
+
+app.get("/share/:token/preview", async (req, res) => {
+  const shareToken = validateShareToken(req.params.token);
+  if (!shareToken) return res.status(404).send("Link indisponivel.");
+
+  const access = await resolveShareAccess(req, res, shareToken, { requireViewer: true });
+  if (access.error) return res.status(access.status || 400).send(access.error);
+  if (!getPublicShareCanPreview(access.fileInfo.fileName)) return res.status(415).send("Preview indisponivel");
+
+  sendOptimizedFile(req, res, access.fileInfo.filePath, access.fileInfo.fileName, "inline", {
+    cacheControl: "private, max-age=600",
+  });
+});
+
+app.get("/share/:token/qr", async (req, res) => {
+  const shareToken = validateShareToken(req.params.token);
+  if (!shareToken) return res.status(404).send("Link indisponivel.");
+
+  try {
+    const png = await QRCode.toBuffer(buildPublicShareUrl(req, shareToken), {
+      type: "png",
+      margin: 1,
+      width: 320,
+      color: { dark: "#044879", light: "#ffffff" },
+    });
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    res.send(png);
+  } catch (error) {
+    res.status(500).send("Nao foi possivel gerar QR Code");
+  }
+});
+
 app.get("/share/:token/file", async (req, res) => {
-  const shareToken = String(req.params.token || "");
-  if (!/^[a-f0-9]{48}$/i.test(shareToken)) {
-    return res.status(404).send("Link nao encontrado");
-  }
+  const shareToken = validateShareToken(req.params.token);
+  if (!shareToken) return res.status(404).send("Link indisponivel.");
 
-  const links = loadPublicLinks();
-  const link = links[shareToken];
+  const access = await resolveShareAccess(req, res, shareToken, { requireViewer: true });
+  if (access.error) return res.status(access.status || 400).send(access.error);
 
-  if (!link) {
-    return res.status(404).send("Link nao encontrado");
-  }
-
-  const expiresAt = new Date(link.expiresAt).getTime();
-  const maxViews = Number(link.maxViews) || 0;
-
-  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
-    delete links[shareToken];
-    savePublicLinks(links);
-    return res.status(410).send("Link expirado");
-  }
-
-  const { viewers: activeViewers, changed } = cleanupShareViewers(link);
-
-  if (maxViews > 0) {
-    const cookieViewerId = getCookieValue(req, `rootark_share_${shareToken}`);
-    if (!cookieViewerId || !activeViewers[cookieViewerId]) {
-      if (changed) savePublicLinks(links);
-      return res.status(410).send("Link expirado por limite de visualizacoes");
-    }
-  }
-
-  const folderId = link.folderId || ROOT_FOLDER_ID;
-  const fileName = path.basename(link.fileName || "");
-  if (!fileName || fileName !== link.fileName) {
-    delete links[shareToken];
-    savePublicLinks(links);
-    return res.status(404).send("Arquivo nao encontrado");
-  }
-  if (isFileInTrash(folderId, fileName)) {
-    return res.status(410).send("Arquivo esta na lixeira");
-  }
-
-  const filePath = path.join(getFolderStoragePath("./uploads", folderId), fileName);
-  await ensureCloudFileCached(folderId, fileName, filePath, "uploads");
-  if (!isExistingFile(filePath)) {
-    delete links[shareToken];
-    savePublicLinks(links);
-    return res.status(404).send("Arquivo nao encontrado");
-  }
-  if (getEncryptedFileMetadata(folderId, fileName)) {
-    return res.status(403).send("Links publicos nao estao disponiveis para arquivos criptografados");
-  }
-
-  if (changed) savePublicLinks(links);
-  sendOptimizedFile(req, res, filePath, fileName, "inline", {
+  sendOptimizedFile(req, res, access.fileInfo.filePath, access.fileInfo.fileName, "inline", {
     cacheControl: "private, max-age=600",
   });
 });
@@ -5456,17 +6940,18 @@ app.get("/preview/text/:scope/:name", authenticate, async (req, res) => {
   }
 });
 
-app.get("/approve/:name", authenticate, requirePermission("approve"), (req, res) => {
+app.get("/approve/:name", authenticate, requirePermission("approve"), async (req, res) => {
   const name = path.basename(req.params.name);
-  const folder = getAccessibleFolderOrRespond(req, res, req.query.folderId);
-  if (!folder) return;
+  const requestedFolder = getAccessibleFolderOrRespond(req, res, req.query.folderId);
+  if (!requestedFolder) return;
 
   try {
-    const pendingPath = path.join(folder.tempDir, name);
-    if (!isExistingFile(pendingPath)) {
+    const target = await findPendingApprovalTarget(req, requestedFolder, name);
+    if (!target) {
       return res.status(404).json({ error: "Arquivo pendente nao encontrado" });
     }
 
+    const { folder, pendingPath } = target;
     const pendingUploads = loadPendingUploads();
     const key = getPendingKey(folder.id, name);
     const pendingEntry = pendingUploads[key] || pendingUploads[name] || {};
@@ -5505,19 +6990,31 @@ app.get("/approve/:name", authenticate, requirePermission("approve"), (req, res)
       version: versionInfo.currentVersion,
       replaced: versionInfo.replaced,
     });
-    res.json({ message: "Aprovado", version: versionInfo.currentVersion, replaced: versionInfo.replaced });
+    res.json({
+      message: "Aprovado",
+      fileName: name,
+      folderId: folder.id,
+      version: versionInfo.currentVersion,
+      replaced: versionInfo.replaced,
+    });
   } catch (error) {
     console.error("Erro ao aprovar arquivo:", error.message);
     res.status(500).json({ error: "Erro ao aprovar" });
   }
 });
 
-app.get("/reject/:name", authenticate, requirePermission("approve"), (req, res) => {
+app.get("/reject/:name", authenticate, requirePermission("approve"), async (req, res) => {
   const name = path.basename(req.params.name);
-  const folder = getAccessibleFolderOrRespond(req, res, req.query.folderId);
-  if (!folder) return;
+  const requestedFolder = getAccessibleFolderOrRespond(req, res, req.query.folderId);
+  if (!requestedFolder) return;
 
-  fs.unlink(path.join(folder.tempDir, name), (err) => {
+  const target = await findPendingApprovalTarget(req, requestedFolder, name);
+  if (!target) {
+    return res.status(404).json({ error: "Arquivo pendente nao encontrado" });
+  }
+
+  const { folder, pendingPath } = target;
+  fs.unlink(pendingPath, (err) => {
     if (err) return res.status(500).json({ error: "Erro ao rejeitar" });
 
     const pendingUploads = loadPendingUploads();

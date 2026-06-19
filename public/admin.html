@@ -344,6 +344,29 @@
         </table>
       </div>
 
+      <!-- Quarentena de uploads -->
+      <div class="card">
+        <p class="section-title">Quarentena de uploads</p>
+        <p class="file-access-note">
+          Arquivos bloqueados pela verificação de segurança ficam isolados aqui e não aparecem no drive.
+        </p>
+        <table class="users-table">
+          <thead>
+            <tr>
+              <th>Arquivo</th>
+              <th>Usuário</th>
+              <th>Motivo</th>
+              <th>Data</th>
+              <th>Tamanho</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="quarantineBody">
+            <tr><td colspan="6" style="color:#555">Carregando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
       <!-- Permissoes por arquivo -->
       <div class="card">
         <p class="section-title">Permissoes por arquivo</p>
@@ -555,6 +578,57 @@
         loadUsers();
       }
 
+      function formatBytes(size) {
+        const value = Number(size) || 0;
+        if (value < 1024) return `${value} B`;
+        if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+        return `${(value / 1024 / 1024).toFixed(1)} MB`;
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      async function loadQuarantine() {
+        const tbody = document.getElementById("quarantineBody");
+        const res = await authFetch("/quarantine");
+        const items = await res.json();
+
+        if (!res.ok) {
+          tbody.innerHTML = `<tr><td colspan="6" style="color:#ff5555">${items.error || "Erro ao carregar quarentena."}</td></tr>`;
+          return;
+        }
+
+        if (!Array.isArray(items) || !items.length) {
+          tbody.innerHTML = `<tr><td colspan="6" style="color:#555">Nenhum arquivo em quarentena.</td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = items.map((item) => `
+          <tr>
+            <td style="font:var(--label-sm)">${escapeHtml(item.originalFilename)}</td>
+            <td>${escapeHtml(item.uploader || "-")}</td>
+            <td>${escapeHtml(item.reason || item.scanResult?.status || "bloqueado")}</td>
+            <td>${item.timestamp ? new Date(item.timestamp).toLocaleString("pt-BR") : "-"}</td>
+            <td>${formatBytes(item.size)}</td>
+            <td><button class="btn-danger" onclick="deleteQuarantineItem('${item.id}')">Excluir</button></td>
+          </tr>
+        `).join("");
+      }
+
+      async function deleteQuarantineItem(id) {
+        if (!confirm("Excluir definitivamente este arquivo da quarentena?")) return;
+        const res = await authFetch(`/quarantine/${encodeURIComponent(id)}`, { method: "DELETE" });
+        const data = await res.json();
+        if (!res.ok) { alert(data.error || "Erro ao excluir da quarentena."); return; }
+        loadQuarantine();
+      }
+
       const fileAccessFolderSelect = document.getElementById("fileAccessFolder");
       const fileAccessFileSelect = document.getElementById("fileAccessFile");
       const fileAccessFeedback = document.getElementById("fileAccessFeedback");
@@ -730,6 +804,7 @@
       fileAccessFileSelect.addEventListener("change", loadSelectedFileAccess);
 
       loadUsers();
+      loadQuarantine();
       loadFileAccessFolders();
     </script>
   </body>

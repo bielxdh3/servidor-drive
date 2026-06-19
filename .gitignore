@@ -12,3 +12,10 @@ temp/
 uploads/
 *.credentials.json
 service-account*.json
+.rootark-sync.json
+.rootark-sync-state.json
+.tmp-edge-*/
+.tmp-rootark-sync-test*/
+.tmp-rootark-sync-test-config.json
+.tmp-webdav-*
+.tmp-upload-scan-*

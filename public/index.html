@@ -315,8 +315,20 @@
         display: flex;
         flex-direction: column;
         gap: 8px;
+        position: relative;
         color: white;
         font: var(--p-sm);
+      }
+
+      .encryption-filter-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .encryption-filter-row select {
+        flex: 1;
+        min-width: 0;
       }
 
       .encryption-options select,
@@ -400,6 +412,7 @@
         display: flex;
         flex-direction: column;
         gap: 10px;
+        position: relative;
       }
 
       .file-filter {
@@ -420,6 +433,59 @@
       .file-filter:focus {
         border-color: #60a0ce;
         box-shadow: 0 0 0 2px rgba(96, 160, 206, 0.15);
+      }
+
+      .file-search-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .file-search-row .file-filter {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .advanced-search-toggle {
+        flex: 0 0 auto;
+        padding: 8px 12px;
+        white-space: nowrap;
+      }
+
+      .advanced-search-toggle.active {
+        background: #044879;
+        color: white;
+      }
+
+      .advanced-search-controls {
+        position: absolute;
+        top: calc(100% + 8px);
+        left: 0;
+        right: 0;
+        z-index: 30;
+        display: none;
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        gap: 8px;
+        padding: 10px;
+        border: 1px solid rgba(4, 72, 121, 0.7);
+        border-radius: 12px;
+        background: rgba(17, 16, 18, 0.96);
+        box-shadow: 0 18px 45px rgba(0, 0, 0, 0.55);
+        max-height: min(340px, 60vh);
+        overflow-y: auto;
+      }
+
+      .advanced-search-controls.open {
+        display: grid;
+      }
+
+      .file-filter-compact {
+        font-size: 0.82rem;
+        padding: 8px 10px;
+      }
+
+      .file-search-clear {
+        width: 100%;
       }
 
       .pagination {
@@ -463,6 +529,7 @@
         align-items: center;
         justify-content: center;
         padding: 24px;
+        overflow-y: auto;
         z-index: 300;
       }
 
@@ -718,6 +785,8 @@
 
       .share-card {
         width: min(520px, 100%);
+        max-height: calc(100vh - 48px);
+        overflow-y: auto;
         background: #111012;
         border: 1px solid #044879;
         border-radius: 18px;
@@ -765,7 +834,8 @@
       }
 
       .share-select,
-      .share-link-input {
+      .share-link-input,
+      .share-password-input {
         width: 100%;
         background: rgba(17, 16, 18, 0.9);
         border: 1px solid #044879;
@@ -778,6 +848,27 @@
 
       .share-link-input {
         font-family: var(--ff-robotoMono);
+      }
+
+      .share-qr-box {
+        display: none;
+        justify-content: center;
+        padding: 12px;
+        border: 1px solid rgba(4, 72, 121, 0.7);
+        border-radius: 12px;
+        background: rgba(2, 2, 2, 0.35);
+      }
+
+      .share-qr-box.open {
+        display: flex;
+      }
+
+      .share-qr-box img {
+        width: 160px;
+        height: 160px;
+        border-radius: 12px;
+        background: white;
+        padding: 8px;
       }
 
       .share-actions {
@@ -1106,13 +1197,50 @@
 
         <div class="encryption-options" id="encryptionOptions">
           <label for="encryptionLevel">Nivel de seguranca</label>
-          <select id="encryptionLevel">
-            <option value="none">Sem criptografia</option>
-            <option value="server-key">Padrao do servidor</option>
-            <option value="user-key">Privado da conta</option>
-            <option value="password">Senha compartilhavel</option>
-            <option value="dual">Dupla protecao</option>
-          </select>
+          <div class="encryption-filter-row">
+            <select id="encryptionLevel">
+              <option value="none">Sem criptografia</option>
+              <option value="server-key">Padrao do servidor</option>
+              <option value="user-key">Privado da conta</option>
+              <option value="password">Senha compartilhavel</option>
+              <option value="dual">Dupla protecao</option>
+            </select>
+            <button type="button" id="advancedSearchToggle" class="folder-action advanced-search-toggle">Filtros</button>
+          </div>
+          <div class="advanced-search-controls" id="advancedSearchControls">
+            <select id="fileSearchScope" class="file-filter file-filter-compact" title="Escopo da busca">
+              <option value="none">Sem filtro</option>
+              <option value="current">Pasta atual</option>
+              <option value="all">Todas as pastas</option>
+            </select>
+            <input type="text" id="fileExtensionFilter" class="file-filter file-filter-compact" placeholder="Extensao .pdf" />
+            <input type="number" id="fileMinSizeFilter" class="file-filter file-filter-compact" min="0" placeholder="Min KB" />
+            <input type="number" id="fileMaxSizeFilter" class="file-filter file-filter-compact" min="0" placeholder="Max KB" />
+            <input type="date" id="fileStartDateFilter" class="file-filter file-filter-compact" title="Data inicial" />
+            <input type="date" id="fileEndDateFilter" class="file-filter file-filter-compact" title="Data final" />
+            <input type="text" id="fileOwnerFilter" class="file-filter file-filter-compact" placeholder="Dono" />
+            <select id="fileSharedFilter" class="file-filter file-filter-compact" title="Compartilhamento">
+              <option value="">Compartilhamento</option>
+              <option value="true">Compartilhados</option>
+              <option value="false">Privados</option>
+            </select>
+            <select id="fileEncryptedFilter" class="file-filter file-filter-compact" title="Criptografia">
+              <option value="">Criptografia</option>
+              <option value="true">Criptografados</option>
+              <option value="false">Sem criptografia</option>
+            </select>
+            <select id="fileSortBy" class="file-filter file-filter-compact" title="Ordenar por">
+              <option value="name">Nome</option>
+              <option value="size">Tamanho</option>
+              <option value="date">Data</option>
+            </select>
+            <select id="fileSortOrder" class="file-filter file-filter-compact" title="Direcao">
+              <option value="asc">Crescente</option>
+              <option value="desc">Decrescente</option>
+            </select>
+            <button type="button" id="fileSearchApply" class="folder-action primary file-search-clear">Aplicar filtro</button>
+            <button type="button" id="fileSearchClear" class="folder-action file-search-clear">Limpar</button>
+          </div>
           <div id="encryptionPasswordField" style="display: none">
             <input type="password" id="filePassword" placeholder="Senha com no minimo 8 caracteres" />
           </div>
@@ -1138,7 +1266,9 @@
         <div class="section" id="sectionFiles" style="display: none">
           <div class="section-header">
             <h2>Arquivos Públicos</h2>
-            <input type="search" id="fileSearch" class="file-filter" placeholder="Buscar arquivo por nome" />
+            <div class="file-search-row">
+              <input type="search" id="fileSearch" class="file-filter" placeholder="Buscar arquivo por nome" />
+            </div>
           </div>
           <ul id="lista"></ul>
           <div class="pagination" id="filePagination">
@@ -1241,14 +1371,30 @@
           </select>
           <button type="button" class="share-duration-trigger" id="shareViewsOptions">Visualizacoes ilimitadas</button>
 
+          <label for="shareMaxDownloads">Downloads permitidos</label>
+          <select class="share-select" id="shareMaxDownloads">
+            <option value="0" selected>Downloads ilimitados</option>
+            <option value="1">1 download</option>
+            <option value="3">3 downloads</option>
+            <option value="5">5 downloads</option>
+            <option value="10">10 downloads</option>
+            <option value="25">25 downloads</option>
+          </select>
+          <button type="button" class="share-duration-trigger" id="shareDownloadsOptions">Downloads ilimitados</button>
+
+          <label for="sharePassword">Senha opcional</label>
+          <input class="share-password-input" id="sharePassword" type="password" placeholder="Sem senha" autocomplete="new-password" />
+
           <label for="shareLink">Link publico</label>
           <input class="share-link-input" id="shareLink" type="text" readonly placeholder="Gere um link para copiar" />
           <p class="share-message" id="shareMessage">Qualquer pessoa com este link podera abrir o arquivo ate expirar.</p>
+          <div class="share-qr-box" id="shareQrBox"></div>
         </div>
 
         <div class="share-actions">
           <button type="button" class="share-action-btn primary" id="shareCreate">Gerar link</button>
           <button type="button" class="share-action-btn" id="shareCopy" disabled>Copiar link</button>
+          <button type="button" class="share-action-btn" id="shareQr" disabled>QR Code</button>
         </div>
       </div>
     </div>
@@ -1522,10 +1668,14 @@
       let pendingFiles = [];
       let publicPage = 1;
       let pendingPage = 1;
+      let fileSearchTimer = null;
+      let advancedSearchOpen = false;
+      let appliedFileFilters = null;
       let currentPreviewUrl = null;
       let shareCurrentFile = "";
       let permissionsCurrentFile = "";
       let versionsCurrentFile = "";
+      let versionsCurrentFolderId = "root";
       let openFileOptionsName = "";
       let actionHistory = [];
       let trashCanManage = false;
@@ -1534,6 +1684,7 @@
       let realtimeSocket = null;
       let realtimeReconnectTimer = null;
       let realtimeRefreshTimer = null;
+      let approvedFileFocus = null;
 
       const navFiles = document.getElementById("navFiles");
       const navHistory = document.getElementById("navHistory");
@@ -1566,10 +1717,15 @@
       const shareDurationOptions = document.getElementById("shareDurationOptions");
       const shareMaxViews = document.getElementById("shareMaxViews");
       const shareViewsOptions = document.getElementById("shareViewsOptions");
+      const shareMaxDownloads = document.getElementById("shareMaxDownloads");
+      const shareDownloadsOptions = document.getElementById("shareDownloadsOptions");
+      const sharePassword = document.getElementById("sharePassword");
       const shareLink = document.getElementById("shareLink");
       const shareMessage = document.getElementById("shareMessage");
       const shareCreate = document.getElementById("shareCreate");
       const shareCopy = document.getElementById("shareCopy");
+      const shareQr = document.getElementById("shareQr");
+      const shareQrBox = document.getElementById("shareQrBox");
       const filePermissionsModal = document.getElementById("filePermissionsModal");
       const permissionsFileName = document.getElementById("permissionsFileName");
       const permissionsOwner = document.getElementById("permissionsOwner");
@@ -1814,7 +1970,14 @@
           name: entry?.name || "",
           size: Number(entry?.size) || 0,
           uploadedAt: entry?.uploadedAt || null,
+          modifiedAt: entry?.modifiedAt || null,
           uploadedBy: entry?.uploadedBy || null,
+          owner: entry?.owner || entry?.access?.owner || entry?.uploadedBy || null,
+          folderId: entry?.folderId || currentFolderId,
+          folderName: entry?.folderName || null,
+          isShared: Boolean(entry?.isShared),
+          isEncrypted: Boolean(entry?.isEncrypted || entry?.encryption?.isEncrypted),
+          encryption: entry?.encryption || null,
           canEdit: Boolean(entry?.canEdit),
           canManageAccess: Boolean(entry?.canManageAccess),
           access: entry?.access || null,
@@ -1849,13 +2012,293 @@
         return `folderId=${encodeURIComponent(currentFolderId)}`;
       }
 
+      function activateFileFolder(folderId) {
+        if (!folderId || folderId === currentFolderId) return;
+        currentFolderId = folderId;
+        renderFolderSelect();
+      }
+
       function getFolderName(folderId) {
         return folders.find((folder) => folder.id === folderId)?.name || "Pasta";
+      }
+
+      function getFileSearchValue(id) {
+        return document.getElementById(id)?.value?.trim() || "";
+      }
+
+      function getSearchSizeInBytes(id) {
+        const rawValue = getFileSearchValue(id);
+        if (rawValue === "") return "";
+        const value = Number(rawValue);
+        return Number.isFinite(value) && value >= 0 ? Math.round(value * 1024) : "";
+      }
+
+      function hasAdvancedSearchDraft() {
+        const scope = getFileSearchValue("fileSearchScope");
+        return (
+          scope === "all" ||
+          getFileSearchValue("fileExtensionFilter") ||
+          getFileSearchValue("fileMinSizeFilter") ||
+          getFileSearchValue("fileMaxSizeFilter") ||
+          getFileSearchValue("fileStartDateFilter") ||
+          getFileSearchValue("fileEndDateFilter") ||
+          getFileSearchValue("fileOwnerFilter") ||
+          getFileSearchValue("fileSharedFilter") ||
+          getFileSearchValue("fileEncryptedFilter") ||
+          getFileSearchValue("fileSortBy") !== "name" ||
+          getFileSearchValue("fileSortOrder") !== "asc"
+        );
+      }
+
+      function buildFileSearchParams(includeAdvanced = false) {
+        const params = new URLSearchParams();
+        let scope = getFileSearchValue("fileSearchScope");
+        if (includeAdvanced && scope === "none" && hasAdvancedSearchDraft()) {
+          scope = "current";
+        }
+        params.set("folderId", scope === "all" ? "all" : currentFolderId);
+
+        const query = getFileSearchValue("fileSearch");
+        if (query) params.set("q", query);
+
+        if (!includeAdvanced || scope === "none") {
+          return params;
+        }
+
+        const extension = getFileSearchValue("fileExtensionFilter");
+        const minSize = getSearchSizeInBytes("fileMinSizeFilter");
+        const maxSize = getSearchSizeInBytes("fileMaxSizeFilter");
+        const startDate = getFileSearchValue("fileStartDateFilter");
+        const endDate = getFileSearchValue("fileEndDateFilter");
+        const owner = getFileSearchValue("fileOwnerFilter");
+        const isShared = getFileSearchValue("fileSharedFilter");
+        const isEncrypted = getFileSearchValue("fileEncryptedFilter");
+        const sortBy = getFileSearchValue("fileSortBy") || "name";
+        const sortOrder = getFileSearchValue("fileSortOrder") || "asc";
+
+        if (extension) params.set("extension", extension);
+        if (minSize !== "") params.set("minSize", minSize);
+        if (maxSize !== "") params.set("maxSize", maxSize);
+        if (startDate) params.set("startDate", startDate);
+        if (endDate) params.set("endDate", endDate);
+        if (owner) params.set("owner", owner);
+        if (isShared) params.set("isShared", isShared);
+        if (isEncrypted) params.set("isEncrypted", isEncrypted);
+        if (sortBy !== "name") params.set("sortBy", sortBy);
+        if (sortOrder !== "asc") params.set("sortOrder", sortOrder);
+
+        return params;
+      }
+
+      function getActiveFileSearchParams() {
+        const params = appliedFileFilters
+          ? new URLSearchParams(appliedFileFilters.toString())
+          : buildFileSearchParams(false);
+        const query = getFileSearchValue("fileSearch");
+
+        if (query) {
+          params.set("q", query);
+        } else {
+          params.delete("q");
+        }
+
+        if (params.get("folderId") !== "all") {
+          params.set("folderId", currentFolderId);
+        }
+
+        return params;
+      }
+
+      function hasActiveFileSearchParams(params = getActiveFileSearchParams()) {
+        return params.get("folderId") !== currentFolderId || Array.from(params.keys()).some((key) => key !== "folderId");
+      }
+
+      function isAdvancedFileSearchActive() {
+        return Boolean(appliedFileFilters && hasActiveFileSearchParams(appliedFileFilters));
+      }
+
+      function getClientFileExtension(name) {
+        const cleanName = String(name || "").toLowerCase();
+        const dotIndex = cleanName.lastIndexOf(".");
+        return dotIndex >= 0 ? cleanName.slice(dotIndex) : "";
+      }
+
+      function parseClientSearchBoolean(value) {
+        if (value === null || value === undefined || value === "") return null;
+        return String(value).toLowerCase() === "true";
+      }
+
+      function parseClientSearchDate(value, endOfDay = false) {
+        if (!value) return null;
+        const date = /^\d{4}-\d{2}-\d{2}$/.test(value)
+          ? new Date(`${value}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}`)
+          : new Date(value);
+        return Number.isNaN(date.getTime()) ? null : date;
+      }
+
+      function fileMatchesClientFilters(file, params) {
+        const query = String(params.get("q") || "").trim().toLowerCase();
+        const extension = String(params.get("extension") || "").trim().toLowerCase();
+        const minSize = params.has("minSize") ? Number(params.get("minSize")) : null;
+        const maxSize = params.has("maxSize") ? Number(params.get("maxSize")) : null;
+        const startDate = parseClientSearchDate(params.get("startDate"));
+        const endDate = parseClientSearchDate(params.get("endDate"), true);
+        const owner = String(params.get("owner") || "").trim().toLowerCase();
+        const isShared = parseClientSearchBoolean(params.get("isShared"));
+        const isEncrypted = parseClientSearchBoolean(params.get("isEncrypted"));
+
+        if (query && !String(file.name || "").toLowerCase().includes(query)) return false;
+        if (extension && getClientFileExtension(file.name) !== extension) return false;
+        if (minSize !== null && Number.isFinite(minSize) && Number(file.size || 0) < minSize) return false;
+        if (maxSize !== null && Number.isFinite(maxSize) && Number(file.size || 0) > maxSize) return false;
+        if (owner && !String(file.owner || file.uploadedBy || "").toLowerCase().includes(owner)) return false;
+        if (isShared !== null && Boolean(file.isShared) !== isShared) return false;
+        if (isEncrypted !== null && Boolean(file.isEncrypted || file.encryption?.isEncrypted) !== isEncrypted) return false;
+
+        if (startDate || endDate) {
+          const fileDate = new Date(file.modifiedAt || file.uploadedAt || 0);
+          if (Number.isNaN(fileDate.getTime())) return false;
+          if (startDate && fileDate < startDate) return false;
+          if (endDate && fileDate > endDate) return false;
+        }
+
+        return true;
+      }
+
+      function sortClientSearchResults(files, params) {
+        const sortBy = params.get("sortBy") || "name";
+        const direction = params.get("sortOrder") === "desc" ? -1 : 1;
+        return files.slice().sort((left, right) => {
+          if (sortBy === "size") {
+            return (Number(left.size || 0) - Number(right.size || 0)) * direction;
+          }
+
+          if (sortBy === "date") {
+            const leftDate = new Date(left.modifiedAt || left.uploadedAt || 0).getTime() || 0;
+            const rightDate = new Date(right.modifiedAt || right.uploadedAt || 0).getTime() || 0;
+            return (leftDate - rightDate) * direction;
+          }
+
+          return String(left.name || "").localeCompare(String(right.name || ""), "pt-BR", { sensitivity: "base" }) * direction;
+        });
+      }
+
+      async function fetchVisibleFilesForFilters(params) {
+        const searchFolderId = params.get("folderId");
+        const targetFolders = searchFolderId === "all"
+          ? folders.map((folder) => folder.id).filter(Boolean)
+          : [currentFolderId];
+
+        const lists = await Promise.all(targetFolders.map(async (folderId) => {
+          try {
+            const res = await authFetch(`/list?${getFolderQueryFor(folderId)}`);
+            const payload = await res.json().catch(() => []);
+            if (!res.ok) return [];
+            return normalizeApiList(payload).map(normalizeFileEntry).filter((file) => file.name);
+          } catch {
+            return [];
+          }
+        }));
+
+        return lists.flat();
+      }
+
+      async function loadFilteredFiles(params) {
+        const files = await fetchVisibleFilesForFilters(params);
+        return sortClientSearchResults(
+          files.filter((file) => fileMatchesClientFilters(file, params)),
+          params
+        );
+      }
+
+      function scheduleFileSearch() {
+        clearTimeout(fileSearchTimer);
+        fileSearchTimer = setTimeout(() => {
+          publicPage = 1;
+          loadFiles();
+          updateAdvancedSearchState();
+        }, 250);
+      }
+
+      function updateAdvancedSearchState() {
+        const controls = document.getElementById("advancedSearchControls");
+        const toggle = document.getElementById("advancedSearchToggle");
+        if (!controls || !toggle) return;
+        controls.classList.toggle("open", advancedSearchOpen);
+        const hasFilters = isAdvancedFileSearchActive();
+        toggle.textContent = hasFilters ? "Filtro ativo" : "Filtros";
+        toggle.classList.toggle("active", advancedSearchOpen || hasFilters);
+      }
+
+      function handleAdvancedSearchControlChange(event) {
+        const scope = document.getElementById("fileSearchScope");
+        const target = event?.currentTarget;
+
+        if (scope && target && target.id !== "fileSearchScope" && scope.value === "none") {
+          const isSortDefault =
+            (target.id === "fileSortBy" && target.value === "name") ||
+            (target.id === "fileSortOrder" && target.value === "asc");
+
+          if (target.value && !isSortDefault) {
+            scope.value = "current";
+          }
+        }
+
+        updateAdvancedSearchState();
+      }
+
+      function toggleAdvancedSearch() {
+        advancedSearchOpen = !advancedSearchOpen;
+        updateAdvancedSearchState();
+      }
+
+      function applyFileSearchFilters() {
+        const params = buildFileSearchParams(true);
+        appliedFileFilters = hasActiveFileSearchParams(params) ? params : null;
+        advancedSearchOpen = false;
+        publicPage = 1;
+        updateAdvancedSearchState();
+        loadFiles();
+      }
+
+      function clearFileSearchFilters(options = {}) {
+        const shouldReload = options.reload !== false;
+        [
+          "fileSearch",
+          "fileExtensionFilter",
+          "fileMinSizeFilter",
+          "fileMaxSizeFilter",
+          "fileStartDateFilter",
+          "fileEndDateFilter",
+          "fileOwnerFilter",
+        ].forEach((id) => {
+          const element = document.getElementById(id);
+          if (element) element.value = "";
+        });
+
+        const scope = document.getElementById("fileSearchScope");
+        const shared = document.getElementById("fileSharedFilter");
+        const encrypted = document.getElementById("fileEncryptedFilter");
+        const sortBy = document.getElementById("fileSortBy");
+        const sortOrder = document.getElementById("fileSortOrder");
+        if (scope) scope.value = "none";
+        if (shared) shared.value = "";
+        if (encrypted) encrypted.value = "";
+        if (sortBy) sortBy.value = "name";
+        if (sortOrder) sortOrder.value = "asc";
+        appliedFileFilters = null;
+        advancedSearchOpen = false;
+        publicPage = 1;
+        updateAdvancedSearchState();
+        if (shouldReload) loadFiles();
       }
 
       function selectFolder(folderId) {
         currentFolderId = folderId || "root";
         folderSelect.value = currentFolderId;
+        if (appliedFileFilters && appliedFileFilters.get("folderId") !== "all") {
+          appliedFileFilters.set("folderId", currentFolderId);
+        }
         publicPage = 1;
         pendingPage = 1;
         renderFolderSelect();
@@ -1878,6 +2321,11 @@
       function renderShareViewsOptions() {
         const selectedOption = shareMaxViews.options[shareMaxViews.selectedIndex] || shareMaxViews.options[0];
         shareViewsOptions.textContent = selectedOption?.textContent || "Visualizacoes ilimitadas";
+      }
+
+      function renderShareDownloadsOptions() {
+        const selectedOption = shareMaxDownloads.options[shareMaxDownloads.selectedIndex] || shareMaxDownloads.options[0];
+        shareDownloadsOptions.textContent = selectedOption?.textContent || "Downloads ilimitados";
       }
 
       async function escolherPastaAtual() {
@@ -2224,6 +2672,23 @@
         return "unsupported";
       }
 
+      async function escolherDownloadsCompartilhamento() {
+        const result = await openSelectionDialog({
+          title: "Downloads do link",
+          message: "Escolha quantos downloads o link permitira antes de ficar indisponivel.",
+          items: Array.from(shareMaxDownloads.options).map((option) => ({
+            value: option.value,
+            label: option.textContent,
+          })),
+          selectedValue: shareMaxDownloads.value,
+        });
+
+        if (result.confirmed) {
+          shareMaxDownloads.value = result.value;
+          renderShareDownloadsOptions();
+        }
+      }
+
       function formatFileSize(bytes) {
         if (!Number.isFinite(bytes) || bytes < 1024) return `${bytes || 0} B`;
         const units = ["KB", "MB", "GB", "TB"];
@@ -2250,31 +2715,31 @@
         return `Temporario ate ${formatUploadedAt(expiresAt)}`;
       }
 
-      function buildPreviewButton(name, scope, isEncrypted = false) {
+      function buildPreviewButton(name, scope, isEncrypted = false, folderId = currentFolderId) {
         if (isEncrypted) return "";
-        return `<button class="btn-small btn-preview" onclick="abrirPreview('${escapeJsString(name)}', '${scope}')">Preview</button>`;
+        return `<button class="btn-small btn-preview" onclick="abrirPreview('${escapeJsString(name)}', '${scope}', '${escapeJsString(folderId)}')">Preview</button>`;
       }
 
-      function buildDownloadButton(name) {
-        return `<button class="btn-small btn-download" onclick="baixarArquivo('${escapeJsString(name)}')" title="Download" aria-label="Download"><svg class="download-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11"></path><path d="M7 10l5 5 5-5"></path><path d="M5 19h14"></path></svg></button>`;
+      function buildDownloadButton(name, folderId = currentFolderId) {
+        return `<button class="btn-small btn-download" onclick="baixarArquivo('${escapeJsString(name)}', '${escapeJsString(folderId)}')" title="Download" aria-label="Download"><svg class="download-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11"></path><path d="M7 10l5 5 5-5"></path><path d="M5 19h14"></path></svg></button>`;
       }
 
-      function buildVersionsButton(name) {
-        return `<button type="button" class="btn-icon-versions" onclick="abrirVersoesArquivo('${escapeJsString(name)}')" title="Historico de versoes" aria-label="Historico de versoes"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h10"></path><path d="M4 18h7"></path><path d="M17 15l3 3-3 3"></path></svg></button>`;
+      function buildVersionsButton(name, folderId = currentFolderId) {
+        return `<button type="button" class="btn-icon-versions" onclick="abrirVersoesArquivo('${escapeJsString(name)}', '${escapeJsString(folderId)}')" title="Historico de versoes" aria-label="Historico de versoes"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h10"></path><path d="M4 18h7"></path><path d="M17 15l3 3-3 3"></path></svg></button>`;
       }
 
-      function buildShareButton(name) {
-        return `<button class="btn-small btn-share" onclick="closeFileOptionsMenus(); abrirCompartilhamento('${escapeJsString(name)}')">Compartilhar</button>`;
+      function buildShareButton(file) {
+        return `<button class="btn-small btn-share" onclick="closeFileOptionsMenus(); activateFileFolder('${escapeJsString(file.folderId || currentFolderId)}'); abrirCompartilhamento('${escapeJsString(file.name)}')">Compartilhar</button>`;
       }
 
       function buildPermissionsButton(file) {
         if (!permissions.manageUsers && !file.canManageAccess) return "";
-        return `<button class="btn-small btn-permissions" onclick="closeFileOptionsMenus(); abrirPermissoesArquivo('${escapeJsString(file.name)}')">Permissoes</button>`;
+        return `<button class="btn-small btn-permissions" onclick="closeFileOptionsMenus(); activateFileFolder('${escapeJsString(file.folderId || currentFolderId)}'); abrirPermissoesArquivo('${escapeJsString(file.name)}')">Permissoes</button>`;
       }
 
       function buildTemporaryButton(file) {
         if (!file.canEdit) return "";
-        return `<button class="btn-small btn-temporary" onclick="closeFileOptionsMenus(); editarTemporarioArquivo('${escapeJsString(file.name)}')">Temporario</button>`;
+        return `<button class="btn-small btn-temporary" onclick="closeFileOptionsMenus(); activateFileFolder('${escapeJsString(file.folderId || currentFolderId)}'); editarTemporarioArquivo('${escapeJsString(file.name)}')">Temporario</button>`;
       }
 
       function closeFileOptionsMenus(exceptMenu = null) {
@@ -2306,11 +2771,11 @@
 
       function buildFileOptionsMenu(file, safeJsName) {
         const actions = [
-          buildShareButton(file.name),
+          buildShareButton(file),
           buildPermissionsButton(file),
           buildTemporaryButton(file),
-          file.canEdit ? `<button class="btn-small btn-rename" onclick="closeFileOptionsMenus(); renomear('${safeJsName}')">Renomear</button>` : "",
-          file.canEdit ? `<button class="btn-small btn-move" onclick="closeFileOptionsMenus(); moverArquivo('${safeJsName}')">Mover</button>` : "",
+          file.canEdit ? `<button class="btn-small btn-rename" onclick="closeFileOptionsMenus(); activateFileFolder('${escapeJsString(file.folderId || currentFolderId)}'); renomear('${safeJsName}')">Renomear</button>` : "",
+          file.canEdit ? `<button class="btn-small btn-move" onclick="closeFileOptionsMenus(); activateFileFolder('${escapeJsString(file.folderId || currentFolderId)}'); moverArquivo('${safeJsName}')">Mover</button>` : "",
         ].filter(Boolean);
 
         if (!actions.length) return "";
@@ -2328,7 +2793,7 @@
 
       function buildThumbnail(file, scope) {
         if (getFilePreviewKind(file.name) !== "image" || file.encryption?.isEncrypted) return "";
-        return `<img class="file-thumb" data-thumb-name="${escapeHtml(file.name)}" data-thumb-scope="${scope}" alt="" loading="lazy" />`;
+        return `<img class="file-thumb" data-thumb-name="${escapeHtml(file.name)}" data-thumb-scope="${scope}" data-thumb-folder-id="${escapeHtml(file.folderId || currentFolderId)}" alt="" loading="lazy" />`;
       }
 
       function getHistoryActionLabel(action) {
@@ -2547,12 +3012,12 @@
         }
       }
 
-      function getPreviewUrl(scope, name) {
-        return `/preview/file/${scope}/${encodeURIComponent(name)}?${getFolderQuery()}`;
+      function getPreviewUrl(scope, name, folderId = currentFolderId) {
+        return `/preview/file/${scope}/${encodeURIComponent(name)}?${getFolderQueryFor(folderId)}`;
       }
 
-      async function fetchPreviewBlob(scope, name) {
-        const response = await authFetch(getPreviewUrl(scope, name));
+      async function fetchPreviewBlob(scope, name, folderId = currentFolderId) {
+        const response = await authFetch(getPreviewUrl(scope, name, folderId));
         const payload = await response.blob();
 
         if (!response.ok) {
@@ -2593,8 +3058,9 @@
         for (const thumb of thumbs) {
           const name = thumb.dataset.thumbName;
           const scope = thumb.dataset.thumbScope;
+          const folderId = thumb.dataset.thumbFolderId || currentFolderId;
           try {
-            const blob = await fetchPreviewBlob(scope, name);
+            const blob = await fetchPreviewBlob(scope, name, folderId);
             const url = URL.createObjectURL(blob);
             thumb.src = url;
             thumb.classList.add("loaded");
@@ -2655,7 +3121,7 @@
         }
       }
 
-      async function abrirPreview(name, scope) {
+      async function abrirPreview(name, scope, folderId = currentFolderId) {
         const kind = getFilePreviewKind(name);
 
         clearPreviewObjectUrl();
@@ -2666,7 +3132,7 @@
 
         try {
           if (["image", "pdf", "audio", "video"].includes(kind)) {
-            const payload = await fetchPreviewBlob(scope, name);
+            const payload = await fetchPreviewBlob(scope, name, folderId);
             currentPreviewUrl = URL.createObjectURL(payload);
 
             if (kind === "image") {
@@ -2692,7 +3158,7 @@
             return;
           }
 
-          const previewData = await authJsonFetch(`/preview/text/${scope}/${encodeURIComponent(name)}?${getFolderQuery()}`);
+          const previewData = await authJsonFetch(`/preview/text/${scope}/${encodeURIComponent(name)}?${getFolderQueryFor(folderId)}`);
           previewBody.innerHTML = `<pre class="preview-text">${highlightPreviewText(previewData.content, previewData.language || "text")}</pre>`;
           previewSubtitle.textContent = previewData.format === "document" ? "Preview de documento" : "Preview textual";
         } catch (error) {
@@ -2701,9 +3167,9 @@
         }
       }
 
-      async function abrirArquivo(name) {
-        if (getFileEncryption(name)?.isEncrypted) {
-          await baixarArquivo(name);
+      async function abrirArquivo(name, folderId = currentFolderId) {
+        if (getFileEncryption(name, folderId)?.isEncrypted) {
+          await baixarArquivo(name, folderId);
           return;
         }
 
@@ -2713,7 +3179,7 @@
           const payload = await authJsonFetch("/file-open-token", {
             method: "POST",
             body: JSON.stringify({
-              folderId: currentFolderId,
+              folderId,
               name,
               download: true,
             }),
@@ -2731,9 +3197,9 @@
         }
       }
 
-      async function baixarArquivo(name) {
+      async function baixarArquivo(name, folderId = currentFolderId) {
         try {
-          const encryption = await getEncryptionMetadata(name);
+          const encryption = await getEncryptionMetadata(name, folderId);
           if (encryption?.isEncrypted) {
             let password = "";
             if (encryption.requiresPassword) {
@@ -2745,7 +3211,7 @@
               password = passwordResult.value;
             }
 
-            const response = await authFetch(`/encrypted-download/${encodeURIComponent(name)}?${getFolderQuery()}`, {
+            const response = await authFetch(`/encrypted-download/${encodeURIComponent(name)}?${getFolderQueryFor(folderId)}`, {
               method: "POST",
               logoutOnUnauthorized: false,
               headers: { "Content-Type": "application/json" },
@@ -2782,7 +3248,7 @@
           const payload = await authJsonFetch("/file-open-token", {
             method: "POST",
             body: JSON.stringify({
-              folderId: currentFolderId,
+              folderId,
               name,
             }),
           });
@@ -2796,6 +3262,7 @@
       function closeVersionsModal() {
         versionsModal.classList.remove("open");
         versionsCurrentFile = "";
+        versionsCurrentFolderId = currentFolderId;
         versionsList.innerHTML = "";
       }
 
@@ -2855,14 +3322,15 @@
         `;
       }
 
-      async function abrirVersoesArquivo(name) {
+      async function abrirVersoesArquivo(name, folderId = currentFolderId) {
         versionsCurrentFile = name;
+        versionsCurrentFolderId = folderId;
         versionFilename.textContent = name;
         versionsList.innerHTML = '<p class="version-meta">Carregando versoes...</p>';
         versionsModal.classList.add("open");
 
         try {
-          const data = await authJsonFetch(`/versions/${encodeURIComponent(name)}?${getFolderQuery()}`);
+          const data = await authJsonFetch(`/versions/${encodeURIComponent(name)}?${getFolderQueryFor(folderId)}`);
           renderVersions(data);
           await loadFiles();
         } catch (error) {
@@ -2887,7 +3355,7 @@
           const payload = await authJsonFetch("/version-open-token", {
             method: "POST",
             body: JSON.stringify({
-              folderId: currentFolderId,
+              folderId: versionsCurrentFolderId,
               name: versionsCurrentFile,
               version: versionNumber,
             }),
@@ -2910,10 +3378,10 @@
         if (!confirmation.confirmed) return;
 
         try {
-          await authJsonFetch(`/restore/${encodeURIComponent(versionsCurrentFile)}/v/${versionNumber}?${getFolderQuery()}`, {
+          await authJsonFetch(`/restore/${encodeURIComponent(versionsCurrentFile)}/v/${versionNumber}?${getFolderQueryFor(versionsCurrentFolderId)}`, {
             method: "POST",
           });
-          await abrirVersoesArquivo(versionsCurrentFile);
+          await abrirVersoesArquivo(versionsCurrentFile, versionsCurrentFolderId);
           await loadFiles();
           if (!historyView.hidden) loadHistory();
         } catch (error) {
@@ -2932,10 +3400,10 @@
         if (!confirmation.confirmed) return;
 
         try {
-          await authJsonFetch(`/versions/${encodeURIComponent(versionsCurrentFile)}/v/${versionNumber}?${getFolderQuery()}`, {
+          await authJsonFetch(`/versions/${encodeURIComponent(versionsCurrentFile)}/v/${versionNumber}?${getFolderQueryFor(versionsCurrentFolderId)}`, {
             method: "DELETE",
           });
-          await abrirVersoesArquivo(versionsCurrentFile);
+          await abrirVersoesArquivo(versionsCurrentFile, versionsCurrentFolderId);
           if (!historyView.hidden) loadHistory();
         } catch (error) {
           await showMessage(error.message || "Nao foi possivel deletar a versao.");
@@ -2948,6 +3416,10 @@
         shareFileName.textContent = "";
         shareLink.value = "";
         shareCopy.disabled = true;
+        shareQr.disabled = true;
+        sharePassword.value = "";
+        shareQrBox.classList.remove("open");
+        shareQrBox.innerHTML = "";
         shareMessage.textContent = "Qualquer pessoa com este link podera abrir o arquivo ate expirar ou atingir o limite de visualizacoes.";
       }
 
@@ -2956,6 +3428,10 @@
         shareFileName.textContent = name;
         shareLink.value = "";
         shareCopy.disabled = true;
+        shareQr.disabled = true;
+        sharePassword.value = "";
+        shareQrBox.classList.remove("open");
+        shareQrBox.innerHTML = "";
         shareMessage.textContent = "Escolha o prazo, o limite de visualizacoes e gere um link publico.";
         shareModal.classList.add("open");
       }
@@ -2974,19 +3450,29 @@
               folderId: currentFolderId,
               expiresInMinutes: Number(shareDuration.value),
               maxViews: Number(shareMaxViews.value),
+              maxDownloads: Number(shareMaxDownloads.value),
+              password: sharePassword.value,
             }),
           });
 
           shareLink.value = payload.url;
           shareCopy.disabled = false;
+          shareQr.disabled = false;
           const viewsText = payload.maxViews > 0
             ? ` Autodestrutivo apos ${payload.maxViews} visualizacao${payload.maxViews === 1 ? "" : "es"}.`
             : " Visualizacoes ilimitadas.";
-          shareMessage.textContent = `Link ativo ate ${formatUploadedAt(payload.expiresAt)}.${viewsText}`;
+          const downloadsText = payload.maxDownloads > 0
+            ? ` Limite de ${payload.maxDownloads} download${payload.maxDownloads === 1 ? "" : "s"}.`
+            : " Downloads ilimitados.";
+          const passwordText = payload.passwordProtected ? " Protegido por senha." : "";
+          shareMessage.textContent = `Link ativo ate ${formatUploadedAt(payload.expiresAt)}.${viewsText}${downloadsText}${passwordText}`;
           if (!historyView.hidden) loadHistory();
         } catch (error) {
           shareLink.value = "";
           shareCopy.disabled = true;
+          shareQr.disabled = true;
+          shareQrBox.classList.remove("open");
+          shareQrBox.innerHTML = "";
           shareMessage.textContent = error.message || "Nao foi possivel gerar o link.";
         } finally {
           shareCreate.disabled = false;
@@ -3060,12 +3546,29 @@
         clearTimeout(realtimeRefreshTimer);
         realtimeRefreshTimer = setTimeout(() => {
           loadFolders().then(() => {
-            loadFiles();
+            loadFiles().then(() => {
+              if (
+                approvedFileFocus &&
+                approvedFileFocus.folderId === currentFolderId &&
+                approvedFileFocus.expiresAt > Date.now()
+              ) {
+                focusPublicFile(approvedFileFocus.fileName);
+              }
+            });
             loadPending();
             if (!historyView.hidden) loadHistory();
             if (!trashView.hidden) loadTrash();
           });
         }, 150);
+      }
+
+      function alternarQrCompartilhamento() {
+        if (!shareLink.value) return;
+        shareQrBox.classList.toggle("open");
+        if (shareQrBox.classList.contains("open")) {
+          const token = shareLink.value.split("/").filter(Boolean).pop();
+          shareQrBox.innerHTML = `<img alt="QR Code do link publico" src="/share/${encodeURIComponent(token)}/qr" />`;
+        }
       }
 
       function connectRealtime() {
@@ -3267,12 +3770,15 @@
       function renderFileList(targetId, files, emptyMessage, mode) {
         const list = document.getElementById(targetId);
         const searchId = mode === "public" ? "fileSearch" : "pendingSearch";
+        const publicSearchActive = mode === "public" && hasActiveFileSearchParams();
         const query = normalizeTerm(document.getElementById(searchId)?.value || "");
-        const filteredFiles = files.filter((file) => file.name.toLowerCase().includes(query));
+        const filteredFiles = mode === "pending" ? files.filter((file) => file.name.toLowerCase().includes(query)) : files;
         const currentPage = mode === "public" ? publicPage : pendingPage;
 
         if (!filteredFiles.length) {
-          const message = query
+          const message = publicSearchActive
+            ? "Nenhum arquivo encontrado."
+            : query
             ? `Nenhum arquivo encontrado para "${escapeHtml(query)}".`
             : emptyMessage;
           list.innerHTML = `<li class="empty-state">${message}</li>`;
@@ -3296,6 +3802,8 @@
             const safeHtmlName = escapeHtml(file.name);
             const shortHtmlName = escapeHtml(truncateFileName(file.name));
             const safeJsName = escapeJsString(file.name);
+            const fileFolderId = file.folderId || currentFolderId;
+            const safeJsFolderId = escapeJsString(fileFolderId);
             const temporaryLabel = file.expiresAt ? ` • ${formatExpirationLabel(file.expiresAt)}` : "";
             const metadata = `${formatFileSize(file.size)} • ${formatUploadedAt(file.uploadedAt)}${temporaryLabel}`;
             const encrypted = Boolean(file.encryption?.isEncrypted);
@@ -3308,17 +3816,17 @@
                     <div class="file-title">
                     <span class="file-icon">${getFileIcon(file.name)}</span>
                       ${buildThumbnail(file, "public")}
-                      <button type="button" class="file-name file-open" onclick="abrirArquivo('${safeJsName}')" title="${safeHtmlName}">${shortHtmlName}</button>
+                      <button type="button" class="file-name file-open" onclick="abrirArquivo('${safeJsName}', '${safeJsFolderId}')" title="${safeHtmlName}">${shortHtmlName}</button>
                       ${encryptionBadge}
                     </div>
                     <span class="file-meta">${metadata}</span>
                   </div>
                   <div class="btn-group">
-                    ${buildVersionsButton(file.name)}
-                    ${buildPreviewButton(file.name, "public", encrypted)}
-                    ${buildDownloadButton(file.name)}
+                    ${buildVersionsButton(file.name, fileFolderId)}
+                    ${buildPreviewButton(file.name, "public", encrypted, fileFolderId)}
+                    ${buildDownloadButton(file.name, fileFolderId)}
                     ${file.canEdit
-                      ? `<button class="btn-small btn-delete" onclick="excluir('${safeJsName}')">Excluir</button>`
+                      ? `<button class="btn-small btn-delete" onclick="excluir('${safeJsName}', '${safeJsFolderId}')">Excluir</button>`
                       : ""}
                     ${buildFileOptionsMenu(file, safeJsName)}
                   </div>
@@ -3340,8 +3848,8 @@
                   ${buildPreviewButton(file.name, "pending", encrypted)}
                   ${permissions.approve
                     ? `
-                      <button class="btn-small btn-approve" onclick="aprovar('${safeJsName}')">Aprovar</button>
-                      <button class="btn-small btn-reject" onclick="rejeitar('${safeJsName}')">Rejeitar</button>
+                      <button class="btn-small btn-approve" onclick="aprovar('${safeJsName}', '${escapeJsString(file.folderId || currentFolderId)}')">Aprovar</button>
+                      <button class="btn-small btn-reject" onclick="rejeitar('${safeJsName}', '${escapeJsString(file.folderId || currentFolderId)}')">Rejeitar</button>
                     `
                     : ""}
                 </div>
@@ -3386,16 +3894,17 @@
         if (options.expiresInDays) formData.append("expiresInDays", options.expiresInDays);
       }
 
-      function getFileEncryption(name) {
-        const file = publicFiles.find((item) => item.name === name) || pendingFiles.find((item) => item.name === name);
+      function getFileEncryption(name, folderId = currentFolderId) {
+        const matchesFolder = (item) => item.name === name && (!folderId || !item.folderId || item.folderId === folderId);
+        const file = publicFiles.find(matchesFolder) || pendingFiles.find(matchesFolder) || publicFiles.find((item) => item.name === name) || pendingFiles.find((item) => item.name === name);
         return file?.encryption || null;
       }
 
-      async function getEncryptionMetadata(name) {
-        const response = await authFetch(`/encrypted/${encodeURIComponent(name)}/metadata?${getFolderQuery()}`);
+      async function getEncryptionMetadata(name, folderId = currentFolderId) {
+        const response = await authFetch(`/encrypted/${encodeURIComponent(name)}/metadata?${getFolderQueryFor(folderId)}`);
         const metadata = await response.json().catch(() => ({}));
         if (response.status === 404) {
-          return getFileEncryption(name);
+          return getFileEncryption(name, folderId);
         }
         if (!response.ok) {
           throw new Error(metadata.error || "Acesso negado a este arquivo");
@@ -3675,19 +4184,38 @@
       async function loadFiles() {
         if (!permissions.listFiles) return;
         try {
-          const res = await authFetch(`/list?${getFolderQuery()}`);
-          const payload = await res.json().catch(() => []);
+          const searchParams = getActiveFileSearchParams();
+          const endpoint = hasActiveFileSearchParams(searchParams) ? "" : `/list?${getFolderQuery()}`;
+          const res = endpoint ? await authFetch(endpoint) : null;
+          const payload = res ? await res.json().catch(() => []) : [];
 
-          if (!res.ok) {
+          if (hasActiveFileSearchParams(searchParams)) {
+            publicFiles = await loadFilteredFiles(searchParams);
+          } else if (!res.ok) {
             throw new Error(payload?.error || "Não foi possível carregar os arquivos públicos.");
           }
 
-          publicFiles = normalizeApiList(payload).map(normalizeFileEntry).filter((file) => file.name);
+          if (!hasActiveFileSearchParams(searchParams)) {
+            publicFiles = normalizeApiList(payload).map(normalizeFileEntry).filter((file) => file.name);
+          }
           renderFileList("lista", publicFiles, "Nenhum arquivo ainda.", "public");
         } catch (error) {
           publicFiles = [];
           renderListError("lista", error.message || "Falha ao carregar arquivos.", "public");
         }
+      }
+
+      function focusPublicFile(name) {
+        clearFileSearchFilters({ reload: false });
+
+        const index = publicFiles.findIndex((file) => file.name === name);
+        if (index >= 0) {
+          publicPage = Math.floor(index / pageSize) + 1;
+        } else {
+          publicPage = 1;
+        }
+
+        renderFileList("lista", publicFiles, "Nenhum arquivo ainda.", "public");
       }
 
       async function loadPending() {
@@ -3708,8 +4236,12 @@
         }
       }
 
-      async function aprovar(nome) {
-        const response = await authFetch(`/approve/${encodeURIComponent(nome)}?${getFolderQuery()}`);
+      function getFolderQueryFor(folderId) {
+        return `folderId=${encodeURIComponent(folderId || currentFolderId)}`;
+      }
+
+      async function aprovar(nome, folderId = currentFolderId) {
+        const response = await authFetch(`/approve/${encodeURIComponent(nome)}?${getFolderQueryFor(folderId)}`);
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
           await showMessage(payload.error || "Nao foi possivel aprovar o arquivo.");
@@ -3717,21 +4249,34 @@
           return;
         }
 
+        if (payload.folderId && payload.folderId !== currentFolderId) {
+          currentFolderId = payload.folderId;
+          renderFolderSelect();
+        }
+
+        approvedFileFocus = {
+          fileName: payload.fileName || nome,
+          folderId: payload.folderId || folderId || currentFolderId,
+          expiresAt: Date.now() + 5000,
+        };
+
+        clearFileSearchFilters({ reload: false });
         await loadFiles();
+        focusPublicFile(approvedFileFocus.fileName);
         await loadPending();
         if (!historyView.hidden) loadHistory();
       }
 
-      async function rejeitar(nome) {
-        await authFetch(`/reject/${encodeURIComponent(nome)}?${getFolderQuery()}`);
+      async function rejeitar(nome, folderId = currentFolderId) {
+        await authFetch(`/reject/${encodeURIComponent(nome)}?${getFolderQueryFor(folderId)}`);
         loadPending();
         if (!historyView.hidden) loadHistory();
       }
 
-      async function excluir(nome) {
+      async function excluir(nome, folderId = currentFolderId) {
         const confirmation = await askConfirm("Mover para lixeira", `Mover ${nome} para a lixeira?`, "Mover");
         if (!confirmation.confirmed) return;
-        await authFetch(`/delete/${encodeURIComponent(nome)}?${getFolderQuery()}`);
+        await authFetch(`/delete/${encodeURIComponent(nome)}?${getFolderQueryFor(folderId)}`);
         loadFiles();
         if (!historyView.hidden) loadHistory();
         if (!trashView.hidden) loadTrash();
@@ -3791,6 +4336,7 @@
       folderPicker.addEventListener("click", escolherPastaAtual);
       shareDurationOptions.addEventListener("click", escolherDuracaoCompartilhamento);
       shareViewsOptions.addEventListener("click", escolherVisualizacoesCompartilhamento);
+      shareDownloadsOptions.addEventListener("click", escolherDownloadsCompartilhamento);
       createFolderBtn.addEventListener("click", criarPasta);
       renameFolderBtn.addEventListener("click", renomearPastaAtual);
       editFolderAccessBtn.addEventListener("click", editarAcessosPasta);
@@ -3804,6 +4350,7 @@
       shareClose.addEventListener("click", closeShareModal);
       shareCreate.addEventListener("click", gerarLinkCompartilhamento);
       shareCopy.addEventListener("click", copiarLinkCompartilhamento);
+      shareQr.addEventListener("click", alternarQrCompartilhamento);
       folderPermissionsCancel.addEventListener("click", closeFolderPermissionsModal);
       folderPermissionsSave.addEventListener("click", salvarPermissoesPasta);
       versionsClose.addEventListener("click", closeVersionsModal);
@@ -3864,11 +4411,34 @@
       });
       renderShareDurationOptions();
       renderShareViewsOptions();
+      renderShareDownloadsOptions();
 
-      document.getElementById("fileSearch")?.addEventListener("input", () => {
-        publicPage = 1;
-        renderFileList("lista", publicFiles, "Nenhum arquivo ainda.", "public");
+      [
+        "fileSearch",
+      ].forEach((id) => document.getElementById(id)?.addEventListener("input", scheduleFileSearch));
+
+      [
+        "fileSearchScope",
+        "fileExtensionFilter",
+        "fileMinSizeFilter",
+        "fileMaxSizeFilter",
+        "fileStartDateFilter",
+        "fileEndDateFilter",
+        "fileOwnerFilter",
+        "fileSharedFilter",
+        "fileEncryptedFilter",
+        "fileSortBy",
+        "fileSortOrder",
+      ].forEach((id) => {
+        const element = document.getElementById(id);
+        element?.addEventListener("input", handleAdvancedSearchControlChange);
+        element?.addEventListener("change", handleAdvancedSearchControlChange);
       });
+
+      document.getElementById("fileSearchApply")?.addEventListener("click", applyFileSearchFilters);
+      document.getElementById("fileSearchClear")?.addEventListener("click", clearFileSearchFilters);
+      document.getElementById("advancedSearchToggle")?.addEventListener("click", toggleAdvancedSearch);
+      updateAdvancedSearchState();
 
       document.getElementById("pendingSearch")?.addEventListener("input", () => {
         pendingPage = 1;
