@@ -37,7 +37,8 @@ Persistência: API REST integrada para manipulação de metadados das pastas e a
 
 ## 👤 Autor
 
-- Gabriel Mocelin dos Pintos
+- Gabriel Mocelin dos Santos 
 - Anthropic Claude AI
-- Jouberth Alves Rola
+- OpenAI Codex
+- Jouberth Alves Macedo
 ```
