@@ -6241,7 +6241,7 @@ function registerWebDavRoutes() {
   };
 
   app.all(WEBDAV_PATH, handler);
-  app.all(`${WEBDAV_PATH}/*`, handler);
+  app.all(`${WEBDAV_PATH}/*splat`, handler);
 }
 
 function parseSearchBoolean(value) {

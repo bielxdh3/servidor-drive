@@ -26,6 +26,11 @@ test("WebSocket Origin honors trusted proxy HTTPS forwarding", () => {
   assert.equal(getExpectedOrigin({ headers: { host: "rootark.test", "x-forwarded-proto": "https" }, socket: { encrypted: false } }), "https://rootark.test");
 });
 
+test("WebDAV uses the Express 5 named wildcard syntax", () => {
+  const contents = fs.readFileSync("server.js", "utf8");
+  assert.match(contents, /app\.all\(`\$\{WEBDAV_PATH\}\/\*splat`, handler\)/);
+});
+
 test("revoked and disabled users cannot use old tokens", () => {
   assert.equal(authenticateRequest({ user: { username: "alice", disabled: true, sessionVersion: 2 } }).code, 401);
   assert.equal(authenticateRequest({ user: { username: "alice", sessionVersion: 3 } }).code, 401);
