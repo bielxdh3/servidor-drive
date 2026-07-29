@@ -2,6 +2,12 @@ function parseCookies(header = "") {
   return Object.fromEntries(header.split(";").map((part) => part.trim().split(/=(.*)/s, 2)).filter(([key]) => key));
 }
 
+function getExpectedOrigin(req) {
+  const forwardedProto = String(req.headers?.["x-forwarded-proto"] || "").split(",")[0].trim();
+  const protocol = forwardedProto || (req.socket?.encrypted ? "https" : "http");
+  return `${protocol}://${req.headers.host}`;
+}
+
 function createAuthenticate({ jwt, jwtSecret, loadUser, normalizeUserPermissions, cookieName = "rootark_session" }) {
   return function authenticate(req, res, next) {
     const auth = req.headers.authorization;
@@ -47,6 +53,7 @@ function createRealtimeAuthenticator({ jwt, jwtSecret, loadUser, normalizeUserPe
 }
 
 module.exports = {
+  getExpectedOrigin,
   parseCookies,
   createAuthenticate,
   createRealtimeAuthenticator,

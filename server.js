@@ -36,7 +36,7 @@ const registerAnalyticsRoutes = require("./src/routes/analytics");
 const registerAuditRoutes = require("./src/routes/audit");
 const registerBackupRoutes = require("./src/routes/backups");
 const registerTrashRoutes = require("./src/routes/trash");
-const { createAuthenticate, createRealtimeAuthenticator, parseCookies } = require("./src/middlewares/auth");
+const { createAuthenticate, createRealtimeAuthenticator, getExpectedOrigin, parseCookies } = require("./src/middlewares/auth");
 const { createRequirePermission } = require("./src/middlewares/permissions");
 
 const app = express();
@@ -4541,7 +4541,7 @@ app.get("/auth/session.js", authenticate, (req, res) => {
 
 wss.on("connection", (socket, req) => {
   const origin = req.headers.origin;
-  const expectedOrigin = `${req.socket.encrypted ? "https" : "http"}://${req.headers.host}`;
+  const expectedOrigin = getExpectedOrigin(req);
   const user = origin === expectedOrigin && authenticateRealtimeToken(parseCookies(req.headers.cookie).rootark_session);
 
   if (!user) {

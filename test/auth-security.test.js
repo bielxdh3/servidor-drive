@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const fs = require("node:fs");
-const { createAuthenticate } = require("../src/middlewares/auth");
+const { createAuthenticate, getExpectedOrigin } = require("../src/middlewares/auth");
 
 function authenticateRequest({ headers = {}, method = "GET", user = { username: "alice", role: "user", permissions: {}, sessionVersion: 2 } } = {}) {
   const middleware = createAuthenticate({
@@ -20,6 +20,10 @@ function authenticateRequest({ headers = {}, method = "GET", user = { username: 
 test("cookie session requires CSRF for state changes", () => {
   assert.equal(authenticateRequest({ method: "POST", headers: { cookie: "rootark_session=t; rootark_csrf=c" } }).code, 403);
   assert.equal(authenticateRequest({ method: "POST", headers: { cookie: "rootark_session=t; rootark_csrf=c", "x-csrf-token": "c", origin: "http://localhost" } }).authType, "cookie");
+});
+
+test("WebSocket Origin honors trusted proxy HTTPS forwarding", () => {
+  assert.equal(getExpectedOrigin({ headers: { host: "rootark.test", "x-forwarded-proto": "https" }, socket: { encrypted: false } }), "https://rootark.test");
 });
 
 test("revoked and disabled users cannot use old tokens", () => {
