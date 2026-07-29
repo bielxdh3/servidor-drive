@@ -218,6 +218,13 @@ const MIGRATIONS = [
       `);
     },
   },
+  {
+    version: 4,
+    name: "user_session_versions",
+    up(db) {
+      db.exec("ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0; ALTER TABLE users ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0;");
+    },
+  },
 ];
 
 function ensureMigrationTable(db) {

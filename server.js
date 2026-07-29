@@ -36,13 +36,17 @@ const registerAnalyticsRoutes = require("./src/routes/analytics");
 const registerAuditRoutes = require("./src/routes/audit");
 const registerBackupRoutes = require("./src/routes/backups");
 const registerTrashRoutes = require("./src/routes/trash");
-const { createAuthenticate, createRealtimeAuthenticator } = require("./src/middlewares/auth");
+const { createAuthenticate, createRealtimeAuthenticator, parseCookies } = require("./src/middlewares/auth");
 const { createRequirePermission } = require("./src/middlewares/permissions");
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server, path: "/ws" });
-const JWT_SECRET = process.env.JWT_SECRET || "rootark_secret_change_in_production";
+const JWT_SECRET = String(process.env.JWT_SECRET || "");
+if (JWT_SECRET.length < 32 || JWT_SECRET === "rootark_secret_change_in_production") {
+  throw new Error("JWT_SECRET deve ser definido explicitamente com pelo menos 32 caracteres seguros.");
+}
+const SESSION_COOKIE_OPTIONS = { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/" };
 const USERS_SEED_FILE = "./data/users.json";
 const USERS_FILE = "./data/users.local.json";
 const PENDING_UPLOADS_FILE = "./data/pending-uploads.json";
@@ -4525,15 +4529,22 @@ app.use((req, res, next) => {
   next();
 });
 
-const authenticate = createAuthenticate({ jwt, jwtSecret: JWT_SECRET });
-const authenticateRealtimeToken = createRealtimeAuthenticator({ jwt, jwtSecret: JWT_SECRET });
+const loadCurrentUser = (username) => loadUsers().find((user) => user.username === username);
+const authenticate = createAuthenticate({ jwt, jwtSecret: JWT_SECRET, loadUser: loadCurrentUser, normalizeUserPermissions });
+const authenticateRealtimeToken = createRealtimeAuthenticator({ jwt, jwtSecret: JWT_SECRET, loadUser: loadCurrentUser, normalizeUserPermissions });
+
+app.get("/auth/session.js", authenticate, (req, res) => {
+  res.type("application/javascript").set("Cache-Control", "no-store");
+  const identity = JSON.stringify({ username: req.user.username, role: req.user.role, permissions: req.user.permissions }).replace(/</g, "\\u003c");
+  res.send(`window.ROOTARK_AUTH=${identity};`);
+});
 
 wss.on("connection", (socket, req) => {
-  const params = new URL(req.url, "http://localhost").searchParams;
-  const user = authenticateRealtimeToken(params.get("token"));
+  const origin = req.headers.origin;
+  const expectedOrigin = `${req.socket.encrypted ? "https" : "http"}://${req.headers.host}`;
+  const user = origin === expectedOrigin && authenticateRealtimeToken(parseCookies(req.headers.cookie).rootark_session);
 
   if (!user) {
-    sendRealtime(socket, "auth:error", { message: "Token invalido ou expirado" });
     socket.close(1008, "Token invalido");
     return;
   }
@@ -4615,6 +4626,7 @@ registerAuthRoutes(app, {
   getAuditActor,
   jwt,
   jwtSecret: JWT_SECRET,
+  sessionCookieOptions: SESSION_COOKIE_OPTIONS,
   loadUsers,
   logAnalyticsEvent,
   normalizeUserPermissions,
@@ -4654,6 +4666,7 @@ app.post("/users", authenticate, requirePermission("manageUsers"), (req, res) =>
     password: bcrypt.hashSync(password, 10),
     role: role || "user",
     permissions: finalPermissions,
+    sessionVersion: 0,
   });
 
   saveUsers(users);
@@ -4675,9 +4688,12 @@ app.put("/users/:username", authenticate, requirePermission("manageUsers"), (req
 
   const before = JSON.parse(JSON.stringify(users[idx]));
   const { password, role, permissions } = req.body;
+  const sessionChanged = Boolean(password || (role && role !== users[idx].role) || (permissions && Object.entries(permissions).some(([key, value]) => users[idx].permissions?.[key] !== value)) || req.body.disabled !== undefined && Boolean(req.body.disabled) !== Boolean(users[idx].disabled));
   if (password) users[idx].password = bcrypt.hashSync(password, 10);
   if (role) users[idx].role = role;
   if (permissions) users[idx].permissions = { ...users[idx].permissions, ...permissions };
+  if (req.body.disabled !== undefined) users[idx].disabled = Boolean(req.body.disabled);
+  if (sessionChanged) users[idx].sessionVersion = (users[idx].sessionVersion || 0) + 1;
   users[idx].permissions = normalizeUserPermissions(users[idx]);
 
   saveUsers(users);
