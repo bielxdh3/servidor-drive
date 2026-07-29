@@ -403,19 +403,20 @@
       }
     </style>
 
+    <script src="/auth/session.js"></script>
+    <script src="/auth-bootstrap.js"></script>
     <script>
       // ── Auth guard ──────────────────────────────────────────────────────────
-      const token = localStorage.getItem("token");
-      const myPerms = JSON.parse(localStorage.getItem("permissions") || "{}");
-      const myUsername = localStorage.getItem("username");
+      const token = "cookie-session";
+      const myPerms = window.ROOTARK_AUTH.permissions;
+      const myUsername = window.ROOTARK_AUTH.username;
 
       if (!token || !myPerms.manageUsers) {
         window.location.href = "/login.html";
       }
 
       document.getElementById("btnLogout").addEventListener("click", () => {
-        localStorage.clear();
-        window.location.href = "/login.html";
+        window.rootarkLogout();
       });
 
       function authFetch(url, opts = {}) {

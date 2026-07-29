@@ -228,10 +228,12 @@
     </main>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="/auth/session.js"></script>
+    <script src="/auth-bootstrap.js"></script>
     <script>
-      const token = localStorage.getItem("token");
-      const permissions = JSON.parse(localStorage.getItem("permissions") || "{}");
-      if (!token || (!permissions.manageUsers && !permissions.viewAnalytics)) {
+      const token = "cookie-session";
+      const permissions = window.ROOTARK_AUTH.permissions;
+      if (!permissions.manageUsers && !permissions.viewAnalytics) {
         window.location.href = "/login.html";
       }
       if (permissions.manageUsers) document.getElementById("adminLink").style.display = "inline-block";
@@ -239,8 +241,7 @@
       let realtimeRefreshTimer = null;
 
       document.getElementById("btnLogout").addEventListener("click", () => {
-        localStorage.clear();
-        window.location.href = "/login.html";
+        window.rootarkLogout();
       });
 
       function authFetch(url, opts = {}) {
@@ -409,25 +410,26 @@
           options: { scales: {} },
         });
 
-        document.getElementById("recentActivity").innerHTML = recent.length
-          ? recent.map((event) => `
-              <li>
-                <span class="event-icon">${getEventIcon(event.type)}</span>
-                <span class="event-text" title="${formatEvent(event)}">${formatEvent(event)}</span>
-                <span class="event-time">${formatDate(event.timestamp)}</span>
-              </li>
-            `).join("")
-          : '<li><span class="event-text">Nenhuma atividade registrada ainda.</span></li>';
+        const recentActivity = document.getElementById("recentActivity");
+        recentActivity.textContent = "";
+        if (!recent.length) recentActivity.textContent = "Nenhuma atividade registrada ainda.";
+        recent.forEach((event) => {
+          const item = document.createElement("li");
+          for (const [className, text] of [["event-icon", getEventIcon(event.type)], ["event-text", formatEvent(event)], ["event-time", formatDate(event.timestamp)]]) {
+            const span = document.createElement("span"); span.className = className; span.textContent = text; item.append(span);
+          }
+          item.querySelector(".event-text").title = formatEvent(event);
+          recentActivity.append(item);
+        });
       }
 
       loadDashboard().catch((error) => {
-        document.getElementById("recentActivity").innerHTML =
-          `<li><span class="event-text">${error.message || "Falha ao carregar dashboard."}</span></li>`;
+        document.getElementById("recentActivity").textContent = error.message || "Falha ao carregar dashboard.";
       });
 
       function connectRealtime() {
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        realtimeSocket = new WebSocket(`${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`);
+        realtimeSocket = new WebSocket(`${protocol}//${window.location.host}/ws`);
         realtimeSocket.addEventListener("message", (event) => {
           let message = {};
           try { message = JSON.parse(event.data); } catch { return; }

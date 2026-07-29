@@ -162,10 +162,12 @@
       </div>
     </div>
 
+    <script src="/auth/session.js"></script>
+    <script src="/auth-bootstrap.js"></script>
     <script>
-      const token = localStorage.getItem("token");
-      const permissions = JSON.parse(localStorage.getItem("permissions") || "{}");
-      if (!token || (!permissions.manageUsers && !permissions.viewAuditLogs)) window.location.href = "/login.html";
+      const token = "cookie-session";
+      const permissions = window.ROOTARK_AUTH.permissions;
+      if (!permissions.manageUsers && !permissions.viewAuditLogs) window.location.href = "/login.html";
       if (permissions.manageUsers) document.getElementById("adminLink").style.display = "inline-block";
 
       let currentPage = 1;
@@ -176,8 +178,7 @@
       let realtimeRefreshTimer = null;
 
       document.getElementById("btnLogout").addEventListener("click", () => {
-        localStorage.clear();
-        window.location.href = "/login.html";
+        window.rootarkLogout();
       });
 
       function authFetch(url, opts = {}) {
@@ -311,7 +312,7 @@
 
       function connectRealtime() {
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        realtimeSocket = new WebSocket(`${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`);
+        realtimeSocket = new WebSocket(`${protocol}//${window.location.host}/ws`);
         realtimeSocket.addEventListener("message", (event) => {
           let message = {};
           try { message = JSON.parse(event.data); } catch { return; }

@@ -1,5 +1,9 @@
 # Root.ark Current Security Findings
 
+## Stabilization update (2026-07-29)
+
+S-001 through S-005 were reconfirmed against the current authentication, dashboard, and realtime paths and are addressed on `agent/rootark-security-stabilization`. The implementation requires an explicit strong `JWT_SECRET`; browser authentication uses an HttpOnly, `SameSite=Lax` cookie with CSRF checks for cookie-authenticated writes; protected requests and WebSocket upgrades load the current user and compare a persisted session version. Browser pages use the current server identity and no longer persist authentication data or place a credential in a WebSocket URL. Dashboard activity and errors now use text DOM nodes. Focused automated checks cover these boundaries; disposable runtime/browser verification remains required before closing the issues.
+
 Status: initial code-backed inventory; runtime exploitation and regression validation still required
 
 Baseline branch: `codex/folders-acl`

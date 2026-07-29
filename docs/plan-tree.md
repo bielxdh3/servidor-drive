@@ -118,7 +118,7 @@ Issue: #1
 
 Prerequisite: phase 2.0 inventory confirms exact surfaces.
 
-- `[BLOCKED]` Remove the hard-coded JWT secret fallback.
+- `[IMPLEMENTED-UNVERIFIED]` Remove the hard-coded JWT secret fallback and replace dashboard user-controlled activity/error rendering with text DOM nodes; focused automated checks exist, while disposable runtime/browser validation remains required.
 - `[BLOCKED]` Fail startup safely when a required production secret is absent or unacceptably weak.
 - `[BLOCKED]` Preserve a safe local-development setup using placeholders and explicit configuration, not committed secrets.
 - `[BLOCKED]` Replace unsafe dashboard activity rendering with DOM/text rendering.
@@ -140,7 +140,7 @@ Issue: #2
 
 Prerequisites: phase 2.1 complete and initial auth tests available.
 
-- `[BLOCKED]` Stop placing JWTs in WebSocket query strings.
+- `[IMPLEMENTED-UNVERIFIED]` Stop placing JWTs in WebSocket query strings; cookie-authenticated upgrades validate Origin and the current session user before events are sent. Focused automated checks exist; disposable runtime/browser validation remains required.
 - `[BLOCKED]` Design and implement one bounded authenticated WebSocket handshake.
 - `[BLOCKED]` Revalidate the current user and permissions on the server rather than trusting stale permission claims for the full token lifetime.
 - `[BLOCKED]` Implement token/session revocation or versioning for password, role, permission, disable, and deletion changes.

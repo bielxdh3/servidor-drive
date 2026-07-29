@@ -1563,7 +1563,7 @@
         const navFiles = document.getElementById("navFiles");
         const navHistory = document.getElementById("navHistory");
         const navTrash = document.getElementById("navTrash");
-        const token = localStorage.getItem("token");
+        const token = "cookie-session";
 
         filesView.hidden = true;
         historyView.hidden = false;
@@ -1650,13 +1650,11 @@
 
     <script src="./background-matrix.js?v=12"></script>
 
+    <script src="/auth/session.js"></script>
+    <script src="/auth-bootstrap.js"></script>
     <script>
-      const token = localStorage.getItem("token");
-      if (!token) window.location.href = "/login.html";
-
-      const permissions = JSON.parse(localStorage.getItem("permissions") || "{}");
-      const role = localStorage.getItem("role") || "user";
-      const username = localStorage.getItem("username") || "";
+      const token = "cookie-session";
+      const { permissions, role, username } = window.ROOTARK_AUTH;
       const pageSize = 6;
       const maxFileNameLength = 30;
       const dateFormatter = new Intl.DateTimeFormat("pt-BR", {
@@ -1771,8 +1769,7 @@
       }
 
       function forceLogout() {
-        localStorage.clear();
-        window.location.href = "/login.html";
+        window.rootarkLogout();
       }
 
       document.getElementById("btnLogout").addEventListener("click", forceLogout);
@@ -3575,7 +3572,7 @@
         if (!token || realtimeSocket?.readyState === WebSocket.OPEN) return;
 
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        realtimeSocket = new WebSocket(`${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`);
+        realtimeSocket = new WebSocket(`${protocol}//${window.location.host}/ws`);
 
         realtimeSocket.addEventListener("message", (event) => {
           let message = {};
