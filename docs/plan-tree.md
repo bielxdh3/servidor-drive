@@ -144,7 +144,7 @@ Prerequisites: phase 2.1 complete and initial auth tests available.
 - `[DONE]` Design and implement one bounded cookie-authenticated WebSocket handshake.
 - `[IMPLEMENTED-UNVERIFIED]` Revalidate the current user and permissions on the server rather than trusting stale permission claims for the full token lifetime; HTTP revocation validation passed, but the full authorization matrix remains incomplete.
 - `[IMPLEMENTED-UNVERIFIED]` Implement token/session revocation or versioning for password, role, permission, disable, and deletion changes; session-version revocation is validated, while every change path is not.
-- `[DECISION REQUIRED]` Decide whether HTTP browser sessions remain bearer tokens or move to secure HttpOnly cookies.
+- `[DONE]` Browser sessions use secure HttpOnly cookies (`SameSite=Lax`) with CSRF checks for cookie-authenticated writes; the transport decision is made and implemented. The documented session threat model remains unresolved, so issue #2 stays open.
 - `[IMPLEMENTED-UNVERIFIED]` Add tests for disabled users, removed permissions, expiry, revocation, and realtime authentication; disabled/revoked and WebSocket checks exist, while permission-removal and expiry coverage is incomplete.
 
 Completion evidence:
