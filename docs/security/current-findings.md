@@ -1,5 +1,11 @@
 # Root.ark Current Security Findings
 
+## PR #17 reconciliation (2026-07-30)
+
+Disposable validation on the PR branch confirmed that bearer authentication succeeds for the sync client without browser cookies or CSRF, while invalid and session-revoked tokens return `401`. Public-share routes accept no browser authentication or CSRF requirement; a valid link succeeds, malformed links return `404`, and expired links return `410`. `npm test` passed (8 tests) and `npm audit --package-lock-only` reported zero vulnerabilities.
+
+The Archiver 8 upgrade initially broke the real backup path because CommonJS now exports `ZipArchive` rather than a callable factory. PR #17 now uses `ZipArchive`; an automated ZIP regression test and a disposable backup archive validation pass. S-001 through S-005 and S-007 remain incomplete overall: browser/WebSocket runtime coverage, a documented session threat model, wider authorization cases, and remote CI are still required before closing their owner issues.
+
 ## Stabilization update (2026-07-29)
 
 S-001 through S-005 were reconfirmed against the current authentication, dashboard, and realtime paths and are addressed on `agent/rootark-security-stabilization`. The implementation requires an explicit strong `JWT_SECRET`; browser authentication uses an HttpOnly, `SameSite=Lax` cookie with CSRF checks for cookie-authenticated writes; protected requests and WebSocket upgrades load the current user and compare a persisted session version. Browser pages use the current server identity and no longer persist authentication data or place a credential in a WebSocket URL. Dashboard activity and errors now use text DOM nodes. Focused automated checks cover these boundaries; disposable runtime/browser verification remains required before closing the issues.
