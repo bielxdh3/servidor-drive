@@ -118,13 +118,13 @@ Issue: #1
 
 Prerequisite: phase 2.0 inventory confirms exact surfaces.
 
-- `[IMPLEMENTED-UNVERIFIED]` Remove the hard-coded JWT secret fallback and replace dashboard user-controlled activity/error rendering with text DOM nodes; focused automated checks exist, while disposable runtime/browser validation remains required.
+- `[IMPLEMENTED-UNVERIFIED]` Remove the hard-coded JWT secret fallback and replace dashboard user-controlled activity/error rendering with text DOM nodes; focused checks and browser smoke validation are recorded, while direct startup and malicious-payload acceptance evidence remains incomplete.
 - `[BLOCKED]` Fail startup safely when a required production secret is absent or unacceptably weak.
 - `[BLOCKED]` Preserve a safe local-development setup using placeholders and explicit configuration, not committed secrets.
-- `[BLOCKED]` Replace unsafe dashboard activity rendering with DOM/text rendering.
+- `[IMPLEMENTED-UNVERIFIED]` Replace unsafe dashboard activity rendering with DOM/text rendering; source-level regression coverage exists, while malicious-payload browser proof remains incomplete.
 - `[BLOCKED]` Check only directly adjacent changed surfaces for equivalent injection sinks.
-- `[BLOCKED]` Add focused startup and rendering regression tests where feasible.
-- `[BLOCKED]` Verify login and dashboard behavior after the fixes.
+- `[IMPLEMENTED-UNVERIFIED]` Add focused startup and rendering regression tests; rendering and session-bootstrap checks exist, while direct startup coverage is still missing.
+- `[DONE]` Verify login and dashboard behavior after the fixes with the recorded disposable browser validation.
 
 Completion evidence:
 
@@ -140,12 +140,12 @@ Issue: #2
 
 Prerequisites: phase 2.1 complete and initial auth tests available.
 
-- `[IMPLEMENTED-UNVERIFIED]` Stop placing JWTs in WebSocket query strings; cookie-authenticated upgrades validate Origin and the current session user before events are sent. Focused automated checks exist; disposable runtime/browser validation remains required.
-- `[BLOCKED]` Design and implement one bounded authenticated WebSocket handshake.
-- `[BLOCKED]` Revalidate the current user and permissions on the server rather than trusting stale permission claims for the full token lifetime.
-- `[BLOCKED]` Implement token/session revocation or versioning for password, role, permission, disable, and deletion changes.
+- `[DONE]` Stop placing JWTs in WebSocket query strings; cookie-authenticated upgrades validate Origin and the current session user before events are sent. Focused checks and recorded disposable browser/WebSocket validation passed.
+- `[DONE]` Design and implement one bounded cookie-authenticated WebSocket handshake.
+- `[IMPLEMENTED-UNVERIFIED]` Revalidate the current user and permissions on the server rather than trusting stale permission claims for the full token lifetime; HTTP revocation validation passed, but the full authorization matrix remains incomplete.
+- `[IMPLEMENTED-UNVERIFIED]` Implement token/session revocation or versioning for password, role, permission, disable, and deletion changes; session-version revocation is validated, while every change path is not.
 - `[DECISION REQUIRED]` Decide whether HTTP browser sessions remain bearer tokens or move to secure HttpOnly cookies.
-- `[BLOCKED]` Add tests for disabled users, removed permissions, expiry, revocation, and realtime authentication.
+- `[IMPLEMENTED-UNVERIFIED]` Add tests for disabled users, removed permissions, expiry, revocation, and realtime authentication; disabled/revoked and WebSocket checks exist, while permission-removal and expiry coverage is incomplete.
 
 Completion evidence:
 
@@ -158,11 +158,11 @@ Completion evidence:
 
 Issue: #3
 
-- `[BLOCKED]` Add repeatable `test` and static-validation scripts.
-- `[BLOCKED]` Establish one meaningful vertical slice of automated security regression tests.
-- `[BLOCKED]` Add tests for authentication, authorization, path handling, upload safety, trash, and backup/restore boundaries in small steps.
-- `[BLOCKED]` Upgrade Multer and Express through compatibility-preserving changes.
-- `[BLOCKED]` Review remaining dependencies in bounded groups rather than one mass upgrade.
+- `[IMPLEMENTED-UNVERIFIED]` Add repeatable `test` and static-validation scripts; `npm test` exists and syntax checks are documented, but no dedicated static-validation script exists.
+- `[DONE]` Establish one meaningful vertical slice of automated security regression tests; eight focused tests now cover session, browser-token, WebSocket, WebDAV, rendering, and Archiver compatibility boundaries.
+- `[IMPLEMENTED-UNVERIFIED]` Add tests for authentication, authorization, path handling, upload safety, trash, and backup/restore boundaries in small steps; authentication and backup compatibility are covered, while broader boundaries are not.
+- `[IMPLEMENTED-UNVERIFIED]` Upgrade Multer and Express through compatibility-preserving changes; Express is upgraded and validated, while Multer remains a separate bounded follow-up.
+- `[IMPLEMENTED-UNVERIFIED]` Review remaining dependencies in bounded groups rather than one mass upgrade; the current lockfile audit is clean, while continuing dependency review remains open.
 - `[BLOCKED]` Add GitHub Actions CI for clean install, tests, static checks, and secret-safe dependency checks.
 - `[BLOCKED]` Ensure fixtures and CI never include real databases, uploads, backups, quarantine contents, tokens, or credentials.
 
