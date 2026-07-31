@@ -9,6 +9,7 @@ const jwt = require("jsonwebtoken");
 const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
+const WebSocket = require("ws");
 const { createAuthenticate, getExpectedOrigin } = require("../src/middlewares/auth");
 
 const ROOT = path.resolve(__dirname, "..");
@@ -63,6 +64,36 @@ async function login(port, username, password) {
   assert.equal(response.status, 200);
   const cookies = response.headers["set-cookie"].map((cookie) => cookie.split(";", 1)[0]);
   return { cookie: cookies.join("; "), csrf: cookies.find((cookie) => cookie.startsWith("rootark_csrf=")).split("=", 2)[1] };
+}
+
+function waitForWebSocketEvent(socket, event, timeout = 2_000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Timed out waiting for ${event}`)), timeout);
+    socket.on("message", (rawMessage) => {
+      const message = JSON.parse(rawMessage.toString());
+      if (message.event !== event) return;
+      clearTimeout(timer);
+      resolve(message);
+    });
+    socket.once("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
+}
+
+function waitForWebSocketClose(socket, timeout = 2_000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Timed out waiting for WebSocket close")), timeout);
+    socket.once("close", (code, reason) => {
+      clearTimeout(timer);
+      resolve({ code, reason: reason.toString() });
+    });
+    socket.once("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
 }
 
 function createSandbox(users) {
@@ -154,6 +185,70 @@ test("permission removal revokes an existing browser session before a protected 
   const denied = await request(port, "/storage/status", { headers: { cookie: agent.cookie } });
   assert.equal(denied.status, 401);
   assert.match(denied.body, /Token invalido ou expirado/);
+});
+
+test("permission removal closes an active WebSocket before its next authenticated message", { timeout: 30_000 }, async (t) => {
+  const password = crypto.randomBytes(24).toString("base64url");
+  const users = ["admin", "agent"].map((username) => ({
+    username,
+    password: bcrypt.hashSync(password, 10),
+    role: "user",
+    permissions: { manageUsers: true },
+    sessionVersion: 0,
+  }));
+  const cwd = createSandbox(users);
+  const port = await getUnusedPort();
+  const child = spawn(process.execPath, [SERVER], {
+    cwd,
+    env: { ...process.env, PORT: String(port), DB_ENABLED: "false", JWT_SECRET: crypto.randomBytes(48).toString("base64url") },
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  let socket;
+  t.after(async () => {
+    socket?.terminate();
+    if (child.exitCode === null) {
+      await new Promise((resolve) => {
+        child.once("exit", resolve);
+        child.kill();
+      });
+    }
+    fs.rmSync(cwd, { recursive: true, force: true });
+  });
+
+  assert.equal((await waitForServer(port)).status, 200);
+  const agent = await login(port, "agent", password);
+  const origin = `http://127.0.0.1:${port}`;
+  socket = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers: { cookie: agent.cookie }, origin });
+  await waitForWebSocketEvent(socket, "connected");
+  socket.send(JSON.stringify({ event: "ping" }));
+  await waitForWebSocketEvent(socket, "pong");
+
+  const admin = await login(port, "admin", password);
+  const body = JSON.stringify({ permissions: { manageUsers: false } });
+  assert.equal((await request(port, "/users/agent", {
+    method: "PUT",
+    headers: {
+      cookie: admin.cookie,
+      origin,
+      "x-csrf-token": admin.csrf,
+      "content-type": "application/json",
+      "content-length": Buffer.byteLength(body),
+    },
+    body,
+  })).status, 200);
+
+  const close = waitForWebSocketClose(socket);
+  const stalePong = waitForWebSocketEvent(socket, "pong", 500).then(() => {
+    throw new Error("Stale WebSocket received pong after permission removal");
+  }, (error) => {
+    if (!/Timed out/.test(error.message)) throw error;
+  });
+  socket.send(JSON.stringify({ event: "ping" }));
+  await stalePong;
+  const closed = await close;
+  assert.equal(closed.code, 1008);
+  assert.equal(closed.reason, "Sessao revogada");
 });
 
 test("expired browser session cookie is rejected before a protected HTTP handler", { timeout: 30_000 }, async (t) => {
