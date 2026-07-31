@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - validation/pr17-playwright-xss-7b270f9
+  pull_request:
+    branches:
+      - codex/folders-acl
 
 permissions:
   contents: read
