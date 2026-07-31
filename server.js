@@ -50,6 +50,7 @@ const PORT = Number(process.env.PORT || 3000);
 const SESSION_COOKIE_OPTIONS = { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/" };
 const USERS_SEED_FILE = "./data/users.json";
 const USERS_FILE = "./data/users.local.json";
+const USER_GENERATIONS_FILE = "./data/user-generations.local.json";
 const PENDING_UPLOADS_FILE = "./data/pending-uploads.json";
 const PUBLIC_LINKS_FILE = "./data/public-links.json";
 const ACTION_HISTORY_FILE = "./data/actions-history.json";
@@ -548,9 +549,46 @@ function loadUsers() {
   return JSON.parse(fs.readFileSync(USERS_FILE, "utf-8"));
 }
 
+function loadUserGenerations() {
+  if (!fs.existsSync(USER_GENERATIONS_FILE)) return {};
+
+  let generations;
+  try {
+    generations = JSON.parse(fs.readFileSync(USER_GENERATIONS_FILE, "utf-8"));
+  } catch {
+    throw new Error("Historico de geracoes de usuario invalido");
+  }
+
+  if (!generations || typeof generations !== "object" || Array.isArray(generations) || Object.values(generations).some((version) => !Number.isSafeInteger(version) || version < 0)) {
+    throw new Error("Historico de geracoes de usuario invalido");
+  }
+  return generations;
+}
+
+function rememberUserGenerations(users) {
+  const generations = loadUserGenerations();
+  for (const user of users) {
+    const username = String(user?.username || "").trim();
+    const version = user?.sessionVersion || 0;
+    if (username && Number.isSafeInteger(version) && version >= 0) {
+      generations[username] = Math.max(generations[username] ?? 0, version);
+    }
+  }
+  fs.writeFileSync(USER_GENERATIONS_FILE, JSON.stringify(generations, null, 2));
+}
+
+function getCreatedUserSessionVersion(username) {
+  if (shouldUseDatabase()) return 0;
+  const generations = loadUserGenerations();
+  return Object.hasOwn(generations, username) ? generations[username] + 1 : 0;
+}
+
 function saveUsers(users) {
   if (shouldUseDatabase()) usersRepository.saveUsers(users);
-  if (shouldWriteLegacyJson()) fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+  if (shouldWriteLegacyJson()) {
+    rememberUserGenerations(users);
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+  }
 }
 
 function getBasePermissions() {
@@ -4679,7 +4717,7 @@ app.post("/users", authenticate, requirePermission("manageUsers"), (req, res) =>
     password: bcrypt.hashSync(password, 10),
     role: role || "user",
     permissions: finalPermissions,
-    sessionVersion: 0,
+    sessionVersion: getCreatedUserSessionVersion(username),
   });
 
   saveUsers(users);
@@ -4747,6 +4785,7 @@ app.delete("/users/:username", authenticate, requirePermission("manageUsers"), (
     return res.status(404).json({ error: "Usuario nao encontrado" });
   }
 
+  if (shouldWriteLegacyJson()) rememberUserGenerations(users);
   saveUsers(filtered);
   removeUserFromFilePermissions(req.params.username);
   removeUserFromFolderPermissions(req.params.username);

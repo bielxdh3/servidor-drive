@@ -63,7 +63,12 @@ async function login(port, username, password) {
   });
   assert.equal(response.status, 200);
   const cookies = response.headers["set-cookie"].map((cookie) => cookie.split(";", 1)[0]);
-  return { cookie: cookies.join("; "), csrf: cookies.find((cookie) => cookie.startsWith("rootark_csrf=")).split("=", 2)[1] };
+  const sessionCookie = cookies.find((cookie) => cookie.startsWith("rootark_session="));
+  return {
+    cookie: cookies.join("; "),
+    csrf: cookies.find((cookie) => cookie.startsWith("rootark_csrf=")).split("=", 2)[1],
+    sessionVersion: jwt.decode(sessionCookie.split("=", 2)[1]).sessionVersion,
+  };
 }
 
 function waitForWebSocketEvent(socket, event, timeout = 2_000) {
@@ -135,6 +140,149 @@ test("WebDAV uses the Express 5 named wildcard syntax", () => {
 test("revoked and disabled users cannot use old tokens", () => {
   assert.equal(authenticateRequest({ user: { username: "alice", disabled: true, sessionVersion: 2 } }).code, 401);
   assert.equal(authenticateRequest({ user: { username: "alice", sessionVersion: 3 } }).code, 401);
+});
+
+test("deleted usernames cannot resurrect old HTTP or WebSocket sessions", { timeout: 30_000 }, async (t) => {
+  const password = crypto.randomBytes(24).toString("base64url");
+  const recreatedPassword = crypto.randomBytes(24).toString("base64url");
+  const users = ["admin", "agent"].map((username) => ({
+    username,
+    password: bcrypt.hashSync(password, 10),
+    role: "user",
+    permissions: { manageUsers: true },
+    sessionVersion: 0,
+  }));
+  const cwd = createSandbox(users);
+  const port = await getUnusedPort();
+  const child = spawn(process.execPath, [SERVER], {
+    cwd,
+    env: { ...process.env, PORT: String(port), DB_ENABLED: "false", JWT_SECRET: crypto.randomBytes(48).toString("base64url") },
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  let socket;
+  t.after(async () => {
+    socket?.terminate();
+    if (child.exitCode === null) {
+      await new Promise((resolve) => {
+        child.once("exit", resolve);
+        child.kill();
+      });
+    }
+    fs.rmSync(cwd, { recursive: true, force: true });
+  });
+
+  assert.equal((await waitForServer(port)).status, 200);
+  const origin = `http://127.0.0.1:${port}`;
+  const agent = await login(port, "agent", password);
+  assert.equal((await request(port, "/storage/status", { headers: { cookie: agent.cookie } })).status, 200);
+  socket = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers: { cookie: agent.cookie }, origin });
+  await waitForWebSocketEvent(socket, "connected");
+  socket.send(JSON.stringify({ event: "ping" }));
+  await waitForWebSocketEvent(socket, "pong");
+
+  const admin = await login(port, "admin", password);
+  const headers = { cookie: admin.cookie, origin, "x-csrf-token": admin.csrf };
+  assert.equal((await request(port, "/users/agent", { method: "DELETE", headers })).status, 200);
+  const close = waitForWebSocketClose(socket);
+
+  const createBody = JSON.stringify({ username: "agent", password: recreatedPassword, role: "user", permissions: { manageUsers: true } });
+  assert.equal((await request(port, "/users", {
+    method: "POST",
+    headers: { ...headers, "content-type": "application/json", "content-length": Buffer.byteLength(createBody) },
+    body: createBody,
+  })).status, 201);
+
+  assert.equal((await request(port, "/storage/status", { headers: { cookie: agent.cookie } })).status, 401);
+  if (socket.readyState === WebSocket.OPEN) {
+    const stalePong = waitForWebSocketEvent(socket, "pong", 500).then(() => {
+      throw new Error("Resurrected WebSocket received pong");
+    }, (error) => {
+      if (!/Timed out/.test(error.message)) throw error;
+    });
+    socket.send(JSON.stringify({ event: "ping" }));
+    await stalePong;
+  }
+  const closed = await close;
+  assert.equal(closed.code, 1008);
+  assert.equal(closed.reason, "Sessao revogada");
+
+  const recreated = await login(port, "agent", recreatedPassword);
+  assert.ok(recreated.sessionVersion > agent.sessionVersion);
+  assert.equal((await request(port, "/storage/status", { headers: { cookie: recreated.cookie } })).status, 200);
+  const newSocket = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers: { cookie: recreated.cookie }, origin });
+  t.after(() => newSocket.terminate());
+  await waitForWebSocketEvent(newSocket, "connected");
+  newSocket.send(JSON.stringify({ event: "ping" }));
+  await waitForWebSocketEvent(newSocket, "pong");
+});
+
+test("JSON user generations survive restart before same-username recreation", { timeout: 30_000 }, async (t) => {
+  const password = crypto.randomBytes(24).toString("base64url");
+  const recreatedPassword = crypto.randomBytes(24).toString("base64url");
+  const users = ["admin", "agent"].map((username) => ({
+    username,
+    password: bcrypt.hashSync(password, 10),
+    role: "user",
+    permissions: { manageUsers: true },
+    sessionVersion: 0,
+  }));
+  const cwd = createSandbox(users);
+  const jwtSecret = crypto.randomBytes(48).toString("base64url");
+  let port = await getUnusedPort();
+  let child = spawn(process.execPath, [SERVER], {
+    cwd,
+    env: { ...process.env, PORT: String(port), DB_ENABLED: "false", JWT_SECRET: jwtSecret },
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  t.after(async () => {
+    if (child.exitCode === null) {
+      await new Promise((resolve) => {
+        child.once("exit", resolve);
+        child.kill();
+      });
+    }
+    fs.rmSync(cwd, { recursive: true, force: true });
+  });
+
+  assert.equal((await waitForServer(port)).status, 200);
+  const agent = await login(port, "agent", password);
+  const admin = await login(port, "admin", password);
+  const origin = `http://127.0.0.1:${port}`;
+  assert.equal((await request(port, "/users/agent", {
+    method: "DELETE",
+    headers: { cookie: admin.cookie, origin, "x-csrf-token": admin.csrf },
+  })).status, 200);
+  await new Promise((resolve) => {
+    child.once("exit", resolve);
+    child.kill();
+  });
+
+  port = await getUnusedPort();
+  child = spawn(process.execPath, [SERVER], {
+    cwd,
+    env: { ...process.env, PORT: String(port), DB_ENABLED: "false", JWT_SECRET: jwtSecret },
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  assert.equal((await waitForServer(port)).status, 200);
+  const createBody = JSON.stringify({ username: "agent", password: recreatedPassword, role: "user", permissions: { manageUsers: true } });
+  assert.equal((await request(port, "/users", {
+    method: "POST",
+    headers: {
+      cookie: admin.cookie,
+      origin: `http://127.0.0.1:${port}`,
+      "x-csrf-token": admin.csrf,
+      "content-type": "application/json",
+      "content-length": Buffer.byteLength(createBody),
+    },
+    body: createBody,
+  })).status, 201);
+
+  assert.equal((await request(port, "/storage/status", { headers: { cookie: agent.cookie } })).status, 401);
+  const recreated = await login(port, "agent", recreatedPassword);
+  assert.ok(recreated.sessionVersion > agent.sessionVersion);
 });
 
 test("permission removal revokes an existing browser session before a protected HTTP handler", { timeout: 30_000 }, async (t) => {
