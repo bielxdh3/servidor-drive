@@ -32,20 +32,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run focused syntax checks
-        run: |
-          node --check server.js
-          node --check db/migrations.js
-          node --check repositories/usersRepository.js
-          node --check services/backupService.js
-          node --check src/middlewares/auth.js
-          node --check src/routes/auth.js
-          node --check test/auth-security.test.js
-          node --check test/backup-archiver.test.js
-          node --check test/startup-acceptance.test.js
+      - name: Run syntax validation
+        run: npm run validate:syntax
 
       - name: Run automated tests
         run: npm test
 
       - name: Audit locked dependencies
-        run: npm audit --package-lock-only --audit-level=high
+        run: npm run validate:dependencies
