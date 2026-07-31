@@ -17,13 +17,13 @@ npm run validate
 ## Included
 
 - First-party JavaScript syntax.
-- Current automated Node tests, including disposable real-server simple-upload coverage for authorization-before-Multer, suspicious-extension quarantine, and filename/path containment.
+- Current automated Node tests, including disposable real-server simple-upload coverage for authorization-before-Multer, suspicious-extension quarantine, filename/path containment, and trash runtime-root isolation. The trash regression confirms that a child server writes JSON metadata and physical trash files under its active working directory, not its module checkout.
 - Locked production and development dependency audit at high severity.
 - Disposable test data only.
 
 ## Environment-dependent validation
 
-This baseline does not automatically validate live ClamAV, S3, Google Drive, Windows WebDAV mounting, browser-driven flows, or long-running migration, backup/restore, trash, chunked-upload, and synchronization exercises. The simple `POST /upload` multipart boundary is covered with a disabled scan provider while retaining the extension block; production HTTPS, reverse-proxy, Host, and Origin configuration also requires a real deployment environment. Those checks require disposable data and the relevant real prerequisites.
+This baseline does not automatically validate live ClamAV, S3, Google Drive, Windows WebDAV mounting, browser-driven flows, or long-running migration, backup/restore, full trash lifecycle authorization/containment, chunked-upload, and synchronization exercises. The simple `POST /upload` multipart boundary is covered with a disabled scan provider while retaining the extension block; production HTTPS, reverse-proxy, Host, and Origin configuration also requires a real deployment environment. Those checks require disposable data and the relevant real prerequisites. Backup/restore runtime-root behavior is not changed or claimed by the trash regression.
 
 ## Data safety
 

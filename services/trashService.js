@@ -1,10 +1,10 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const { ROOT_DIR } = require("../db");
+const { resolveRuntimePath } = require("../src/runtime-paths");
 const trashRepository = require("../repositories/trashRepository");
 
-const TRASH_STORAGE_DIR = path.join(ROOT_DIR, "data", "trash");
+const TRASH_STORAGE_DIR = resolveRuntimePath("data", "trash");
 
 function ensureTrashStorage() {
   fs.mkdirSync(TRASH_STORAGE_DIR, { recursive: true });
@@ -172,8 +172,8 @@ function moveFolderToTrash({ folder, deletedBy, loaders }) {
   ensureTrashStorage();
   if (!folder || folder.isRoot || folder.id === "root") throw new Error("A pasta padrao nao pode ir para lixeira");
   const id = crypto.randomUUID();
-  const uploadDir = ensureInside(path.join(ROOT_DIR, "uploads"), folder.uploadDir);
-  const tempDir = ensureInside(path.join(ROOT_DIR, "temp"), folder.tempDir);
+  const uploadDir = ensureInside(resolveRuntimePath("uploads"), folder.uploadDir);
+  const tempDir = ensureInside(resolveRuntimePath("temp"), folder.tempDir);
   const trashFolderDir = path.join(TRASH_STORAGE_DIR, "folders", id);
   const trashUploads = path.join(trashFolderDir, "uploads");
   const trashTemp = path.join(trashFolderDir, "temp");
@@ -257,8 +257,8 @@ function restoreFolder({ item, restoredBy, loaders, getDefaultFolder }) {
   const trashPath = getTrashAbsolutePath(item);
   const uploadSource = path.join(trashPath, "uploads");
   const tempSource = path.join(trashPath, "temp");
-  const uploadDestination = path.join(ROOT_DIR, "uploads", restoredFolder.id === "root" ? "" : restoredFolder.id);
-  const tempDestination = path.join(ROOT_DIR, "temp", restoredFolder.id === "root" ? "" : restoredFolder.id);
+  const uploadDestination = resolveRuntimePath("uploads", restoredFolder.id === "root" ? "" : restoredFolder.id);
+  const tempDestination = resolveRuntimePath("temp", restoredFolder.id === "root" ? "" : restoredFolder.id);
   if (fs.existsSync(uploadSource)) movePath(uploadSource, uploadDestination);
   if (fs.existsSync(tempSource)) movePath(tempSource, tempDestination);
 
@@ -289,7 +289,7 @@ function permanentlyDelete({ item, deletedBy, loaders }) {
   fs.rmSync(target, { recursive: true, force: true });
   if (item.itemType === "file") {
     const versions = item.restoreMetadata?.versions?.versions || [];
-    const uploadDir = path.join(ROOT_DIR, "uploads", item.originalFolderId === "root" ? "" : item.originalFolderId);
+    const uploadDir = resolveRuntimePath("uploads", item.originalFolderId === "root" ? "" : item.originalFolderId);
     for (const version of versions) {
       if (version.storedAs && version.storedAs !== item.originalFileName) {
         fs.rmSync(path.join(uploadDir, safeName(version.storedAs)), { force: true });

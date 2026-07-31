@@ -8,6 +8,7 @@ Root.ark agora usa uma lixeira segura para arquivos e pastas. A exclusao comum n
 - Pastas excluidas sao movidas para `data/trash/folders/<id>/`.
 - Os metadados ficam registrados em SQLite na tabela `trash_items` quando `DB_ENABLED=true`.
 - Se SQLite nao estiver ativo, o fallback usa `data/trash-items.json`.
+- Os caminhos fisicos e o fallback JSON resolvem a partir do diretorio de trabalho do servidor em execucao: `data/trash/` e `data/trash-items.json` pertencem ao mesmo runtime que `uploads/` e `temp/`.
 - Permissoes, expiracoes, versoes e metadados de criptografia sao preservados para restauracao quando possivel.
 - Links publicos de itens movidos para a lixeira deixam de funcionar e nao sao reativados automaticamente na restauracao.
 
@@ -57,6 +58,8 @@ Eventos registrados:
 - `trash.delete.failed`
 
 ## Testes Recomendados
+
+A regressao real de runtime-root inicia o servidor a partir do checkout com um diretorio de trabalho sandbox e confirma que a exclusao grava o JSON e o arquivo fisico apenas no sandbox, sem escrever de volta no checkout. A cobertura completa de autorizacao e containment do ciclo de vida de arquivos na lixeira continua como proxima tarefa limitada; este teste nao altera nem declara cobertura de backup/restore.
 
 1. Excluir um arquivo e confirmar que ele desaparece da lista normal.
 2. Abrir a aba Lixeira e confirmar que o arquivo aparece.
