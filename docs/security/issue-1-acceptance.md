@@ -10,6 +10,10 @@ The reusable harness starts the real `server.js` in isolated temporary directori
 
 For isolated startup, the data directory is the temporary child working directory (`data`, `uploads`, and `temp` are created there); `DATABASE_URL` is supported only for SQLite when `DB_ENABLED=true`. The server port is supplied through `PORT`.
 
+## Safe local-development configuration
+
+`.env`, `.env.local`, and environment-specific `.env.*` files are ignored while `.env.example` remains trackable. The template uses the intentionally invalid `REPLACE_ME` placeholder, and `docs/development-setup.md` documents explicit PowerShell and POSIX startup commands that generate a fresh Node `crypto` secret without adding a loader or dependency.
+
 ## Playwright analytics-to-dashboard XSS proof
 
 The disposable end-to-end browser proof is complete for application SHA `7b270f91810e8e0d86e5998086e3d04ba1178744` (PR #18, workflow run `30599233724`, `1 passed (3.5s)`). It logged in through `POST /auth/login`, persisted the exact harmless payload in `data/analytics.json`, confirmed the exact payload returned from `/analytics/recent`, and verified literal `.event-text` rendering without a malicious element or `onerror` execution.
