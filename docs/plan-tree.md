@@ -162,7 +162,7 @@ Issue: #3
 
 - `[DONE]` Add repeatable `test` and static-validation scripts. A clean checkout runs `npm ci` then `npm run validate`; reusable package scripts perform complete first-party JavaScript syntax validation, `npm test`, and the locked high-severity dependency audit. CI invokes the same scripts in separate steps.
 - `[DONE]` Establish one meaningful vertical slice of automated security regression tests; eight focused tests now cover session, browser-token, WebSocket, WebDAV, rendering, and Archiver compatibility boundaries.
-- `[IMPLEMENTED-UNVERIFIED]` Add tests for authentication, authorization, path handling, upload safety, trash, and backup/restore boundaries in small steps; authentication and backup compatibility are covered, while broader boundaries are not.
+- `[IMPLEMENTED-UNVERIFIED]` Add tests for authentication, authorization, path handling, upload safety, trash, and backup/restore boundaries in small steps; authentication, backup compatibility, and disposable real-server simple-upload authorization, suspicious-extension quarantine, and filename containment are covered, while trash and full backup/restore boundaries are not.
 - `[IMPLEMENTED-UNVERIFIED]` Upgrade Multer and Express through compatibility-preserving changes; Express is upgraded and validated, while Multer remains a separate bounded follow-up.
 - `[IMPLEMENTED-UNVERIFIED]` Review remaining dependencies in bounded groups rather than one mass upgrade; the current lockfile audit is clean, while continuing dependency review remains open.
 - `[DONE]` Add GitHub Actions CI for clean install, syntax checks, automated tests, and dependency audit; `Security Regression` run `30600354792` succeeded against `666fcbe5aee30710b20a01e13b1a24c8c6313206`.
@@ -175,7 +175,7 @@ Completion evidence:
 - CI reports against the exact commit;
 - dependency changes preserve existing behavior.
 
-Next bounded issue #3 task: add disposable focused integration coverage for upload safety and path handling without changing runtime behavior.
+Next bounded issue #3 task: add disposable focused coverage for trash authorization and filesystem containment without changing runtime behavior.
 
 ### Phase 2.4: 2FA design and implementation
 
