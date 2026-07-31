@@ -1,5 +1,23 @@
 # Root.ark Current Security Findings
 
+## Browser-session threat model (2026-07-31)
+
+`docs/security/browser-session-threat-model.md` records the implemented cookie, CSRF, current-user/session-version, bootstrap, and WebSocket boundaries. It leaves permission-removal, token-expiry, active-WebSocket freshness, and the login-response token exposure as validation or residual-risk gaps; issue #2 remains open.
+
+## PR #17 validation reconciliation (2026-07-30)
+
+The analytics-to-dashboard Playwright XSS proof completed for application SHA `7b270f91810e8e0d86e5998086e3d04ba1178744` (PR #18, run `30599233724`, `1 passed (3.5s)`): the real login, persistence, `/analytics/recent`, and literal dashboard-rendering flow produced no malicious element or `onerror` execution. Permanent `Security Regression` CI then succeeded on workflow-only SHA `666fcbe5aee30710b20a01e13b1a24c8c6313206` (run `30600354792`); that commit changed no runtime code. Issue #2's broader authorization coverage, and issue #3's broader regression coverage and unrelated dependency work, remain open.
+
+## PR #17 reconciliation (2026-07-30)
+
+Disposable validation on the PR branch confirmed that bearer authentication succeeds for the sync client without browser cookies or CSRF, while invalid and session-revoked tokens return `401`. Public-share routes accept no browser authentication or CSRF requirement; a valid link succeeds, malformed links return `404`, and expired links return `410`. `npm test` passed (8 tests) and `npm audit --package-lock-only` reported zero vulnerabilities.
+
+The Archiver 8 upgrade initially broke the real backup path because CommonJS now exports `ZipArchive` rather than a callable factory. PR #17 now uses `ZipArchive`; an automated ZIP regression test and a disposable backup archive validation pass. Recorded browser and WebSocket smoke validation, plus sync-client and public-link validation, passed. Remaining owner-issue work includes broader authorization cases and regression coverage; the documented browser-session threat model identifies its focused validation gaps.
+
+## Stabilization update (2026-07-29)
+
+S-001 through S-005 were reconfirmed against the current authentication, dashboard, and realtime paths and are addressed on `agent/rootark-security-stabilization`. The implementation requires an explicit strong `JWT_SECRET`; browser authentication uses an HttpOnly, `SameSite=Lax` cookie with CSRF checks for cookie-authenticated writes; protected requests and WebSocket upgrades load the current user and compare a persisted session version. Browser pages use the current server identity and no longer persist authentication data or place a credential in a WebSocket URL. Dashboard activity and errors now use text DOM nodes. Focused automated checks cover these boundaries; disposable runtime/browser verification remains required before closing the issues.
+
 Status: initial code-backed inventory; runtime exploitation and regression validation still required
 
 Baseline branch: `codex/folders-acl`

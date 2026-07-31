@@ -129,6 +129,7 @@ function registerAuthRoutes(app, context) {
     loadUsers,
     logAnalyticsEvent,
     normalizeUserPermissions,
+    sessionCookieOptions,
   } = context;
 
   app.post("/auth/login", (req, res) => {
@@ -177,7 +178,7 @@ function registerAuthRoutes(app, context) {
     }
 
     const users = loadUsers();
-    const user = users.find((u) => u.username === username);
+    const user = users.find((u) => u.username === username && !u.disabled);
     const passwordHash = user?.password || DUMMY_PASSWORD_HASH;
     const passwordMatches = bcrypt.compareSync(password, passwordHash);
 
@@ -206,7 +207,7 @@ function registerAuthRoutes(app, context) {
     resetLoginState(loginAttemptsByUsername, normalizedUsername);
 
     const token = jwt.sign(
-      { username: user.username, role: user.role, permissions: normalizeUserPermissions(user) },
+      { username: user.username, sessionVersion: user.sessionVersion || 0 },
       jwtSecret,
       { expiresIn: "8h" }
     );
@@ -222,6 +223,9 @@ function registerAuthRoutes(app, context) {
     });
     checkAnomalies(req, user.username);
 
+    const csrfToken = require("crypto").randomBytes(32).toString("base64url");
+    res.cookie("rootark_session", token, sessionCookieOptions);
+    res.cookie("rootark_csrf", csrfToken, { ...sessionCookieOptions, httpOnly: false });
     res.json({ token, username: user.username, role: user.role, permissions: normalizeUserPermissions(user) });
   });
 
@@ -231,6 +235,12 @@ function registerAuthRoutes(app, context) {
       role: req.user.role,
       permissions: normalizeUserPermissions(req.user),
     });
+  });
+
+  app.post("/auth/logout", authenticate, (req, res) => {
+    res.clearCookie("rootark_session", sessionCookieOptions);
+    res.clearCookie("rootark_csrf", sessionCookieOptions);
+    res.status(204).end();
   });
 }
 

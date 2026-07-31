@@ -1,0 +1,51 @@
+name: Security Regression
+
+on:
+  pull_request:
+    branches:
+      - codex/folders-acl
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-regression-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Install, static checks, tests, and audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run focused syntax checks
+        run: |
+          node --check server.js
+          node --check db/migrations.js
+          node --check repositories/usersRepository.js
+          node --check services/backupService.js
+          node --check src/middlewares/auth.js
+          node --check src/routes/auth.js
+          node --check test/auth-security.test.js
+          node --check test/backup-archiver.test.js
+          node --check test/startup-acceptance.test.js
+
+      - name: Run automated tests
+        run: npm test
+
+      - name: Audit locked dependencies
+        run: npm audit --package-lock-only --audit-level=high

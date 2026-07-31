@@ -198,17 +198,18 @@
       }
     </style>
 
+    <script src="/auth/session.js"></script>
+    <script src="/auth-bootstrap.js"></script>
     <script>
-      const token = localStorage.getItem("token");
-      const permissions = JSON.parse(localStorage.getItem("permissions") || "{}");
+      const token = "cookie-session";
+      const permissions = window.ROOTARK_AUTH.permissions;
 
       if (!token || !(permissions.manageUsers || permissions.manageBackups)) {
         window.location.href = "/login.html";
       }
 
       document.getElementById("btnLogout").addEventListener("click", () => {
-        localStorage.clear();
-        window.location.href = "/login.html";
+        window.rootarkLogout();
       });
 
       function authFetch(url, opts = {}) {

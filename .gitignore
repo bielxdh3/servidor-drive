@@ -8,6 +8,10 @@ data/trash/
 trash/
 !data/README.md
 node_modules/
+.env
+.env.local
+.env.*
+!.env.example
 temp/
 uploads/
 *.credentials.json

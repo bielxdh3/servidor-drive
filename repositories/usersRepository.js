@@ -3,7 +3,7 @@ const { jsonStringify, nowIso, runWrite, safeJsonParse } = require("./repository
 
 function loadUsers() {
   return getDb().prepare(`
-    SELECT username, password_hash, role, permissions_json
+    SELECT username, password_hash, role, permissions_json, session_version, disabled
     FROM users
     WHERE deleted_at IS NULL
     ORDER BY id ASC
@@ -12,6 +12,8 @@ function loadUsers() {
     password: row.password_hash,
     role: row.role,
     permissions: safeJsonParse(row.permissions_json, {}),
+    sessionVersion: row.session_version || 0,
+    disabled: Boolean(row.disabled),
   }));
 }
 
@@ -21,12 +23,14 @@ function saveUsers(users = []) {
   runWrite(db, () => {
     const active = new Set();
     const upsert = db.prepare(`
-      INSERT INTO users (username, password_hash, role, permissions_json, created_at, updated_at, deleted_at)
-      VALUES (?, ?, ?, ?, ?, ?, NULL)
+      INSERT INTO users (username, password_hash, role, permissions_json, session_version, disabled, created_at, updated_at, deleted_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
       ON CONFLICT(username) DO UPDATE SET
         password_hash = excluded.password_hash,
         role = excluded.role,
         permissions_json = excluded.permissions_json,
+        session_version = excluded.session_version,
+        disabled = excluded.disabled,
         updated_at = excluded.updated_at,
         deleted_at = NULL
     `);
@@ -40,6 +44,8 @@ function saveUsers(users = []) {
         user.password || user.password_hash || "",
         user.role || "user",
         jsonStringify(user.permissions || {}),
+        user.sessionVersion || 0,
+        user.disabled ? 1 : 0,
         user.createdAt || user.created_at || now,
         now
       );
