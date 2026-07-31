@@ -1,8 +1,9 @@
 const fs = require("fs");
 const path = require("path");
-const { ROOT_DIR, getDb, isDbEnabled, jsonStringify, safeJsonParse } = require("../db");
+const { getDb, isDbEnabled, jsonStringify, safeJsonParse } = require("../db");
+const { resolveRuntimePath } = require("../src/runtime-paths");
 
-const TRASH_JSON_FILE = path.join(ROOT_DIR, "data", "trash-items.json");
+const TRASH_JSON_FILE = resolveRuntimePath("data", "trash-items.json");
 
 function normalizeTrashItem(item = {}) {
   return {
