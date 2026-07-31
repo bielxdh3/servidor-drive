@@ -6,7 +6,7 @@ on:
       - validation/pr17-playwright-xss-7b270f9
   pull_request:
     branches:
-      - codex/folders-acl
+      - agent/rootark-security-stabilization
 
 permissions:
   contents: read
