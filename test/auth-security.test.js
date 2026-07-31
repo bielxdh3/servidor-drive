@@ -5,6 +5,7 @@ const { spawn } = require("node:child_process");
 const test = require("node:test");
 const fs = require("node:fs");
 const http = require("node:http");
+const jwt = require("jsonwebtoken");
 const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
@@ -151,6 +152,44 @@ test("permission removal revokes an existing browser session before a protected 
   })).status, 200);
 
   const denied = await request(port, "/storage/status", { headers: { cookie: agent.cookie } });
+  assert.equal(denied.status, 401);
+  assert.match(denied.body, /Token invalido ou expirado/);
+});
+
+test("expired browser session cookie is rejected before a protected HTTP handler", { timeout: 30_000 }, async (t) => {
+  const password = crypto.randomBytes(24).toString("base64url");
+  const users = [{
+    username: "agent",
+    password: bcrypt.hashSync(password, 10),
+    role: "user",
+    permissions: { manageUsers: true },
+    sessionVersion: 0,
+  }];
+  const cwd = createSandbox(users);
+  const port = await getUnusedPort();
+  const jwtSecret = crypto.randomBytes(48).toString("base64url");
+  const child = spawn(process.execPath, [SERVER], {
+    cwd,
+    env: { ...process.env, PORT: String(port), DB_ENABLED: "false", JWT_SECRET: jwtSecret },
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  t.after(async () => {
+    if (child.exitCode === null) {
+      await new Promise((resolve) => {
+        child.once("exit", resolve);
+        child.kill();
+      });
+    }
+    fs.rmSync(cwd, { recursive: true, force: true });
+  });
+
+  assert.equal((await waitForServer(port)).status, 200);
+  const session = await login(port, "agent", password);
+  assert.equal((await request(port, "/storage/status", { headers: { cookie: session.cookie } })).status, 200);
+
+  const expired = jwt.sign({ username: "agent", sessionVersion: 0 }, jwtSecret, { expiresIn: -1 });
+  const denied = await request(port, "/storage/status", { headers: { cookie: `rootark_session=${expired}` } });
   assert.equal(denied.status, 401);
   assert.match(denied.body, /Token invalido ou expirado/);
 });

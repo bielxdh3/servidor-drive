@@ -41,7 +41,7 @@ This document covers Root.ark browser login/logout, the `rootark_session` HttpOn
 
 - The login JSON response still contains a token even though browser pages do not persist it; same-origin JavaScript could read that response.
 - HttpOnly prevents direct cookie reads but does not prevent same-origin XSS from sending CSRF-authorized actions with the readable CSRF token.
-- A focused HTTP regression test proves that removing `manageUsers` through `PUT /users/:username` increments `sessionVersion`: the original `rootark_session` is rejected with `401` before it can reach `GET /storage/status`. Token expiry and other session-version mutation paths still lack focused coverage.
+- Focused HTTP regression tests prove that removing `manageUsers` through `PUT /users/:username` increments `sessionVersion`, and that an expired `rootark_session` JWT is rejected with `401` by `GET /storage/status` before protected behavior runs. The command is `node --test test/auth-security.test.js`; other session-version mutation paths still lack focused coverage.
 - HTTP revalidation is tested for disabled and session-version-mismatched users; active WebSocket revocation/permission freshness after upgrade is not established here.
 - HTTPS, proxy-header, Host, Origin, or `JWT_SECRET` deployment mistakes can weaken the model. 2FA remains outside this issue #2 scope.
 
@@ -50,7 +50,7 @@ This document covers Root.ark browser login/logout, the `rootark_session` HttpOn
 | Invariant | Existing evidence | Missing evidence | Smallest next test |
 | --- | --- | --- | --- |
 | Cookie state changes need CSRF | `test/auth-security.test.js` checks missing/matching CSRF | Cross-origin rejection through the real route | Submit one cookie-authenticated write with a foreign Origin |
-| Current users revoke stale HTTP sessions | Focused tests reject disabled/version-mismatched users and reject an old browser cookie after `manageUsers` removal | Token expiry and other mutation paths | Change another session-affecting field, then call its protected HTTP route with the old cookie |
+| Current users revoke stale HTTP sessions | Focused tests reject disabled/version-mismatched users, an old browser cookie after `manageUsers` removal, and an expired browser cookie with `401` from `GET /storage/status` | Other mutation paths | Change another session-affecting field, then call its protected HTTP route with the old cookie |
 | Browser pages avoid persisted credentials and WS URL tokens | Focused source test covers browser pages | Login-response token exposure is not tested | Assert the login response omits the unused token before changing behavior |
 | WebSocket upgrade uses current cookie session and Origin | Origin helper test and recorded browser/WebSocket validation | Expiry, revocation, and active-connection behavior | Open a socket, revoke its session, then verify the required post-revocation behavior |
 | Bootstrap identity is safe UI state only | `/auth/session.js` escapes `<`; server authorization reloads user | Permission freshness across page bootstrap | Change permission and reload the protected page/request |
