@@ -2,7 +2,11 @@
 
 ## Browser-session threat model (2026-07-31)
 
-`docs/security/browser-session-threat-model.md` records the implemented cookie, CSRF, current-user/session-version, bootstrap, and WebSocket boundaries. It leaves permission-removal, token-expiry, active-WebSocket freshness, and the login-response token exposure as validation or residual-risk gaps; issue #2 remains open.
+`docs/security/browser-session-threat-model.md` records the implemented cookie, CSRF, current-user/session-version, bootstrap, and WebSocket boundaries. Permission-removal, token-expiry, active-WebSocket freshness, and deleted-identity recreation now have focused evidence; the login-response token exposure remains a residual risk and issue #2 remains open pending the bounded Phase 2.2 closure audit.
+
+## Deleted-identity session resurrection (2026-07-31)
+
+Issue #2 previously allowed a deleted username to be recreated at `sessionVersion: 0`, which could revalidate an unexpired old JWT and active WebSocket. JSON mode now retains only a persistent per-username generation ledger, while SQLite atomically increases the soft-deleted row's `session_version` during recreation. Real JSON HTTP/WebSocket regression coverage confirms old sessions remain revoked and new sessions work; restart persistence and repeated SQLite recreation are also covered. The remaining action is the bounded Phase 2.2 closure audit.
 
 ## PR #17 validation reconciliation (2026-07-30)
 

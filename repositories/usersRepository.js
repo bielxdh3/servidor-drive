@@ -29,7 +29,10 @@ function saveUsers(users = []) {
         password_hash = excluded.password_hash,
         role = excluded.role,
         permissions_json = excluded.permissions_json,
-        session_version = excluded.session_version,
+        session_version = CASE
+          WHEN users.deleted_at IS NOT NULL THEN MAX(users.session_version + 1, excluded.session_version)
+          ELSE excluded.session_version
+        END,
         disabled = excluded.disabled,
         updated_at = excluded.updated_at,
         deleted_at = NULL
