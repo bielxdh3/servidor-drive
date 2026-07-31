@@ -142,10 +142,10 @@ Prerequisites: phase 2.1 complete and initial auth tests available.
 
 - `[DONE]` Stop placing JWTs in WebSocket query strings; cookie-authenticated upgrades validate Origin and the current session user before events are sent. Focused checks and recorded disposable browser/WebSocket validation passed.
 - `[DONE]` Design and implement one bounded cookie-authenticated WebSocket handshake.
-- `[IMPLEMENTED-UNVERIFIED]` Revalidate the current user and permissions on the server rather than trusting stale permission claims for the full token lifetime; HTTP revocation and permission-removal validation passed, but the full authorization matrix remains incomplete.
+- `[IMPLEMENTED-UNVERIFIED]` Revalidate the current user and permissions on the server rather than trusting stale permission claims for the full token lifetime; HTTP and active-WebSocket permission-removal revocation validation passed, but the full authorization matrix remains incomplete.
 - `[IMPLEMENTED-UNVERIFIED]` Implement token/session revocation or versioning for password, role, permission, disable, and deletion changes; a permission removal through `PUT /users/:username` is validated to revoke the old browser session, while every change path is not.
 - `[DONE]` Browser sessions use secure HttpOnly cookies (`SameSite=Lax`) with CSRF checks for cookie-authenticated writes; the transport decision and browser-session threat model are documented in `docs/security/browser-session-threat-model.md`. Issue #2 stays open for its remaining validation gaps.
-- `[IMPLEMENTED-UNVERIFIED]` Add tests for disabled users, removed permissions, expiry, revocation, and realtime authentication; disabled/revoked, permission-removal, token-expiry, and WebSocket checks exist, while active-WebSocket freshness coverage is incomplete. `test/auth-security.test.js` proves an expired `rootark_session` cookie receives `401` from `GET /storage/status` before protected behavior runs (`node --test test/auth-security.test.js`).
+- `[IMPLEMENTED-UNVERIFIED]` Add tests for disabled users, removed permissions, expiry, revocation, and realtime authentication; `test/auth-security.test.js` proves that removing `manageUsers` through `PUT /users/:username` closes an already-open authenticated WebSocket with `1008` on its next `ping`, without a second `pong` (`node --test test/auth-security.test.js`). Other session-version mutation paths remain unverified.
 
 Completion evidence:
 

@@ -509,8 +509,15 @@ async function ensureCloudFileCached(folderId, fileName, localPath, area = "uplo
   }
 }
 
+function refreshRealtimeUser(socket) {
+  const user = loadCurrentUser(socket.user?.username);
+  if (user && !user.disabled && (user.sessionVersion || 0) === socket.user?.sessionVersion) return true;
+  socket.close(1008, "Sessao revogada");
+  return false;
+}
+
 function sendRealtime(socket, event, payload = {}) {
-  if (socket.readyState !== WebSocket.OPEN) return;
+  if (socket.readyState !== WebSocket.OPEN || !refreshRealtimeUser(socket)) return;
   socket.send(JSON.stringify({ event, payload, timestamp: new Date().toISOString() }));
 }
 
@@ -4554,6 +4561,7 @@ wss.on("connection", (socket, req) => {
   sendRealtime(socket, "connected", { username: user.username });
 
   socket.on("message", (rawMessage) => {
+    if (!refreshRealtimeUser(socket)) return;
     let message = {};
     try {
       message = JSON.parse(rawMessage.toString());
