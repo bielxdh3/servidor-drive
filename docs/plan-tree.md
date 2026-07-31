@@ -142,10 +142,10 @@ Prerequisites: phase 2.1 complete and initial auth tests available.
 
 - `[DONE]` Stop placing JWTs in WebSocket query strings; cookie-authenticated upgrades validate Origin and the current session user before events are sent. Focused checks and recorded disposable browser/WebSocket validation passed.
 - `[DONE]` Design and implement one bounded cookie-authenticated WebSocket handshake.
-- `[IMPLEMENTED-UNVERIFIED]` Revalidate the current user and permissions on the server rather than trusting stale permission claims for the full token lifetime; HTTP and active-WebSocket permission-removal and JWT-expiry validation passed, but the full authorization matrix remains incomplete.
-- `[IMPLEMENTED-UNVERIFIED]` Implement token/session revocation or versioning for password, role, permission, disable, and deletion changes; password/role/permission/disabled updates increment `sessionVersion`, while deletion/recreation now preserves a monotonic per-username generation in JSON and SQLite so old HTTP and active-WebSocket sessions remain revoked. Rerun the bounded closure audit before marking this item done.
-- `[DONE]` Browser sessions use secure HttpOnly cookies (`SameSite=Lax`) with CSRF checks for cookie-authenticated writes; the transport decision and browser-session threat model are documented in `docs/security/browser-session-threat-model.md`. Issue #2 stays open for its remaining validation gaps.
-- `[IMPLEMENTED-UNVERIFIED]` Add tests for disabled users, removed permissions, expiry, revocation, and realtime authentication; `test/auth-security.test.js` proves permission removal, JWT expiry, and that deleting then recreating a username rejects the old HTTP cookie and closes the old active WebSocket with `1008`/`Sessao revogada`, while a new session works. `test/users-repository.test.js` proves SQLite generation increases across repeated recreation. Rerun the bounded closure audit before marking this item done.
+- `[DONE]` Revalidate the current user and permissions on the server rather than trusting stale permission claims for the full token lifetime. Every authenticated HTTP request reloads the active identity and derives current permissions; active WebSockets recheck expiry, current identity, disabled state, and `sessionVersion` before the next authenticated message or send. The Phase 2.2 closure audit reconciled the representative permission-removal and expiry regressions.
+- `[DONE]` Implement token/session revocation or versioning for password, role, permission, disable, and deletion changes. The shared `PUT /users/:username` decision increments persisted `sessionVersion`; JSON preserves a Git-ignored per-username generation ledger across restart, and SQLite retains/increments a soft-deleted row generation atomically on recreation. Old HTTP and active-WebSocket credentials remain revoked.
+- `[DONE]` Browser sessions use secure HttpOnly cookies (`SameSite=Lax`) with CSRF checks for cookie-authenticated writes; the transport decision and browser-session threat model are documented in `docs/security/browser-session-threat-model.md`. Issue #2 is ready to close after the Phase 2.2 closure-audit PR merges.
+- `[DONE]` Add representative tests for disabled users, removed permissions, expiry, revocation, and realtime authentication. `test/auth-security.test.js` proves permission removal, JWT expiry, JSON delete/recreate rejection of old HTTP and active-WebSocket sessions, and new-session success; `test/users-repository.test.js` proves repeated SQLite recreation advances generation. Shared update-path analysis establishes the same protection for password, role, permissions, and disabled-state changes without redundant per-field integration tests.
 
 Completion evidence:
 
@@ -153,6 +153,8 @@ Completion evidence:
 - removed access stops within the approved bound;
 - disabled/deleted users cannot retain indefinite access;
 - existing authorized HTTP and realtime behavior still works.
+
+Closure audit: `docs/security/phase-2-2-closure-audit.md` reconciles source, regressions, merged PRs #17/#19/#20/#21/#22/#23, and successful `Security Regression` runs through #23 (`30650435892`). Issue #2 is ready to close after this documentation-only audit PR merges.
 
 ### Phase 2.3: Engineering and dependency baseline
 

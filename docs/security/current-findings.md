@@ -2,11 +2,11 @@
 
 ## Browser-session threat model (2026-07-31)
 
-`docs/security/browser-session-threat-model.md` records the implemented cookie, CSRF, current-user/session-version, bootstrap, and WebSocket boundaries. Permission-removal, token-expiry, active-WebSocket freshness, and deleted-identity recreation now have focused evidence; the login-response token exposure remains a residual risk and issue #2 remains open pending the bounded Phase 2.2 closure audit.
+`docs/security/browser-session-threat-model.md` records the implemented cookie, CSRF, current-user/session-version, bootstrap, and WebSocket boundaries. The Phase 2.2 closure audit reconciles permission removal, token expiry, active-WebSocket freshness, and deleted-identity recreation. Issue #2 is ready to close after the documentation-only closure-audit PR merges. The login-response token exposure remains a residual risk outside this closure.
 
 ## Deleted-identity session resurrection (2026-07-31)
 
-Issue #2 previously allowed a deleted username to be recreated at `sessionVersion: 0`, which could revalidate an unexpired old JWT and active WebSocket. JSON mode now retains only a persistent per-username generation ledger, while SQLite atomically increases the soft-deleted row's `session_version` during recreation. Real JSON HTTP/WebSocket regression coverage confirms old sessions remain revoked and new sessions work; restart persistence and repeated SQLite recreation are also covered. The remaining action is the bounded Phase 2.2 closure audit.
+Issue #2 previously allowed a deleted username to be recreated at `sessionVersion: 0`, which could revalidate an unexpired old JWT and active WebSocket. JSON now retains only a persistent, Git-ignored per-username generation ledger, while SQLite atomically increases the soft-deleted row's `session_version` during recreation. Real JSON HTTP/WebSocket regression coverage confirms old sessions remain revoked and new sessions work; restart persistence and repeated SQLite recreation are also covered. The Phase 2.2 closure audit found no distinct bypass.
 
 ## PR #17 validation reconciliation (2026-07-30)
 
@@ -135,16 +135,16 @@ Arbitrary JavaScript may execute in the Root.ark origin under the dashboard user
 
 Payloads containing tags, quotes, event handlers, and script-like text display literally and do not execute.
 
-## S-003: Bearer token stored in browser localStorage
+## S-003: Browser bearer-token persistence
 
-- Status: `[CONFIRMED-CODE]`.
-- Initial severity: High as an impact amplifier; final severity depends on session redesign.
+- Status: `[FIXED]` for shipped browser pages; residual login-response exposure remains.
+- Initial severity: High as an impact amplifier; residual severity: Medium under same-origin XSS.
 - Owner issue: #2
 - Surface: `public/login.html` and authenticated pages.
 
 ### Evidence
 
-The login page stores the JWT, username, role, and permissions in `localStorage`. Authenticated fetches read the token and send it as a bearer token.
+Shipped browser pages load current identity from authenticated `/auth/session.js`, use same-origin cookie credentials, and do not persist JWTs in browser storage or put them in WebSocket URLs. The login JSON response still includes an unused token.
 
 ### Preconditions
 
@@ -152,85 +152,74 @@ The login page stores the JWT, username, role, and permissions in `localStorage`
 
 ### Impact
 
-The bearer token can be read and replayed until expiry or server-side invalidation. Browser-stored role/permission data can also mislead UI decisions, although server authorization must remain authoritative.
+Same-origin JavaScript can read the unused login response token; it cannot directly read the HttpOnly session cookie. Server authorization remains authoritative.
 
 ### Required remediation
 
-First document the approved session threat model. Then choose between:
-
-- secure HttpOnly cookies with suitable SameSite, CSRF, origin, and WebSocket handling; or
-- a bounded bearer-token design with strong CSP, no unsafe HTML sinks, short lifetimes, rotation, revocation, and safer in-memory handling.
-
-Do not mechanically switch to cookies without designing CSRF and realtime behavior.
+Keep the current cookie/CSRF/Origin/session-version model. Route removal of the unused login-response token to a later bounded finding; do not treat it as an issue #2 closure blocker.
 
 ### Completion evidence
 
-- session transport matches the documented threat model;
-- XSS cannot directly read an HttpOnly credential if cookies are chosen;
-- CSRF and origin behavior are tested;
-- logout and revocation are effective.
+- browser pages contain no persisted auth keys or WebSocket URL token;
+- cookie, CSRF, Origin, current-user, expiry, and generation checks are covered by Phase 2.2 evidence;
+- logout clears the current browser cookies but is not represented as global copied-JWT revocation.
 
 ## S-004: JWT included in WebSocket URL query string
 
-- Status: `[CONFIRMED-CODE]`.
-- Initial severity: Medium to High depending on proxy/logging exposure.
+- Status: `[FIXED]`.
+- Initial severity: Medium to High depending on proxy/logging exposure; final severity: addressed in issue #2.
 - Owner issue: #2
 - Surface: dashboard WebSocket connection and realtime authentication.
 
 ### Evidence
 
-The browser connects to `/ws?token=<JWT>`.
+The browser connects to `/ws` without a credential in the URL; upgrade authentication uses only the session cookie and validates Origin.
 
 ### Preconditions
 
-Any proxy, server, access log, monitoring tool, browser tooling, error report, or network observer records full request URLs.
+An attacker would need a separate browser/session compromise; URL logging no longer receives a bearer token from this path.
 
 ### Impact
 
-Bearer tokens may be retained outside the intended credential boundary and replayed.
+This path no longer creates URL-based bearer-token retention or replay exposure.
 
 ### Required remediation
 
-Design one bounded authenticated WebSocket handshake, for example an approved cookie-bound upgrade or post-connect authentication message over TLS with strict timeout and no data access before authentication. The final choice must align with the HTTP session model.
-
-Do not place the token in the URL, subprotocol logs, public errors, or analytics.
+Preserve cookie-only upgrade authentication, expected-Origin validation, and current-user/session-version/expiry rechecks before active-WebSocket authenticated activity.
 
 ### Completion evidence
 
 - no credential appears in the connection URL;
-- unauthenticated sockets cannot receive or trigger protected events;
-- timeout, invalid credential, expiry, and revocation cases are tested.
+- unauthenticated sockets cannot receive protected events;
+- permission revocation, deleted-identity recreation, and JWT-expiry regressions pass.
 
 ## S-005: Stale role and permission claims remain valid for token lifetime
 
-- Status: `[CONFIRMED-CODE]` token contents; `[NEEDS-RUNTIME-PROOF]` exact middleware freshness behavior.
-- Initial severity: High for permission revocation and disabled-user scenarios.
+- Status: `[FIXED]` within the documented next-request/next-authenticated-realtime-activity bound.
+- Initial severity: High for permission revocation and disabled-user scenarios; final severity: addressed in issue #2.
 - Owner issue: #2
 - Surface: login token creation, HTTP authentication middleware, realtime authentication.
 
 ### Evidence
 
-The login route signs username, role, and normalized permissions into an eight-hour JWT. The inventory must confirm which protected routes rely on those embedded claims without loading the current user record.
+The login route signs username and `sessionVersion`; each HTTP request and WebSocket upgrade reloads the active user and compares the persisted generation, while permission checks use current server-side data. Active WebSockets repeat this freshness check before their next authenticated message or send.
 
 ### Preconditions
 
-- a user's role/permissions are reduced, account is disabled/deleted, or password is reset while an older token remains valid;
-- authorization relies on stale claims.
+- a user presents a stale JWT after a role/permission/password/disabled/deletion change;
+- the relevant request or active WebSocket reaches its next authenticated enforcement boundary.
 
 ### Impact
 
-Removed access may continue until token expiration. A stolen token may remain useful after an administrator attempts to revoke access.
+The stale token is rejected at the documented HTTP or active-WebSocket boundary. An idle socket is not polled and is closed only when its next authenticated message/send triggers revalidation.
 
 ### Required remediation
 
-- revalidate current user state server-side;
-- introduce a token/session version, revocation record, or bounded session store;
-- ensure password, permission, role, disable, and deletion events invalidate relevant sessions;
-- preserve efficient authorization without trusting browser data.
+Preserve the shared update-path generation increment, JSON generation ledger, SQLite soft-delete/reactivation increment, and HTTP/realtime freshness checks.
 
 ### Completion evidence
 
-Focused tests prove that stale tokens lose access within the documented bound after each security-relevant account change.
+Focused tests prove each distinct enforcement and persistence boundary; shared-path analysis establishes identical treatment for password, role, permissions, and disabled-state updates without redundant per-field tests.
 
 ## S-006: Login protection is process-local and reset on restart
 
