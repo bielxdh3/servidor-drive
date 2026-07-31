@@ -118,12 +118,12 @@ Issue: #1
 
 Prerequisite: phase 2.0 inventory confirms exact surfaces.
 
-- `[IMPLEMENTED-UNVERIFIED]` Remove the hard-coded JWT secret fallback and replace dashboard user-controlled activity/error rendering with text DOM nodes; focused checks and browser smoke validation are recorded, while direct startup and malicious-payload acceptance evidence remains incomplete.
+- `[DONE]` Remove the hard-coded JWT secret fallback and replace dashboard user-controlled activity/error rendering with text DOM nodes; startup, login/dashboard, adjacent-surface, and malicious-payload browser evidence are recorded.
 - `[DONE]` Fail startup safely when a required production secret is absent or unacceptably weak; the disposable startup acceptance harness verifies non-zero exit and sanitized configuration output for missing and weak secrets.
 - `[BLOCKED]` Preserve a safe local-development setup using placeholders and explicit configuration, not committed secrets.
-- `[IMPLEMENTED-UNVERIFIED]` Replace unsafe dashboard activity rendering with DOM/text rendering; source-level regression coverage exists, while malicious-payload browser proof remains incomplete.
-- `[BLOCKED]` Check only directly adjacent changed surfaces for equivalent injection sinks.
-- `[IMPLEMENTED-UNVERIFIED]` Add focused startup and rendering regression tests; rendering, session-bootstrap, and direct startup acceptance checks exist, while malicious-payload browser proof remains incomplete.
+- `[DONE]` Replace unsafe dashboard activity rendering with DOM/text rendering; the real analytics-to-dashboard malicious-payload browser proof confirms literal rendering and no execution.
+- `[DONE]` Review only directly adjacent changed dashboard surfaces for equivalent injection sinks.
+- `[DONE]` Add focused startup and rendering regression tests; rendering, session-bootstrap, direct startup acceptance, and malicious-payload browser validation are recorded.
 - `[DONE]` Verify login and dashboard behavior after the fixes with the recorded disposable browser validation.
 
 Completion evidence:
@@ -163,7 +163,7 @@ Issue: #3
 - `[IMPLEMENTED-UNVERIFIED]` Add tests for authentication, authorization, path handling, upload safety, trash, and backup/restore boundaries in small steps; authentication and backup compatibility are covered, while broader boundaries are not.
 - `[IMPLEMENTED-UNVERIFIED]` Upgrade Multer and Express through compatibility-preserving changes; Express is upgraded and validated, while Multer remains a separate bounded follow-up.
 - `[IMPLEMENTED-UNVERIFIED]` Review remaining dependencies in bounded groups rather than one mass upgrade; the current lockfile audit is clean, while continuing dependency review remains open.
-- `[BLOCKED]` Add GitHub Actions CI for clean install, tests, static checks, and secret-safe dependency checks.
+- `[DONE]` Add GitHub Actions CI for clean install, syntax checks, automated tests, and dependency audit; `Security Regression` run `30600354792` succeeded against `666fcbe5aee30710b20a01e13b1a24c8c6313206`.
 - `[BLOCKED]` Ensure fixtures and CI never include real databases, uploads, backups, quarantine contents, tokens, or credentials.
 
 Completion evidence:

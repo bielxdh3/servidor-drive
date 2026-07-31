@@ -1,6 +1,6 @@
 # Issue #1 acceptance evidence
 
-Status: incomplete as of 2026-07-30.
+Status: acceptance evidence complete as of 2026-07-30; issue #1 remains open pending explicit user authorization to close it.
 
 ## Startup acceptance harness
 
@@ -10,9 +10,15 @@ The reusable harness starts the real `server.js` in isolated temporary directori
 
 For isolated startup, the data directory is the temporary child working directory (`data`, `uploads`, and `temp` are created there); `DATABASE_URL` is supported only for SQLite when `DB_ENABLED=true`. The server port is supplied through `PORT`.
 
-## Remaining blocker
+## Playwright analytics-to-dashboard XSS proof
 
-The required disposable, end-to-end browser proof has not yet injected the harmless payload through the actual analytics persistence path and asserted literal dashboard rendering. Do not close issue #1 until that record exists.
+The disposable end-to-end browser proof is complete for application SHA `7b270f91810e8e0d86e5998086e3d04ba1178744` (PR #18, workflow run `30599233724`, `1 passed (3.5s)`). It logged in through `POST /auth/login`, persisted the exact harmless payload in `data/analytics.json`, confirmed the exact payload returned from `/analytics/recent`, and verified literal `.event-text` rendering without a malicious element or `onerror` execution.
+
+Current HEAD `666fcbe5aee30710b20a01e13b1a24c8c6313206` adds only the permanent CI workflow; no runtime code changed after the Playwright-tested application SHA.
+
+## Issue state
+
+Issue #1 remains open only because closing it requires explicit user authorization.
 
 ## Adjacent-surface source review
 

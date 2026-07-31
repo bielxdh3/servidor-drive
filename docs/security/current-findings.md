@@ -1,5 +1,9 @@
 # Root.ark Current Security Findings
 
+## PR #17 validation reconciliation (2026-07-30)
+
+The analytics-to-dashboard Playwright XSS proof completed for application SHA `7b270f91810e8e0d86e5998086e3d04ba1178744` (PR #18, run `30599233724`, `1 passed (3.5s)`): the real login, persistence, `/analytics/recent`, and literal dashboard-rendering flow produced no malicious element or `onerror` execution. Permanent `Security Regression` CI then succeeded on workflow-only SHA `666fcbe5aee30710b20a01e13b1a24c8c6313206` (run `30600354792`); that commit changed no runtime code. Issue #2's session threat model and broader authorization coverage, and issue #3's broader regression coverage and unrelated dependency work, remain open.
+
 ## PR #17 reconciliation (2026-07-30)
 
 Disposable validation on the PR branch confirmed that bearer authentication succeeds for the sync client without browser cookies or CSRF, while invalid and session-revoked tokens return `401`. Public-share routes accept no browser authentication or CSRF requirement; a valid link succeeds, malformed links return `404`, and expired links return `410`. `npm test` passed (8 tests) and `npm audit --package-lock-only` reported zero vulnerabilities.
