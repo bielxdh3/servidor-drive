@@ -196,14 +196,16 @@ test("authorized harmless multipart upload enters the selected folder pending ar
 test("traversal-style multipart filenames stay contained in the selected folder", { timeout: 30_000 }, async (t) => {
   const harness = await createHarness(t);
   const session = await login(harness.port, "uploader", harness.password);
-  const cases = ["../../outside.txt", "..\\..\\outside-win.txt"];
+  const cases = [["../../outside.txt", "outside.txt"], ["..\\..\\outside-win.txt", "outside-win.txt"]];
   const tempDir = path.join(harness.dir, "temp", FOLDER_ID);
 
-  for (const submittedName of cases) {
+  for (const [submittedName, expectedName] of cases) {
     const response = await upload(harness.port, session, submittedName, Buffer.from(submittedName));
     const result = JSON.parse(response.body);
     const storedPath = path.join(tempDir, result.fileName);
     assert.equal(response.status, 200);
+    assert.equal(result.fileName, expectedName);
+    assert.equal(result.originalName, expectedName);
     assert.equal(result.fileName.includes("/"), false);
     assert.equal(result.fileName.includes("\\"), false);
     assert.equal(result.originalName.includes("/"), false);
