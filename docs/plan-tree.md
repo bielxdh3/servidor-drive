@@ -119,11 +119,11 @@ Issue: #1
 Prerequisite: phase 2.0 inventory confirms exact surfaces.
 
 - `[IMPLEMENTED-UNVERIFIED]` Remove the hard-coded JWT secret fallback and replace dashboard user-controlled activity/error rendering with text DOM nodes; focused checks and browser smoke validation are recorded, while direct startup and malicious-payload acceptance evidence remains incomplete.
-- `[BLOCKED]` Fail startup safely when a required production secret is absent or unacceptably weak.
+- `[DONE]` Fail startup safely when a required production secret is absent or unacceptably weak; the disposable startup acceptance harness verifies non-zero exit and sanitized configuration output for missing and weak secrets.
 - `[BLOCKED]` Preserve a safe local-development setup using placeholders and explicit configuration, not committed secrets.
 - `[IMPLEMENTED-UNVERIFIED]` Replace unsafe dashboard activity rendering with DOM/text rendering; source-level regression coverage exists, while malicious-payload browser proof remains incomplete.
 - `[BLOCKED]` Check only directly adjacent changed surfaces for equivalent injection sinks.
-- `[IMPLEMENTED-UNVERIFIED]` Add focused startup and rendering regression tests; rendering and session-bootstrap checks exist, while direct startup coverage is still missing.
+- `[IMPLEMENTED-UNVERIFIED]` Add focused startup and rendering regression tests; rendering, session-bootstrap, and direct startup acceptance checks exist, while malicious-payload browser proof remains incomplete.
 - `[DONE]` Verify login and dashboard behavior after the fixes with the recorded disposable browser validation.
 
 Completion evidence:

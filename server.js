@@ -46,6 +46,7 @@ const JWT_SECRET = String(process.env.JWT_SECRET || "");
 if (JWT_SECRET.length < 32 || JWT_SECRET === "rootark_secret_change_in_production") {
   throw new Error("JWT_SECRET deve ser definido explicitamente com pelo menos 32 caracteres seguros.");
 }
+const PORT = Number(process.env.PORT || 3000);
 const SESSION_COOKIE_OPTIONS = { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/" };
 const USERS_SEED_FILE = "./data/users.json";
 const USERS_FILE = "./data/users.local.json";
@@ -7246,4 +7247,4 @@ cleanupIncomingUploads();
 setInterval(cleanupExpiredTemporaryItems, 60 * 1000);
 setInterval(cleanupExpiredTrashItems, 60 * 60 * 1000);
 setInterval(cleanupIncomingUploads, 60 * 1000);
-server.listen(3000, () => console.log("Servidor rodando em http://localhost:3000"));
+server.listen(PORT, () => console.log(`Servidor rodando em http://localhost:${PORT}`));
