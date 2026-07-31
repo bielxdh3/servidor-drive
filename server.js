@@ -510,6 +510,10 @@ async function ensureCloudFileCached(folderId, fileName, localPath, area = "uplo
 }
 
 function refreshRealtimeUser(socket) {
+  if (!Number.isFinite(socket.user?.expiresAt) || Date.now() >= socket.user.expiresAt) {
+    socket.close(1008, "Sessao expirada");
+    return false;
+  }
   const user = loadCurrentUser(socket.user?.username);
   if (user && !user.disabled && (user.sessionVersion || 0) === socket.user?.sessionVersion) return true;
   socket.close(1008, "Sessao revogada");

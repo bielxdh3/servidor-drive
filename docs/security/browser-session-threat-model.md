@@ -25,14 +25,14 @@ This document covers Root.ark browser login/logout, the `rootark_session` HttpOn
 2. `createAuthenticate` verifies a bearer token or session cookie, then loads the current non-deleted user from the repository, rejects disabled users and mismatched session versions, and derives role and permissions from that current user. Cookie-authenticated non-safe requests additionally require a matching CSRF cookie/header and, when present, a matching Origin.
 3. `/auth/session.js` is authenticated, no-store JavaScript that exports only current username, role, and permissions after escaping `<`. Browser pages load it before `auth-bootstrap.js`; bootstrap sends same-origin credentials, adds the CSRF header to state-changing fetches, and strips `Authorization` headers.
 4. `POST /auth/logout` is authenticated and clears both cookies. User updates increment `sessionVersion` when password, role, permissions, or disabled state changes; deleted users are absent from `loadUsers()`.
-5. A `/ws` upgrade obtains `rootark_session` only from cookies, requires `Origin` to equal the expected request origin, then verifies the token and current user/session version before attaching `socket.user`. No bearer credential is used in the WebSocket URL.
+5. A `/ws` upgrade obtains `rootark_session` only from cookies, requires `Origin` to equal the expected request origin, then verifies the token and current user/session version before attaching `socket.user` with its internal expiry instant. No bearer credential is used in the WebSocket URL.
 
 ## Security invariants and assumptions
 
 - Shipped browser pages must not store session credentials in browser storage or place them in URLs. The login response token must likewise not be retained or sent by browser code.
 - Cookie-authenticated state-changing HTTP requests require matching CSRF evidence; bearer authentication is a separate API-client boundary.
-- Each authenticated HTTP request resolves the current server-side user, so disabled, deleted, and session-revoked users fail on their next request. Before processing the next authenticated WebSocket message or sending the next authenticated realtime event, the server reloads the current user and compares enabled/deleted state and `sessionVersion` with the socket identity.
-- Server-side permissions, not `ROOTARK_AUTH` UI state, decide authorization. A failed active-WebSocket freshness check does not process the pending message or deliver the pending event, and closes the socket with `1008` and `Sessao revogada`; no idle-connection polling is required.
+- Each authenticated HTTP request resolves the current server-side user, so disabled, deleted, and session-revoked users fail on their next request. Before processing the next authenticated WebSocket message or sending the next authenticated realtime event, the server rejects a missing or elapsed JWT expiry, reloads the current user, and compares enabled/deleted state and `sessionVersion` with the socket identity.
+- Server-side permissions, not `ROOTARK_AUTH` UI state, decide authorization. A failed active-WebSocket freshness check does not process the pending message or deliver the pending event, and closes the socket with `1008` and `Sessao revogada` for revocation or `Sessao expirada` for JWT expiry; no idle-connection polling is required.
 - WebSocket upgrades must validate the expected Origin and current session before any protected realtime event is sent.
 - `JWT_SECRET`, session cookies, CSRF values, and credentials must not be logged or tracked. `JWT_SECRET` must remain protected and at least 32 characters.
 - Production relies on HTTPS termination and correct `NODE_ENV=production` for Secure cookies. Because the server enables `trust proxy`, the deployment must accept forwarded headers only from trusted proxies and preserve the intended Host and Origin. Browser same-origin behavior and server/database availability are also assumed.
@@ -41,7 +41,7 @@ This document covers Root.ark browser login/logout, the `rootark_session` HttpOn
 
 - The login JSON response still contains a token even though browser pages do not persist it; same-origin JavaScript could read that response.
 - HttpOnly prevents direct cookie reads but does not prevent same-origin XSS from sending CSRF-authorized actions with the readable CSRF token.
-- Focused regression tests prove that removing `manageUsers` through `PUT /users/:username` increments `sessionVersion`, revokes the old HTTP browser session, and closes an already-open WebSocket with `1008` and no post-revocation `pong` on its next `ping`. The command is `node --test test/auth-security.test.js`; other session-version mutation paths still lack focused coverage.
+- Focused regression tests prove that removing `manageUsers` through `PUT /users/:username` increments `sessionVersion`, revokes the old HTTP browser session, and closes an already-open WebSocket with `1008` and no post-revocation `pong` on its next `ping`. They also use a real server and `ws` client to prove that an already-open short-lived JWT socket receives no post-expiry `pong` and closes with `1008` and `Sessao expirada` on its next `ping`. The command is `node --test test/auth-security.test.js`; other session-version mutation paths still lack focused coverage.
 - HTTPS, proxy-header, Host, Origin, or `JWT_SECRET` deployment mistakes can weaken the model. 2FA remains outside this issue #2 scope.
 
 ## Validation matrix
@@ -51,7 +51,7 @@ This document covers Root.ark browser login/logout, the `rootark_session` HttpOn
 | Cookie state changes need CSRF | `test/auth-security.test.js` checks missing/matching CSRF | Cross-origin rejection through the real route | Submit one cookie-authenticated write with a foreign Origin |
 | Current users revoke stale HTTP sessions | Focused tests reject disabled/version-mismatched users, an old browser cookie after `manageUsers` removal, and an expired browser cookie with `401` from `GET /storage/status` | Other mutation paths | Change another session-affecting field, then call its protected HTTP route with the old cookie |
 | Browser pages avoid persisted credentials and WS URL tokens | Focused source test covers browser pages | Login-response token exposure is not tested | Assert the login response omits the unused token before changing behavior |
-| WebSocket upgrade uses current cookie session and Origin | Origin helper and real-WebSocket permission-removal regression test | Expiry and other session-version mutation paths | Open a socket, revoke another session-affecting field, then verify the required post-revocation behavior |
+| WebSocket upgrade uses current cookie session and Origin | Origin helper plus real-WebSocket permission-removal and JWT-expiry regressions | Other session-version mutation paths | Open a socket, revoke another session-affecting field, then verify the required post-revocation behavior |
 | Bootstrap identity is safe UI state only | `/auth/session.js` escapes `<`; server authorization reloads user | Permission freshness across page bootstrap | Change permission and reload the protected page/request |
 
 Repository: bielxdh3/root.ark
