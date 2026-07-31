@@ -45,7 +45,7 @@ function createRealtimeAuthenticator({ jwt, jwtSecret, loadUser, normalizeUserPe
       const claims = jwt.verify(token, jwtSecret);
       const user = loadUser(claims.username);
       if (!user || user.disabled || claims.sessionVersion !== (user.sessionVersion || 0)) return null;
-      return { username: user.username, role: user.role, permissions: normalizeUserPermissions(user), sessionVersion: user.sessionVersion || 0 };
+      return { username: user.username, role: user.role, permissions: normalizeUserPermissions(user), sessionVersion: user.sessionVersion || 0, expiresAt: Number.isFinite(claims.exp) ? claims.exp * 1000 : null };
     } catch {
       return null;
     }
