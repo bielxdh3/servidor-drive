@@ -26,4 +26,18 @@ test("SQLite restore staging validates and recovers safely", async (t) => {
     const preserve = path.join(dir, "preserve.sqlite"); fs.copyFileSync(valid, preserve); fs.writeFileSync(`${preserve}.restore-rollback-stale`, "old");
     recoverDatabaseRollback(preserve); assert.doesNotThrow(() => validateDatabase(preserve)); assert.equal(fs.existsSync(`${preserve}.restore-rollback-stale`), true);
   });
+  await t.test("WAL database validates while its connection is open", () => {
+    const walPath = path.join(dir, "wal.sqlite"); const wal = new Database(walPath); wal.pragma("journal_mode = WAL"); wal.exec("CREATE TABLE proof (value TEXT); INSERT INTO proof VALUES ('wal');");
+    assert.equal(fs.existsSync(`${walPath}-wal`), true); assert.doesNotThrow(() => validateDatabase(walPath)); wal.close();
+  });
+  await t.test("reopen preserves exact committed rows", () => {
+    const reopened = new Database(valid, { readonly: true }); assert.equal(reopened.prepare("SELECT value FROM proof").get().value, "ok"); reopened.close();
+  });
+  await t.test("foreign-key violations are rejected", () => {
+    const foreign = path.join(dir, "foreign.sqlite"); const broken = new Database(foreign); broken.exec("PRAGMA foreign_keys = OFF; CREATE TABLE parent (id INTEGER PRIMARY KEY); CREATE TABLE child (parent_id INTEGER REFERENCES parent(id)); INSERT INTO child VALUES (1);"); broken.close();
+    assert.throws(() => validateDatabase(foreign));
+  });
+  await t.test("missing rollback is a no-op", () => {
+    const missing = path.join(dir, "missing.sqlite"); assert.doesNotThrow(() => recoverDatabaseRollback(missing)); assert.equal(fs.existsSync(missing), false);
+  });
 });
