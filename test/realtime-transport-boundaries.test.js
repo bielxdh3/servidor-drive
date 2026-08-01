@@ -26,9 +26,19 @@ test("realtime transport declares bounded payload, compression, binary, and burs
   assert.match(contents, /Limite de mensagens excedido/);
 });
 
-test("WebDAV rejects encoded traversal before touching files", () => {
-  const contents = fs.readFileSync(path.join(ROOT, "server.js"), "utf8");
-  assert.match(contents, /for \(let index = 0; index < 3; index \+= 1\)/);
-  assert.match(contents, /decoded\.includes\("\\\\"\)/);
-  assert.match(contents, /SINGLE_UPLOAD_MAX_BYTES/);
+test("WebDAV HTTP boundary rejects unauthenticated, hostile, traversing, and infinite-depth requests", { timeout: 20_000 }, async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rootark-webdav-"));
+  fs.mkdirSync(path.join(dir, "data"));
+  fs.writeFileSync(path.join(dir, "data", "users.json"), JSON.stringify([{ username: "agent", password: bcrypt.hashSync("password", 10), role: "user", permissions: { upload: true }, sessionVersion: 0 }]));
+  fs.symlinkSync(path.join(ROOT, "public"), path.join(dir, "public"), "junction");
+  const portNumber = await port();
+  const child = spawn(process.execPath, [path.join(ROOT, "server.js")], { cwd: dir, env: { ...process.env, PORT: String(portNumber), DB_ENABLED: "false", WEBDAV_ENABLED: "true", JWT_SECRET: crypto.randomBytes(48).toString("base64url") }, stdio: "ignore", windowsHide: true });
+  t.after(async () => { if (child.exitCode === null) { child.kill(); await new Promise((resolve) => child.once("exit", resolve)); } fs.rmSync(dir, { recursive: true, force: true }); });
+  await ready(portNumber);
+  const basic = `Basic ${Buffer.from("agent:password").toString("base64")}`;
+  assert.equal((await request(portNumber, "/dav", { method: "PROPFIND" })).status, 401);
+  assert.equal((await request(portNumber, "/dav/%252e%252e/secret", { method: "PROPFIND", headers: { authorization: basic } })).status, 400);
+  assert.equal((await request(portNumber, "/dav", { method: "PROPFIND", headers: { authorization: basic, depth: "infinity" } })).status, 400);
+  assert.equal((await request(portNumber, "/dav", { method: "PROPFIND", headers: { authorization: basic, origin: "https://evil.test" } })).status, 403);
+  assert.equal((await request(portNumber, "/dav", { method: "PROPFIND", headers: { authorization: basic, depth: "0" } })).status, 207);
 });
