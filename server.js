@@ -6569,17 +6569,19 @@ async function handleWebDavMove(req, res, segments) {
     auditLog("webdav.move", getAuditActor(req), { type: "file", id: destination.fileName }, "move", "success", { folderId: source.folder.id, overwrite });
     return res.status(destinationExists ? 204 : 201).end();
   } catch (error) {
-    if (!["committed", "cloud_source_removal_pending", "cloud_complete"].includes(journal.phase)) {
+    const cloudReconciliationPending = Boolean(journal.cloud?.destinationUploaded && !journal.cloud?.sourceRemoved);
+    if (!cloudReconciliationPending && !["committed", "cloud_source_removal_pending", "cloud_complete", "terminal_reconciliation_failure"].includes(journal.phase)) {
       try { journal.phase = "rolling_back"; writeWebDavMoveJournal(journal); } catch {}
       try { restoreWebDavMoveMetadata(metadataSnapshot); } catch {}
       try { rollbackWebDavMoveJournal(journal); } catch (rollbackError) {
         try { journal.phase = "terminal_reconciliation_failure"; journal.cloud.lastFailureCategory = "local_rollback_failed"; writeWebDavMoveJournal(journal); } catch {}
       }
-    } else {
+    } else if (!cloudReconciliationPending && !["terminal_reconciliation_failure"].includes(journal.phase)) {
       fs.rmSync(journal.destinationBackupPath, { force: true });
       fs.rmSync(journal.journalPath, { force: true });
     }
     auditLog("webdav.error", getAuditActor(req), { type: "webdav", id: getSafeWebDavAuditPath(req) }, "move", "failure", { error: error.message, path: getSafeWebDavAuditPath(req) });
+    if (cloudReconciliationPending) return res.status(202).json({ status: journal.cloud.state || "retry_wait", transactionId, fileName: destination.fileName });
     return res.status(500).send("MOVE failed");
   }
 }
