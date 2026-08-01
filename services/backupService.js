@@ -3,12 +3,18 @@ const path = require("path");
 const crypto = require("crypto");
 const { ZipArchive } = require("archiver");
 const backupRepository = require("../repositories/backupRepository");
+const foldersRepository = require("../repositories/foldersRepository");
 const { getDatabasePath, isDbEnabled } = require("../db");
 const { resolveRuntimePath } = require("../src/runtime-paths");
 
 const BACKUPS_DIR = resolveRuntimePath("data", "backups");
 const LOCK_FILE = path.join(BACKUPS_DIR, ".backup.lock");
 let operationLock = null;
+let cloudStorage = null;
+
+function setCloudStorage(storage) {
+  cloudStorage = storage || null;
+}
 
 function envBool(name, fallback) {
   const value = process.env[name];
@@ -69,11 +75,12 @@ function collectFilesRecursive(rootPath, entryPrefix, options = {}) {
   return files;
 }
 
-function collectBackupFiles() {
+async function collectBackupFiles(options = {}) {
   const files = [];
   const dataDir = resolveRuntimePath("data");
   const includeUploads = envBool("BACKUP_INCLUDE_UPLOADS", true);
   const includeTemp = envBool("BACKUP_INCLUDE_TEMP", false);
+  const includePending = envBool("BACKUP_INCLUDE_PENDING", false);
 
   for (const name of fs.existsSync(dataDir) ? fs.readdirSync(dataDir) : []) {
     const absolutePath = path.join(dataDir, name);
@@ -102,11 +109,43 @@ function collectBackupFiles() {
     files.push(...collectFilesRecursive(resolveRuntimePath("uploads"), "uploads"));
   }
 
-  if (includeTemp) {
+  if (includeTemp || includePending) {
     files.push(...collectFilesRecursive(resolveRuntimePath("temp"), "temp"));
   }
 
-  return files.sort((a, b) => a.entryPath.localeCompare(b.entryPath));
+  if (!cloudStorage?.enabled()) return files.sort((a, b) => a.entryPath.localeCompare(b.entryPath));
+
+  const stageDir = options.stageDir;
+  if (!stageDir) throw new Error("Cloud backup staging is required");
+  const known = new Map(files.map((file) => [file.entryPath, file]));
+  let folders = [];
+  try { folders = foldersRepository.loadFolders(); } catch {}
+  const folderIds = new Set(["root", ...folders.map((folder) => String(folder.id || "")).filter(Boolean)]);
+  const areas = ["uploads", ...(includeTemp || includePending ? ["temp"] : [])];
+  for (const folderId of folderIds) {
+    if (folderId !== "root" && (!folderId || folderId === "." || folderId === ".." || /[\\\\/]/.test(folderId))) {
+      throw new Error("Cloud backup inventory contains an unsafe folder");
+    }
+    for (const area of areas) {
+      for (const remote of await cloudStorage.list(folderId, area)) {
+        const name = path.basename(remote.name || "");
+        if (!name || name !== remote.name || isSensitivePath(`${area}/${folderId}/${name}`)) throw new Error("Cloud backup inventory contains an unsafe path");
+        const entryPath = normalizeEntryPath(path.posix.join(area, folderId === "root" ? "" : folderId, name));
+        const staged = path.resolve(stageDir, entryPath);
+        if (!staged.startsWith(`${path.resolve(stageDir)}${path.sep}`)) throw new Error("Cloud backup staging escaped its boundary");
+        fs.mkdirSync(path.dirname(staged), { recursive: true });
+        if (!await cloudStorage.download(folderId, name, staged, area)) throw new Error("Cloud backup object is unavailable");
+        const local = known.get(entryPath);
+        if (local) {
+          if (await calculateFileHash(local.absolutePath) !== await calculateFileHash(staged)) throw new Error("Cloud and local backup objects differ");
+          fs.rmSync(staged, { force: true });
+        } else {
+          known.set(entryPath, { absolutePath: staged, entryPath, size: fs.statSync(staged).size, cloudOnly: true });
+        }
+      }
+    }
+  }
+  return [...known.values()].sort((a, b) => a.entryPath.localeCompare(b.entryPath));
 }
 
 function calculateFileHash(filePath) {
@@ -200,6 +239,7 @@ async function createBackup(options = {}) {
   const backupType = options.type || "manual";
   const filename = `rootark-${backupType === "pre-restore" ? "pre-restore" : "backup"}-${timestampForName()}.zip`;
   const archivePath = path.join(BACKUPS_DIR, filename);
+  const stageDir = path.join(BACKUPS_DIR, ".cloud-stage", id);
   const baseEntry = {
     id,
     filename,
@@ -215,7 +255,7 @@ async function createBackup(options = {}) {
   };
 
   try {
-    const files = collectBackupFiles();
+    const files = await collectBackupFiles({ stageDir });
     const totalSize = files.reduce((sum, file) => sum + file.size, 0);
     const manifest = {
       backup_id: id,
@@ -230,6 +270,7 @@ async function createBackup(options = {}) {
       error_message: null,
       duration_ms: null,
       notes: options.notes || "",
+      cloud_complete: Boolean(cloudStorage?.enabled()),
     };
 
     await createZipArchive(archivePath, manifest, files);
@@ -248,6 +289,7 @@ async function createBackup(options = {}) {
         ...baseEntry.metadata,
         manifest: { ...manifest, duration_ms: durationMs },
         includedFiles: files.length,
+        cloudComplete: Boolean(cloudStorage?.enabled()),
       },
     });
 
@@ -263,6 +305,8 @@ async function createBackup(options = {}) {
     });
     throw Object.assign(error, { backup: failed });
   } finally {
+    fs.rmSync(stageDir, { recursive: true, force: true });
+    try { fs.rmdirSync(path.dirname(stageDir)); } catch {}
     release();
   }
 }
@@ -310,4 +354,5 @@ module.exports = {
   getBackupOrThrow,
   latestStatus,
   listBackups,
+  setCloudStorage,
 };

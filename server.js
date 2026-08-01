@@ -113,6 +113,7 @@ const cloudStorage = createCloudStorage({
   s3: { bucket: process.env.AWS_S3_BUCKET, region: process.env.AWS_REGION, endpoint: process.env.AWS_ENDPOINT_URL, forcePathStyle: process.env.AWS_FORCE_PATH_STYLE === "true" },
   gdrive: { folderId: process.env.GOOGLE_DRIVE_FOLDER_ID, credentials: process.env.GOOGLE_SERVICE_ACCOUNT_JSON, credentialsPath: process.env.GOOGLE_APPLICATION_CREDENTIALS },
 });
+backupService.setCloudStorage(cloudStorage);
 
 function shouldUseDatabase() {
   return dbConfig.isDbEnabled();
