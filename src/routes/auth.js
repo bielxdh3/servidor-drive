@@ -209,7 +209,7 @@ function registerAuthRoutes(app, context) {
     const token = jwt.sign(
       { username: user.username, sessionVersion: user.sessionVersion || 0 },
       jwtSecret,
-      { expiresIn: "8h" }
+      { algorithm: "HS256", expiresIn: "8h" }
     );
 
     logAnalyticsEvent("login", {

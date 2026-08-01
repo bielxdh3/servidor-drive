@@ -1,5 +1,23 @@
+const MAX_TOKEN_LENGTH = 4096;
+const MAX_FUTURE_IAT_SECONDS = 300;
+const JWT_VERIFY_OPTIONS = { algorithms: ["HS256"] };
+
 function parseCookies(header = "") {
-  return Object.fromEntries(header.split(";").map((part) => part.trim().split(/=(.*)/s, 2)).filter(([key]) => key));
+  const cookies = {};
+  for (const part of String(header).split(";")) {
+    const [key, value] = part.trim().split(/=(.*)/s, 2);
+    if (!key || Object.hasOwn(cookies, key)) cookies[key] = undefined;
+    else cookies[key] = value;
+  }
+  return cookies;
+}
+
+function verifyClaims(jwt, token, jwtSecret) {
+  if (typeof token !== "string" || !token || token.length > MAX_TOKEN_LENGTH) throw new Error("invalid token");
+  const claims = jwt.verify(token, jwtSecret, JWT_VERIFY_OPTIONS);
+  if (!claims || typeof claims.username !== "string" || !claims.username.trim() || !Number.isInteger(claims.sessionVersion) || claims.sessionVersion < 0) throw new Error("invalid claims");
+  if (Number.isFinite(claims.iat) && claims.iat > Math.floor(Date.now() / 1000) + MAX_FUTURE_IAT_SECONDS) throw new Error("future token");
+  return claims;
 }
 
 function getExpectedOrigin(req) {
@@ -19,7 +37,7 @@ function createAuthenticate({ jwt, jwtSecret, loadUser, normalizeUserPermissions
     }
 
     try {
-      const claims = jwt.verify(token, jwtSecret);
+      const claims = verifyClaims(jwt, token, jwtSecret);
       const user = loadUser(claims.username);
       if (!user || user.disabled || claims.sessionVersion !== (user.sessionVersion || 0)) throw new Error("revoked");
       req.user = { username: user.username, role: user.role, permissions: normalizeUserPermissions(user), sessionVersion: user.sessionVersion || 0 };
@@ -42,7 +60,7 @@ function createRealtimeAuthenticator({ jwt, jwtSecret, loadUser, normalizeUserPe
   return function authenticateRealtimeToken(token) {
     if (!token) return null;
     try {
-      const claims = jwt.verify(token, jwtSecret);
+      const claims = verifyClaims(jwt, token, jwtSecret);
       const user = loadUser(claims.username);
       if (!user || user.disabled || claims.sessionVersion !== (user.sessionVersion || 0)) return null;
       return { username: user.username, role: user.role, permissions: normalizeUserPermissions(user), sessionVersion: user.sessionVersion || 0, expiresAt: Number.isFinite(claims.exp) ? claims.exp * 1000 : null };
@@ -55,6 +73,7 @@ function createRealtimeAuthenticator({ jwt, jwtSecret, loadUser, normalizeUserPe
 module.exports = {
   getExpectedOrigin,
   parseCookies,
+  verifyClaims,
   createAuthenticate,
   createRealtimeAuthenticator,
 };
