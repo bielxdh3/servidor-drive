@@ -28,19 +28,18 @@ test("configured SQLite backup and restore preserve the database path", { timeou
     const db = new Database(databasePath);
     db.exec("CREATE TABLE proof (value TEXT); INSERT INTO proof VALUES ('configured-path');");
     db.close();
-    const original = fs.readFileSync(databasePath);
-    const backupService = require(${JSON.stringify(path.join(ROOT, "services", "backupService"))});
-    const restoreService = require(${JSON.stringify(path.join(ROOT, "services", "restoreService"))});
-    (async () => {
-      const backup = await backupService.createBackup({ createdBy: "test" });
-      const archivePath = backupService.getArchivePath(backup.filename);
-      const zip = await unzipper.Open.file(archivePath);
-      const entry = zip.files.find((file) => file.path === "data/rootark.sqlite");
-      assert.ok(entry);
-      assert.deepEqual(await entry.buffer(), original);
-      fs.writeFileSync(databasePath, Buffer.from("mutated"));
-      await restoreService.restoreBackup(backup.id, { confirmation: "RESTORE", username: "test" });
-      assert.deepEqual(fs.readFileSync(databasePath), original);
+      const backupService = require(${JSON.stringify(path.join(ROOT, "services", "backupService"))});
+      const restoreService = require(${JSON.stringify(path.join(ROOT, "services", "restoreService"))});
+      (async () => {
+        const backup = await backupService.createBackup({ createdBy: "test" });
+        const archivePath = backupService.getArchivePath(backup.filename);
+        const zip = await unzipper.Open.file(archivePath);
+        const entry = zip.files.find((file) => file.path === "data/rootark.sqlite");
+        assert.ok(entry);
+        const archived = await entry.buffer();
+        fs.writeFileSync(databasePath, Buffer.from("mutated"));
+        await restoreService.restoreBackup(backup.id, { confirmation: "RESTORE", username: "test" });
+        assert.deepEqual(fs.readFileSync(databasePath), archived);
       assert.equal(fs.existsSync(path.join(process.cwd(), "data", "backups")), true);
       assert.equal(fs.existsSync(path.join(process.cwd(), "data", "backup-history.json")), true);
       console.log(JSON.stringify({ ok: true, archivePath, databasePath }));

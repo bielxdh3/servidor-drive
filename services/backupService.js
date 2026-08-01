@@ -1,9 +1,9 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const { ZipArchive } = require("archiver");
+const archiver = require("archiver");
 const backupRepository = require("../repositories/backupRepository");
-const { getDatabasePath, isDbEnabled } = require("../db");
+const { getDatabasePath, getDb, isDbEnabled } = require("../db");
 const { resolveRuntimePath } = require("../src/runtime-paths");
 
 const BACKUPS_DIR = resolveRuntimePath("data", "backups");
@@ -186,6 +186,19 @@ async function collectBackupFiles(options = {}) {
   }
   options.cloudComplete = true;
   return [...known.values()].sort((a, b) => a.entryPath.localeCompare(b.entryPath));
+}
+
+function checkpointDatabaseForBackup() {
+  if (!isDbEnabled()) return { skipped: true, reason: "database_disabled" };
+  const databasePath = getDatabasePath();
+  if (!fs.existsSync(databasePath)) return { skipped: true, reason: "database_not_found" };
+
+  const result = getDb().pragma("wal_checkpoint(TRUNCATE)");
+  const checkpoint = Array.isArray(result) ? result[0] : result;
+  if (checkpoint && Number(checkpoint.busy || checkpoint["busy"]) > 0) {
+    throw new Error("SQLite checkpoint ocupado; backup recusado para preservar consistencia");
+  }
+  return { skipped: false, result };
 }
 
 function calculateFileHash(filePath) {
@@ -884,6 +897,7 @@ async function createBackup(options = {}) {
   };
 
   try {
+    checkpointDatabaseForBackup();
     const collectionOptions = { stageDir };
     const files = await collectBackupFiles(collectionOptions);
     const totalSize = files.reduce((sum, file) => sum + file.size, 0);

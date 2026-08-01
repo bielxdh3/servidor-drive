@@ -329,20 +329,198 @@ function validateDatabase(pathname) {
   }
 }
 
+const SQLITE_SUFFIXES = ["", "-wal", "-shm"];
+const RESTORE_JOURNAL_VERSION = 1;
+
+function databaseJournalPath(destinationPath) {
+  return `${destinationPath}.restore-journal.json`;
+}
+
+function artifactPath(prefix, suffix) {
+  return `${prefix}${suffix}`;
+}
+
+function fileSha256(pathname) {
+  if (!fs.existsSync(pathname)) return null;
+  return crypto.createHash("sha256").update(fs.readFileSync(pathname)).digest("hex");
+}
+
+function fsyncFile(pathname) {
+  const fd = fs.openSync(pathname, "r");
+  try {
+    try { fs.fsyncSync(fd); } catch (error) {
+      if (!(["EPERM", "ENOTSUP", "EINVAL"].includes(error.code) && process.platform === "win32")) throw error;
+    }
+  } finally { fs.closeSync(fd); }
+}
+
+function fsyncDirectory(dirname) {
+  if (process.platform === "win32") return;
+  try {
+    const fd = fs.openSync(dirname, "r");
+    try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+  } catch {}
+}
+
+function writeRestoreJournal(journal) {
+  const pathname = journal.journalPath;
+  const temporary = `${pathname}.${journal.transactionId}.tmp`;
+  fs.mkdirSync(path.dirname(pathname), { recursive: true });
+  fs.writeFileSync(temporary, `${JSON.stringify(journal, null, 2)}\n`, { flag: "w" });
+  fsyncFile(temporary);
+  fs.renameSync(temporary, pathname);
+  fsyncDirectory(path.dirname(pathname));
+}
+
+function readRestoreJournal(destinationPath) {
+  const pathname = databaseJournalPath(destinationPath);
+  if (!fs.existsSync(pathname)) return null;
+  let journal;
+  try {
+    journal = JSON.parse(fs.readFileSync(pathname, "utf8"));
+  } catch (error) {
+    throw new Error(`Journal SQLite invalido; recuperacao interrompida: ${error.message}`);
+  }
+  const expectedDestination = path.resolve(destinationPath);
+  if (journal.version !== RESTORE_JOURNAL_VERSION ||
+      journal.destination !== expectedDestination ||
+      !/^[a-f0-9-]{36}$/i.test(String(journal.transactionId || "")) ||
+      !journal.stagePrefix || !journal.rollbackPrefix ||
+      journal.journalPath !== pathname ||
+      path.resolve(journal.stagePrefix) !== `${expectedDestination}.restore-stage-${journal.transactionId}` ||
+      path.resolve(journal.rollbackPrefix) !== `${expectedDestination}.restore-rollback-${journal.transactionId}` ||
+      !Array.isArray(journal.completedOperations)) {
+    throw new Error("Journal SQLite ambiguo; recuperacao interrompida");
+  }
+  return journal;
+}
+
+function failureHook(options = {}) {
+  const requested = options.failAfter ?? options.failureAfter ?? options.failAt ?? process.env.ROOTARK_SQLITE_FAIL_AFTER;
+  let count = 0;
+  return (name, journal) => {
+    count += 1;
+    if (typeof options.failureInjector === "function") options.failureInjector(name, { ...journal, step: name, stepNumber: count });
+    if (requested !== undefined && (String(requested) === name || Number(requested) === count)) {
+      const error = new Error(`Falha injetada no passo SQLite: ${name}`);
+      error.code = "SQLITE_RESTORE_INJECTED_FAILURE";
+      error.step = name;
+      throw error;
+    }
+  };
+}
+
+function journalHas(journal, operation) {
+  return journal.completedOperations.includes(operation);
+}
+
+function updateJournal(journal, phase) {
+  journal.phase = phase;
+  journal.updatedAt = new Date().toISOString();
+  writeRestoreJournal(journal);
+}
+
+function recordOperation(journal, operation) {
+  if (!journalHas(journal, operation)) journal.completedOperations.push(operation);
+  journal.updatedAt = new Date().toISOString();
+  writeRestoreJournal(journal);
+}
+
+function validateJournalArtifacts(journal) {
+  const expected = new Set(SQLITE_SUFFIXES);
+  for (const suffix of Object.keys(journal.originalPresent || {})) {
+    if (!expected.has(suffix)) throw new Error("Journal SQLite contem sidecar desconhecido");
+  }
+  for (const suffix of SQLITE_SUFFIXES) {
+    if (typeof journal.originalPresent?.[suffix] !== "boolean" || typeof journal.stagedPresent?.[suffix] !== "boolean") {
+      throw new Error("Journal SQLite incompleto; recuperacao interrompida");
+    }
+  }
+}
+
+function rollbackRestoreJournal(journal, options = {}) {
+  validateJournalArtifacts(journal);
+  const hook = failureHook(options);
+  updateJournal(journal, "rolling_back");
+
+  for (const suffix of SQLITE_SUFFIXES) {
+    const destination = artifactPath(journal.destination, suffix);
+    const rollback = artifactPath(journal.rollbackPrefix, suffix);
+    const stage = artifactPath(journal.stagePrefix, suffix);
+    const originalMove = `original.move${suffix || ".primary"}`;
+    const replacementMove = `replacement.move${suffix || ".primary"}`;
+    const rollbackMove = `rollback.restore${suffix || ".primary"}`;
+
+    if (journal.originalPresent[suffix]) {
+      if (fs.existsSync(rollback)) {
+        if (fs.existsSync(destination)) {
+          fs.rmSync(destination, { force: true });
+          recordOperation(journal, `rollback.remove-replacement${suffix || ".primary"}`);
+          hook(`rollback.remove-replacement${suffix || ".primary"}`, journal);
+        }
+        fs.renameSync(rollback, destination);
+        recordOperation(journal, rollbackMove);
+        hook(rollbackMove, journal);
+      } else if (!journalHas(journal, originalMove) && !journalHas(journal, rollbackMove)) {
+        // The original was not moved. Leave it untouched.
+      } else if (!fs.existsSync(destination)) {
+        throw new Error(`Journal SQLite perdeu o original ${suffix || "principal"}`);
+      }
+    } else if (fs.existsSync(destination) && (journalHas(journal, replacementMove) || journal.phase !== "staged")) {
+      fs.rmSync(destination, { force: true });
+      recordOperation(journal, `rollback.remove-new${suffix || ".primary"}`);
+      hook(`rollback.remove-new${suffix || ".primary"}`, journal);
+    }
+    fs.rmSync(stage, { force: true });
+  }
+
+  updateJournal(journal, "rolled_back");
+  fs.rmSync(journal.journalPath, { force: true });
+  fsyncDirectory(path.dirname(journal.journalPath));
+}
+
+function recoverDatabaseRestore(destinationPath, options = {}) {
+  const resolvedDestination = path.resolve(destinationPath);
+  const journal = readRestoreJournal(resolvedDestination);
+  if (!journal) return { recovered: false, reason: "no_journal" };
+
+  if (!["staged", "validated", "originals_moving", "originals_preserved", "replacement_moving", "replacement_installed", "reopened_verified", "rolling_back", "rolled_back", "committed"].includes(journal.phase)) {
+    throw new Error("Journal SQLite contem fase desconhecida; recuperacao interrompida");
+  }
+
+  if (journal.phase === "committed") {
+    validateJournalArtifacts(journal);
+    for (const suffix of SQLITE_SUFFIXES) {
+      fs.rmSync(artifactPath(journal.stagePrefix, suffix), { force: true });
+      fs.rmSync(artifactPath(journal.rollbackPrefix, suffix), { force: true });
+    }
+    fs.rmSync(journal.journalPath, { force: true });
+    fsyncDirectory(path.dirname(journal.journalPath));
+    return { recovered: true, phase: "committed" };
+  }
+
+  rollbackRestoreJournal(journal, options);
+  return { recovered: true, phase: "rolled_back" };
+}
+
 function recoverDatabaseRollback(destinationPath) {
-  if (fs.existsSync(destinationPath)) return;
+  const journalResult = recoverDatabaseRestore(destinationPath);
+  if (journalResult.recovered) return journalResult;
+  if (fs.existsSync(destinationPath)) return { recovered: false, reason: "destination_exists" };
   const prefix = `${path.basename(destinationPath)}.restore-rollback-`;
-  const candidate = fs.readdirSync(path.dirname(destinationPath)).find((name) => name.startsWith(prefix));
-  if (!candidate) return;
-  const rollbackPath = path.join(path.dirname(destinationPath), candidate);
+  const candidates = fs.readdirSync(path.dirname(destinationPath)).filter((name) => name.startsWith(prefix) && !name.endsWith("-wal") && !name.endsWith("-shm"));
+  if (candidates.length > 1) throw new Error("Rollbacks SQLite ambiguos; recuperacao interrompida");
+  if (!candidates.length) return { recovered: false, reason: "no_rollback" };
+  const rollbackPath = path.join(path.dirname(destinationPath), candidates[0]);
   fs.renameSync(rollbackPath, destinationPath);
   for (const suffix of ["-wal", "-shm"]) {
     const sidecar = `${rollbackPath}${suffix}`;
     if (fs.existsSync(sidecar)) fs.renameSync(sidecar, `${destinationPath}${suffix}`);
   }
+  return { recovered: true, phase: "legacy_rollback" };
 }
 
-function restoreDatabaseFiles(extractedRoot) {
+function restoreDatabaseFiles(extractedRoot, options = {}) {
   if (!isDbEnabled()) return false;
   const sourcePath = path.join(extractedRoot, "data", "rootark.sqlite");
   if (!fs.existsSync(sourcePath)) return false;
@@ -354,34 +532,76 @@ function restoreDatabaseFiles(extractedRoot) {
   const token = crypto.randomUUID();
   const stagePath = `${destinationPath}.restore-stage-${token}`;
   const rollbackPath = `${destinationPath}.restore-rollback-${token}`;
-  for (const suffix of ["", "-wal", "-shm"]) {
-    const source = `${sourcePath}${suffix}`;
-    if (fs.existsSync(source)) fs.copyFileSync(source, `${stagePath}${suffix}`);
-  }
+  const journal = {
+    version: RESTORE_JOURNAL_VERSION,
+    transactionId: token,
+    destination: path.resolve(destinationPath),
+    journalPath: databaseJournalPath(destinationPath),
+    stagePrefix: stagePath,
+    rollbackPrefix: rollbackPath,
+    phase: "staged",
+    startedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    completedOperations: [],
+    originalPresent: Object.fromEntries(SQLITE_SUFFIXES.map((suffix) => [suffix, fs.existsSync(artifactPath(destinationPath, suffix))])),
+    stagedPresent: Object.fromEntries(SQLITE_SUFFIXES.map((suffix) => [suffix, fs.existsSync(artifactPath(sourcePath, suffix))])),
+    originalSha256: Object.fromEntries(SQLITE_SUFFIXES.map((suffix) => [suffix, fileSha256(artifactPath(destinationPath, suffix))])),
+  };
+  validateJournalArtifacts(journal);
+  writeRestoreJournal(journal);
+  const hook = failureHook(options);
+
   try {
+  for (const suffix of SQLITE_SUFFIXES) {
+    const source = artifactPath(sourcePath, suffix);
+    if (fs.existsSync(source)) {
+      fs.copyFileSync(source, artifactPath(stagePath, suffix));
+      fsyncFile(artifactPath(stagePath, suffix));
+      recordOperation(journal, `stage.copy${suffix || ".primary"}`);
+      hook(`stage.copy${suffix || ".primary"}`, journal);
+    }
+  }
     validateDatabase(stagePath);
-    for (const suffix of ["", "-wal", "-shm"]) {
-      const destination = `${destinationPath}${suffix}`;
-      if (fs.existsSync(destination)) fs.renameSync(destination, `${rollbackPath}${suffix}`);
-    }
-    try {
-      for (const suffix of ["", "-wal", "-shm"]) {
-        const staged = `${stagePath}${suffix}`;
-        if (fs.existsSync(staged)) fs.renameSync(staged, `${destinationPath}${suffix}`);
+    recordOperation(journal, "stage.validate");
+    hook("stage.validate", journal);
+    updateJournal(journal, "staged");
+
+    updateJournal(journal, "originals_moving");
+    for (const suffix of SQLITE_SUFFIXES) {
+      const destination = artifactPath(destinationPath, suffix);
+      if (fs.existsSync(destination)) {
+        fs.renameSync(destination, artifactPath(rollbackPath, suffix));
+        recordOperation(journal, `original.move${suffix || ".primary"}`);
+        hook(`original.move${suffix || ".primary"}`, journal);
       }
-    } catch (error) {
-      for (const suffix of ["", "-wal", "-shm"]) fs.rmSync(`${destinationPath}${suffix}`, { force: true });
-      for (const suffix of ["", "-wal", "-shm"]) {
-        const rollback = `${rollbackPath}${suffix}`;
-        if (fs.existsSync(rollback)) fs.renameSync(rollback, `${destinationPath}${suffix}`);
+    }
+    updateJournal(journal, "originals_preserved");
+    updateJournal(journal, "replacement_moving");
+    for (const suffix of SQLITE_SUFFIXES) {
+      const staged = artifactPath(stagePath, suffix);
+      if (fs.existsSync(staged)) {
+        fs.renameSync(staged, artifactPath(destinationPath, suffix));
+        recordOperation(journal, `replacement.move${suffix || ".primary"}`);
+        hook(`replacement.move${suffix || ".primary"}`, journal);
       }
-      throw error;
     }
-  } finally {
-    for (const suffix of ["", "-wal", "-shm"]) {
-      fs.rmSync(`${stagePath}${suffix}`, { force: true });
-      fs.rmSync(`${rollbackPath}${suffix}`, { force: true });
+    updateJournal(journal, "replacement_installed");
+    validateDatabase(destinationPath);
+    recordOperation(journal, "replacement.reopen-validate");
+    hook("replacement.reopen-validate", journal);
+    updateJournal(journal, "reopened_verified");
+    updateJournal(journal, "committed");
+    for (const suffix of SQLITE_SUFFIXES) {
+      fs.rmSync(artifactPath(rollbackPath, suffix), { force: true });
+      fs.rmSync(artifactPath(stagePath, suffix), { force: true });
     }
+    fs.rmSync(journal.journalPath, { force: true });
+    fsyncDirectory(path.dirname(destinationPath));
+  } catch (error) {
+    if (!options.simulateCrash && !options.leaveJournalOnFailure) {
+      try { recoverDatabaseRestore(destinationPath); } catch (recoveryError) { error.recoveryError = recoveryError; }
+    }
+    throw error;
   }
   return true;
 }
@@ -442,4 +662,8 @@ module.exports = {
   validateBackupArchive,
   validateDatabase,
   recoverDatabaseRollback,
+  recoverDatabaseRestore,
+  restoreDatabaseFiles,
+  databaseJournalPath,
+  SQLITE_SUFFIXES,
 };
