@@ -29,7 +29,7 @@ function envNumber(name, fallback) {
 function timestampForName() {
   const date = new Date();
   const pad = (value) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}-${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}-${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}-${String(date.getMilliseconds()).padStart(3, "0")}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
 function normalizeEntryPath(value) {
@@ -184,9 +184,29 @@ function acquireLock(operation) {
     fd = fs.openSync(LOCK_FILE, "wx");
     fs.writeFileSync(fd, JSON.stringify({ operation, pid: process.pid, startedAt: new Date().toISOString() }));
   } catch (error) {
+    const staleMs = Math.max(60_000, envNumber("BACKUP_LOCK_STALE_MS", 6 * 60 * 60 * 1000));
+    let stale = false;
+    try {
+      const stat = fs.statSync(LOCK_FILE);
+      const lock = JSON.parse(fs.readFileSync(LOCK_FILE, "utf8"));
+      const age = Date.now() - stat.mtimeMs;
+      if (Number.isInteger(lock.pid) && lock.pid > 0) {
+        try { process.kill(lock.pid, 0); } catch (pidError) { stale = pidError.code === "ESRCH" && age >= staleMs; }
+      } else {
+        stale = age >= staleMs;
+      }
+    } catch {
+      try { stale = Date.now() - fs.statSync(LOCK_FILE).mtimeMs >= staleMs; } catch {}
+    }
+    if (stale) {
+      try { fs.rmSync(LOCK_FILE, { force: true }); fd = fs.openSync(LOCK_FILE, "wx"); fs.writeFileSync(fd, JSON.stringify({ operation, pid: process.pid, startedAt: new Date().toISOString() })); }
+      catch {}
+    }
+    if (fd === undefined) {
     const locked = new Error("Outra operacao de backup/restauracao esta em andamento");
     locked.code = "BACKUP_LOCKED";
     throw locked;
+    }
   }
 
   operationLock = operation;
@@ -217,7 +237,7 @@ async function createZipArchive(archivePath, manifest, files) {
 
 function getArchivePath(filename) {
   const safeName = path.basename(filename || "");
-  if (!/^rootark-(backup|pre-restore)-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.zip$/.test(safeName)) {
+  if (!/^rootark-(backup|pre-restore)-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}(?:-\d{3}-[a-f0-9]{8})?\.zip$/.test(safeName)) {
     return null;
   }
   const archivePath = path.resolve(BACKUPS_DIR, safeName);
