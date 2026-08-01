@@ -23,6 +23,8 @@ test("realtime transport declares bounded payload, compression, binary, and burs
   assert.match(contents, /perMessageDeflate: false/);
   assert.match(contents, /if \(isBinary\) return socket\.close\(1003/);
   assert.match(contents, /REALTIME_MAX_MESSAGES_PER_WINDOW/);
+  assert.match(contents, /REALTIME_MAX_BUFFERED_BYTES/);
+  assert.match(contents, /socket\.bufferedAmount > REALTIME_MAX_BUFFERED_BYTES/);
   assert.match(contents, /Limite de mensagens excedido/);
   assert.match(contents, /REALTIME_HEARTBEAT_MS/);
   assert.match(contents, /socket\.ping\(\)/);

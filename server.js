@@ -43,6 +43,7 @@ const { createRequirePermission } = require("./src/middlewares/permissions");
 const app = express();
 const server = http.createServer(app);
 const REALTIME_MAX_PAYLOAD_BYTES = 16 * 1024;
+const REALTIME_MAX_BUFFERED_BYTES = 64 * 1024;
 const REALTIME_MAX_MESSAGES_PER_WINDOW = 30;
 const REALTIME_RATE_WINDOW_MS = 10 * 1000;
 const REALTIME_HEARTBEAT_MS = 30 * 1000;
@@ -236,6 +237,7 @@ function refreshRealtimeUser(socket) {
 
 function sendRealtime(socket, event, payload = {}) {
   if (socket.readyState !== WebSocket.OPEN || !refreshRealtimeUser(socket)) return;
+  if (socket.bufferedAmount > REALTIME_MAX_BUFFERED_BYTES) return socket.close(1013, "Cliente lento");
   socket.send(JSON.stringify({ event, payload, timestamp: new Date().toISOString() }));
 }
 
