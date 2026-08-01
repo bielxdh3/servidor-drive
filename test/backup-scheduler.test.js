@@ -28,4 +28,15 @@ test("scheduler validates time and preserves explicit UTC scheduling", async (t)
     scheduleAutomaticBackups({ env: {}, cron: { schedule: (_expr, fn) => { callback = fn; return { stop() {} }; } }, createBackup: async () => { throw new Error("failed"); }, auditLog: (...args) => events.push(args) });
     await callback(); assert.equal(events[0][0], "backup.failed");
   });
+  await t.test("invalid configuration is reported without registration", () => {
+    let invalid; let registered = false;
+    const task = scheduleAutomaticBackups({ env: { BACKUP_TIME: "99:00" }, cron: { schedule: () => { registered = true; } }, createBackup: async () => {}, onInvalid: (message) => { invalid = message; } });
+    assert.equal(task, null); assert.equal(registered, false); assert.match(invalid, /BACKUP_TIME/);
+  });
+  await t.test("configured timezone reaches cron and task can stop", () => {
+    let options; let stopped = false;
+    const task = { stop: () => { stopped = true; } };
+    assert.equal(scheduleAutomaticBackups({ env: { BACKUP_TIMEZONE: "America/Cuiaba" }, cron: { schedule: (_expr, _callback, received) => { options = received; return task; } }, createBackup: async () => {} }), task);
+    task.stop(); assert.equal(options.timezone, "America/Cuiaba"); assert.equal(stopped, true);
+  });
 });
