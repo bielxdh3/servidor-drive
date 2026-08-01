@@ -103,9 +103,19 @@ async function startServer(dir) {
 function stop(child) {
   return new Promise((resolve) => {
     if (child.exitCode !== null) return resolve(child.exitCode);
-    child.once("exit", (code) => resolve(code));
+    let finished = false;
+    let timer;
+    const finish = (code) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      resolve(code);
+    };
+    child.once("exit", finish);
+    child.once("error", () => finish(child.exitCode));
     if (process.platform === "win32") spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore" });
     else child.kill("SIGKILL");
+    timer = setTimeout(() => finish(child.exitCode), 5_000);
   });
 }
 
