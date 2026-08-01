@@ -65,15 +65,21 @@ function saveJsonHistory(entries) {
 function withJsonMutationLock(callback) {
   fs.mkdirSync(path.dirname(MUTATION_LOCK_FILE), { recursive: true });
   let fd;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      fd = fs.openSync(MUTATION_LOCK_FILE, "wx");
+      break;
+    } catch (error) {
+      if (error.code !== "EEXIST" || attempt === 99) throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1);
+    }
+  }
   try {
-    fd = fs.openSync(MUTATION_LOCK_FILE, "wx");
     fs.writeFileSync(fd, String(process.pid), "utf8");
     return callback();
   } finally {
-    if (fd !== undefined) {
-      try { fs.closeSync(fd); } catch {}
-      try { fs.rmSync(MUTATION_LOCK_FILE, { force: true }); } catch {}
-    }
+    try { fs.closeSync(fd); } catch {}
+    try { fs.rmSync(MUTATION_LOCK_FILE, { force: true }); } catch {}
   }
 }
 
