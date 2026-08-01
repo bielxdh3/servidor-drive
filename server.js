@@ -4401,6 +4401,7 @@ wss.on("connection", (socket, req) => {
 
   socket.user = user;
   socket.isAlive = true;
+  socket.on("error", () => {});
   socket.on("pong", () => { socket.isAlive = true; });
   socket.realtimeRate = { startedAt: Date.now(), count: 0 };
   sendRealtime(socket, "connected", { username: user.username });

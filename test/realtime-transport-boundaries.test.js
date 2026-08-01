@@ -49,6 +49,8 @@ test("WebSocket HTTP upgrade enforces cookie, Origin, message, and binary bounda
   const malformed = connect({ cookie: "rootark_session=not-a-token" }); assert.equal(await close(malformed), 1008);
   const wrongOrigin = connect({ cookie }, "https://evil.test"); assert.equal(await close(wrongOrigin), 1008);
   const binary = connect({ cookie }); await event(binary, "connected"); const binaryClose = close(binary); binary.send(Buffer.from([1])); assert.equal(await binaryClose, 1003);
+  const oversized = connect({ cookie }); await event(oversized, "connected"); const oversizedClose = close(oversized); oversized.send("x".repeat(17 * 1024)); assert.equal(await oversizedClose, 1009);
+  const burst = connect({ cookie }); await event(burst, "connected"); const burstClose = close(burst); for (let index = 0; index < 31; index += 1) burst.send(JSON.stringify({ event: "ping" })); assert.equal(await burstClose, 1008);
 });
 
 test("WebDAV HTTP boundary rejects unauthenticated, hostile, traversing, and infinite-depth requests", { timeout: 20_000 }, async (t) => {
