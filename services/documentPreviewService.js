@@ -108,31 +108,43 @@ async function parseDocumentInChildProcessUnbounded(filePath, extension, options
   const spawnProcess = options.spawnImpl || spawn;
   const timeout = Number(options.timeoutMs ?? TIMEOUT_MS);
   const maxOutputBytes = Number(options.maxOutputBytes ?? Math.max(16_384, MAX_OUTPUT_CHARS * 8));
+  const finalTerminationTimeout = Number(options.finalTerminationTimeoutMs ?? TERMINATION_GRACE_MS);
   return new Promise((resolve, reject) => {
     let child;
     let settled = false;
     let timer;
-    let terminationTimer;
+    let graceTimer;
+    let finalTimer;
     let output = "";
     let errorOutput = "";
     let outputBytes = 0;
     let errorBytes = 0;
     let closeConfirmed = false;
     let pendingError = null;
+    let state = "running";
     const finish = (error, value) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      clearTimeout(terminationTimer);
+      clearTimeout(graceTimer);
+      clearTimeout(finalTimer);
       if (error) reject(error); else resolve(value);
     };
     const stop = (error) => {
       if (pendingError || settled) return;
       pendingError = error;
+      state = "graceful termination requested";
       killParserProcess(child);
-      terminationTimer = setTimeout(() => {
+      graceTimer = setTimeout(() => {
+        if (closeConfirmed || settled) return;
+        state = "forced termination requested";
         killParserProcess(child, true);
-        finish(pendingError);
+        finalTimer = setTimeout(() => {
+          if (!closeConfirmed && !settled) {
+            state = "unreaped failure";
+            finish(parserFailure("Parser process exit was not confirmed", "PREVIEW_PROCESS_UNREAPED"));
+          }
+        }, Math.max(1, finalTerminationTimeout));
       }, TERMINATION_GRACE_MS);
       if (closeConfirmed) finish(pendingError);
     };
@@ -163,6 +175,7 @@ async function parseDocumentInChildProcessUnbounded(filePath, extension, options
     child.once("error", () => stop(parserFailure("Falha no parser", "PREVIEW_PARSER_FAILED")));
     child.once("close", (code) => {
       closeConfirmed = true;
+      state = "exited";
       if (pendingError) return finish(pendingError);
       if (settled) return;
       if (code !== 0) {
