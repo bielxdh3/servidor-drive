@@ -6,14 +6,14 @@ const path = require("node:path");
 const test = require("node:test");
 const { preflightDocx, parseDocumentInChildProcess, MAX_CONCURRENT_PARSERS } = require("../services/documentPreviewService");
 
-function fakeSpawn({ output = JSON.stringify({ ok: true, content: "ok" }), stderr = [], delay = 0, never = false } = {}) {
+function fakeSpawn({ output = JSON.stringify({ ok: true, content: "ok" }), stderr = [], delay = 0, never = false, closeOnKill = 0 } = {}) {
   const child = new EventEmitter();
   child.stdout = new EventEmitter();
   child.stderr = new EventEmitter();
   child.pid = Math.floor(Math.random() * 10_000) + 1000;
   child.exitCode = null;
   child.killed = false;
-  child.kill = () => { child.killed = true; child.exitCode = 137; return true; };
+  child.kill = (signal) => { child.killed = true; if (signal === "SIGKILL") { child.exitCode = 137; if (closeOnKill) setTimeout(() => child.emit("close", 137), closeOnKill); } return true; };
   if (!never) setTimeout(() => {
     for (const chunk of stderr) child.stderr.emit("data", Buffer.from(chunk));
     if (output) child.stdout.emit("data", Buffer.from(output));
@@ -93,7 +93,24 @@ test("parser concurrency has a bounded queue and releases timed-out work", async
   const promises = Array.from({ length: MAX_CONCURRENT_PARSERS + 17 }, () => parseDocumentInChildProcess(filePath, ".doc", { timeoutMs: 10, spawnImpl: () => fakeSpawn({ never: true }) }));
   const results = await Promise.allSettled(promises);
   assert.equal(results.filter((result) => result.status === "rejected" && result.reason.code === "PREVIEW_BUSY").length, 1);
-  assert.equal(results.filter((result) => result.status === "rejected" && result.reason.code === "PREVIEW_TIMEOUT").length, MAX_CONCURRENT_PARSERS + 16);
+  assert.equal(results.filter((result) => result.status === "rejected" && result.reason.code === "PREVIEW_PROCESS_UNREAPED").length, MAX_CONCURRENT_PARSERS + 16);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("parser termination waits for confirmed close and keeps the slot occupied", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rootark-preview-lifecycle-"));
+  const filePath = path.join(dir, "fixture.doc");
+  fs.writeFileSync(filePath, "fixture");
+  let spawned = 0;
+  const promises = Array.from({ length: MAX_CONCURRENT_PARSERS + 1 }, () => parseDocumentInChildProcess(filePath, ".doc", {
+    timeoutMs: 5,
+    spawnImpl: () => { spawned += 1; return fakeSpawn({ never: true, closeOnKill: 40 }); },
+  }));
+  const settled = Promise.allSettled(promises);
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.equal(spawned, MAX_CONCURRENT_PARSERS);
+  await assert.rejects(promises[0], (error) => error.code === "PREVIEW_TIMEOUT");
+  await settled;
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
