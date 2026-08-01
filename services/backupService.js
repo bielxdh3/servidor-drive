@@ -899,6 +899,8 @@ async function createBackup(options = {}) {
     metadata: { notes: options.notes || "" },
   };
   let sqliteSnapshot = null;
+  let saved = null;
+  let outcomeError = null;
 
   try {
     sqliteSnapshot = await createSqliteSnapshot();
@@ -944,7 +946,7 @@ async function createBackup(options = {}) {
     const durationMs = Date.now() - startedAt;
     const sizeBytes = fs.statSync(archivePath).size;
 
-    const saved = backupRepository.saveBackup({
+    saved = backupRepository.saveBackup({
       ...baseEntry,
       status: "success",
       finishedAt,
@@ -961,6 +963,7 @@ async function createBackup(options = {}) {
     await cleanupRetention({ lockHeld: true });
     return saved;
   } catch (error) {
+    outcomeError = error;
     let cleanupError = null;
     if (archiveCreated) {
       try { fs.rmSync(archivePath, { force: false }); } catch (cleanupFailure) { cleanupError = cleanupFailure; }
@@ -984,7 +987,15 @@ async function createBackup(options = {}) {
     try { fs.rmdirSync(path.dirname(stageDir)); } catch {}
     if (sqliteSnapshot?.stageDir) {
       try { fs.rmSync(sqliteSnapshot.stageDir, { recursive: true, force: true }); }
-      catch { console.error("[backup] SQLite staging cleanup failed"); }
+      catch (error) {
+        const evidence = { code: "SQLITE_STAGE_CLEANUP_FAILED", message: "SQLite staging cleanup failed" };
+        if (outcomeError) outcomeError.sqliteStageCleanupFailure = evidence;
+        if (saved?.status === "success") {
+          saved.metadata = { ...saved.metadata, sqliteStageCleanup: evidence };
+          try { backupRepository.saveBackup(saved); } catch (persistError) { outcomeError = outcomeError || persistError; }
+        }
+        console.error(`[backup] ${evidence.code}`);
+      }
     }
     release();
   }
