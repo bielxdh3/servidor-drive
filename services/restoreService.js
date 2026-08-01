@@ -1,7 +1,8 @@
 const fs = require("fs");
 const path = require("path");
 const unzipper = require("unzipper");
-const { ROOT_DIR, closeDb } = require("../db");
+const { closeDb, getDatabasePath, isDbEnabled } = require("../db");
+const { resolveRuntimePath } = require("../src/runtime-paths");
 const backupService = require("./backupService");
 
 const RESTORE_TMP_DIR = path.join(backupService.BACKUPS_DIR, ".restore-tmp");
@@ -89,11 +90,11 @@ function restoreDataFiles(extractedRoot) {
   if (!fs.existsSync(extractedData)) return;
 
   closeDb();
-  fs.mkdirSync(path.join(ROOT_DIR, "data"), { recursive: true });
+  fs.mkdirSync(resolveRuntimePath("data"), { recursive: true });
   for (const name of fs.readdirSync(extractedData)) {
-    if (name === "backups" || name === "server-master.key" || name.endsWith(".key")) continue;
+    if (name === "backups" || name === "server-master.key" || name.endsWith(".key") || name.startsWith("rootark.sqlite")) continue;
     const sourcePath = path.join(extractedData, name);
-    const destinationPath = path.join(ROOT_DIR, "data", name);
+    const destinationPath = resolveRuntimePath("data", name);
     if (fs.statSync(sourcePath).isFile()) {
       fs.copyFileSync(sourcePath, destinationPath);
     }
@@ -104,9 +105,26 @@ function restoreUploads(extractedRoot) {
   const extractedUploads = path.join(extractedRoot, "uploads");
   if (!fs.existsSync(extractedUploads)) return;
 
-  const destinationUploads = path.join(ROOT_DIR, "uploads");
+  const destinationUploads = resolveRuntimePath("uploads");
   fs.rmSync(destinationUploads, { recursive: true, force: true });
   copyDirectoryContents(extractedUploads, destinationUploads);
+}
+
+function restoreDatabaseFiles(extractedRoot) {
+  if (!isDbEnabled()) return false;
+  const sourcePath = path.join(extractedRoot, "data", "rootark.sqlite");
+  if (!fs.existsSync(sourcePath)) return false;
+
+  const destinationPath = getDatabasePath();
+  closeDb();
+  fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
+  for (const suffix of ["", "-wal", "-shm"]) {
+    const source = `${sourcePath}${suffix}`;
+    const destination = `${destinationPath}${suffix}`;
+    if (fs.existsSync(source)) fs.copyFileSync(source, destination);
+    else fs.rmSync(destination, { force: true });
+  }
+  return true;
 }
 
 async function restoreBackup(id, options = {}) {
@@ -128,14 +146,16 @@ async function restoreBackup(id, options = {}) {
     await extractArchive(zip, restoreDir);
     restoreDataFiles(restoreDir);
     restoreUploads(restoreDir);
+    const restoredDatabase = restoreDatabaseFiles(restoreDir);
     return {
       backup,
       manifest,
       preRestore,
-      restartRecommended: Boolean(fs.existsSync(path.join(restoreDir, "data", "rootark.sqlite"))),
+      restartRecommended: restoredDatabase,
     };
   } finally {
     fs.rmSync(restoreDir, { recursive: true, force: true });
+    fs.rmSync(RESTORE_TMP_DIR, { recursive: true, force: true });
     release();
   }
 }

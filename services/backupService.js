@@ -3,9 +3,10 @@ const path = require("path");
 const crypto = require("crypto");
 const { ZipArchive } = require("archiver");
 const backupRepository = require("../repositories/backupRepository");
-const { ROOT_DIR } = require("../db");
+const { getDatabasePath, isDbEnabled } = require("../db");
+const { resolveRuntimePath } = require("../src/runtime-paths");
 
-const BACKUPS_DIR = path.join(ROOT_DIR, "data", "backups");
+const BACKUPS_DIR = resolveRuntimePath("data", "backups");
 const LOCK_FILE = path.join(BACKUPS_DIR, ".backup.lock");
 let operationLock = null;
 
@@ -70,7 +71,7 @@ function collectFilesRecursive(rootPath, entryPrefix, options = {}) {
 
 function collectBackupFiles() {
   const files = [];
-  const dataDir = path.join(ROOT_DIR, "data");
+  const dataDir = resolveRuntimePath("data");
   const includeUploads = envBool("BACKUP_INCLUDE_UPLOADS", true);
   const includeTemp = envBool("BACKUP_INCLUDE_TEMP", false);
 
@@ -80,9 +81,6 @@ function collectBackupFiles() {
     if (isSensitivePath(entryPath)) continue;
     const stat = fs.statSync(absolutePath);
     if (stat.isFile() && (
-      name === "rootark.sqlite" ||
-      name === "rootark.sqlite-wal" ||
-      name === "rootark.sqlite-shm" ||
       name.endsWith(".json") ||
       name === "README.md"
     )) {
@@ -90,12 +88,22 @@ function collectBackupFiles() {
     }
   }
 
+  if (isDbEnabled()) {
+    const databasePath = getDatabasePath();
+    for (const suffix of ["", "-wal", "-shm"]) {
+      const absolutePath = `${databasePath}${suffix}`;
+      if (fs.existsSync(absolutePath) && fs.statSync(absolutePath).isFile()) {
+        files.push({ absolutePath, entryPath: `data/rootark.sqlite${suffix}`, size: fs.statSync(absolutePath).size });
+      }
+    }
+  }
+
   if (includeUploads) {
-    files.push(...collectFilesRecursive(path.join(ROOT_DIR, "uploads"), "uploads"));
+    files.push(...collectFilesRecursive(resolveRuntimePath("uploads"), "uploads"));
   }
 
   if (includeTemp) {
-    files.push(...collectFilesRecursive(path.join(ROOT_DIR, "temp"), "temp"));
+    files.push(...collectFilesRecursive(resolveRuntimePath("temp"), "temp"));
   }
 
   return files.sort((a, b) => a.entryPath.localeCompare(b.entryPath));
