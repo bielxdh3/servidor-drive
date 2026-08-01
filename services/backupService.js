@@ -267,24 +267,36 @@ function acquireLock(operation) {
 async function createZipArchive(archivePath, manifest, files) {
   await new Promise((resolve, reject) => {
     let settled = false;
+    let owned = false;
+    let closed = false;
+    let finalized = false;
     const finish = (error) => {
       if (settled) return;
       settled = true;
-      if (error) fs.rmSync(archivePath, { force: true });
+      if (error && owned) fs.rmSync(archivePath, { force: true });
       error ? reject(error) : resolve();
     };
+    const complete = () => {
+      if (finalized && closed) finish();
+    };
+    let fd;
     let output;
-    try { output = fs.createWriteStream(archivePath, { flags: "wx" }); } catch (error) { finish(error); return; }
-    const archive = new ZipArchive({ zlib: { level: 9 } });
-    output.once("close", () => finish());
-    output.once("error", finish);
-    archive.once("error", finish);
-    archive.pipe(output);
-    archive.append(JSON.stringify(manifest, null, 2), { name: "backup-manifest.json" });
-    for (const file of files) {
-      archive.file(file.absolutePath, { name: file.entryPath });
+    try {
+      fd = fs.openSync(archivePath, "wx");
+      owned = true;
+      output = fs.createWriteStream(archivePath, { fd, autoClose: true });
+      const archive = new ZipArchive({ zlib: { level: 9 } });
+      output.once("close", () => { closed = true; complete(); });
+      output.once("error", finish);
+      archive.once("error", finish);
+      archive.pipe(output);
+      archive.append(JSON.stringify(manifest, null, 2), { name: "backup-manifest.json" });
+      for (const file of files) archive.file(file.absolutePath, { name: file.entryPath });
+      Promise.resolve(archive.finalize()).then(() => { finalized = true; complete(); }, finish);
+    } catch (error) {
+      if (fd !== undefined && !output) { try { fs.closeSync(fd); } catch {} }
+      finish(error);
     }
-    Promise.resolve(archive.finalize()).catch(finish);
   });
 }
 
@@ -328,8 +340,15 @@ function writeRetentionMetadata(tombstone, backup) {
 
 function recoverRetentionTombstones() {
   if (!fs.existsSync(BACKUPS_DIR)) return;
-  for (const name of fs.readdirSync(BACKUPS_DIR)) {
-    if (!name.endsWith(RETENTION_TOMBSTONE_SUFFIX)) continue;
+  const names = fs.readdirSync(BACKUPS_DIR);
+  const tombstoneNames = names.filter((name) => name.endsWith(RETENTION_TOMBSTONE_SUFFIX));
+  for (const name of names.filter((value) => value.endsWith(`${RETENTION_TOMBSTONE_SUFFIX}.json`))) {
+    const tombstone = name.slice(0, -5);
+    if (!tombstoneNames.includes(tombstone)) throw new Error("Retention metadata without tombstone");
+  }
+  const claims = new Map();
+  const records = [];
+  for (const name of tombstoneNames) {
     const original = getArchivePath(name.slice(0, -RETENTION_TOMBSTONE_SUFFIX.length));
     const tombstone = path.resolve(BACKUPS_DIR, name);
     if (!original || !tombstone.startsWith(`${path.resolve(BACKUPS_DIR)}${path.sep}`)) throw new Error("Invalid retention tombstone path");
@@ -337,15 +356,25 @@ function recoverRetentionTombstones() {
     let metadata;
     try { metadata = JSON.parse(fs.readFileSync(metadataPath, "utf8")); } catch { throw new Error("Malformed retention tombstone metadata"); }
     if (metadata.filename !== path.basename(original) || !metadata.backupId) throw new Error("Retention tombstone identity mismatch");
-    const matches = backupRepository.listBackups().filter((backup) => backup.id === metadata.backupId || backup.filename === metadata.filename);
+    for (const claim of [String(metadata.backupId), `filename:${metadata.filename}`]) {
+      if (claims.has(claim)) throw new Error("Multiple retention tombstones claim one backup");
+      claims.set(claim, name);
+    }
+    records.push({ name, original, tombstone, metadata, metadataPath });
+  }
+  const history = backupRepository.listBackups();
+  for (const { original, tombstone, metadata, metadataPath } of records) {
+    const matches = history.filter((backup) => backup.id === metadata.backupId || backup.filename === metadata.filename);
     if (matches.length > 1) throw new Error("Ambiguous retention tombstone history");
     if (fs.existsSync(original)) {
-      if (!metadata.checksum || matches.length === 0 || (matches[0].checksum && matches[0].checksum !== metadata.checksum)) throw new Error("Conflicting retention archive evidence");
+      if (matches.length === 0 || (matches[0].checksum && matches[0].checksum !== metadata.checksum) || (metadata.checksum && matches[0].checksum !== metadata.checksum)) throw new Error("Conflicting retention archive evidence");
       if (fs.readFileSync(original).equals(fs.readFileSync(tombstone))) {
         fs.rmSync(tombstone, { force: false });
         fs.rmSync(metadataPath, { force: false });
       } else throw new Error("Conflicting retention archive bytes");
     } else if (matches.length === 1) {
+      if (metadata.checksum !== null && metadata.checksum !== undefined && matches[0].checksum !== metadata.checksum) throw new Error("Retention checksum mismatch");
+      if (matches[0].checksum && !metadata.checksum) throw new Error("Retention checksum evidence missing");
       fs.renameSync(tombstone, original);
       fs.rmSync(metadataPath, { force: false });
     } else {
@@ -400,9 +429,10 @@ async function createBackup(options = {}) {
   const createdAt = new Date().toISOString();
   const backupType = options.type || "manual";
   const filenameBase = `rootark-${backupType === "pre-restore" ? "pre-restore" : "backup"}-${timestampForName()}`;
+  const maxArchiveAttempts = Math.max(1, Math.min(20, Math.floor(envNumber("BACKUP_ARCHIVE_COLLISION_RETRIES", 5))));
   let filename = `${filenameBase}.zip`;
-  if (fs.existsSync(path.join(BACKUPS_DIR, filename))) filename = `${filenameBase}-${String(process.pid % 1000).padStart(3, "0")}-${crypto.randomBytes(4).toString("hex")}.zip`;
-  const archivePath = path.join(BACKUPS_DIR, filename);
+  let archivePath = path.join(BACKUPS_DIR, filename);
+  let archiveCreated = false;
   const stageDir = path.join(BACKUPS_DIR, ".cloud-stage", id);
   const baseEntry = {
     id,
@@ -438,7 +468,24 @@ async function createBackup(options = {}) {
       cloud_complete: Boolean(collectionOptions.cloudComplete),
     };
 
-    await createZipArchive(archivePath, manifest, files);
+    let created = false;
+    for (let attempt = 0; attempt < maxArchiveAttempts; attempt += 1) {
+      filename = attempt === 0 ? `${filenameBase}.zip` : `${filenameBase}-${String(attempt).padStart(3, "0")}.zip`;
+      archivePath = path.join(BACKUPS_DIR, filename);
+      try {
+        await createZipArchive(archivePath, manifest, files);
+        created = true;
+        archiveCreated = true;
+        break;
+      } catch (error) {
+        if (error.code !== "EEXIST" || attempt === maxArchiveAttempts - 1) {
+          if (error.code === "EEXIST") error.code = "BACKUP_ARCHIVE_COLLISION_LIMIT";
+          throw error;
+        }
+      }
+    }
+    if (!created) throw new Error("Backup archive was not created");
+    baseEntry.filename = filename;
     const checksum = await calculateFileHash(archivePath);
     const finishedAt = new Date().toISOString();
     const durationMs = Date.now() - startedAt;
@@ -461,7 +508,7 @@ async function createBackup(options = {}) {
     await cleanupRetention();
     return saved;
   } catch (error) {
-    fs.rmSync(archivePath, { force: true });
+    if (archiveCreated) fs.rmSync(archivePath, { force: true });
     const failed = backupRepository.saveBackup({
       ...baseEntry,
       finishedAt: new Date().toISOString(),
