@@ -5862,6 +5862,7 @@ function buildWebDavPropResponse({ href, displayName, isCollection, size = 0, mo
 
 async function sendWebDavPropfind(req, res, segments) {
   const depth = String(req.headers.depth || "1");
+  if (!["0", "1"].includes(depth)) return res.status(400).send("Unsupported WebDAV depth");
   const target = await resolveWebDavTarget(req, segments);
   if (!target || target.blocked) return res.status(target?.status || 404).send(target?.message || "Not found");
 
@@ -6054,6 +6055,46 @@ function handleWebDavMkcol(req, res, segments) {
   return res.status(201).send("Created");
 }
 
+function getWebDavMoveDestination(req) {
+  const destination = String(req.headers.destination || "");
+  if (!destination) return null;
+  let target;
+  try {
+    target = new URL(destination, getExpectedOrigin(req));
+  } catch {
+    return null;
+  }
+  if (target.origin !== getExpectedOrigin(req)) return null;
+  return parseWebDavSegments({ originalUrl: target.pathname, url: target.pathname });
+}
+
+async function handleWebDavMove(req, res, segments) {
+  if (!WEBDAV_ALLOW_MOVE) return res.status(405).send("MOVE is disabled for WebDAV MVP");
+  if (!req.user?.permissions?.upload) return res.status(403).send("Upload permission required");
+  const source = await resolveWebDavTarget(req, segments);
+  const destinationSegments = getWebDavMoveDestination(req);
+  const destination = destinationSegments && getWebDavUploadTarget(req, destinationSegments);
+  if (!source || source.type !== "file" || !destination) return res.status(409).send("Invalid MOVE target");
+  if (source.folder.id !== destination.folder.id) return res.status(403).send("Cross-folder MOVE is not supported");
+  if (!hasFileEditAccess(req, source.folder, source.name)) return res.status(403).send("Permission denied");
+  if (source.name === destination.fileName) return res.status(403).send("Source and destination are identical");
+  const destinationPath = path.join(source.folder.uploadDir, destination.fileName);
+  const overwrite = String(req.headers.overwrite || "F").toUpperCase() === "T";
+  const destinationExists = isExistingFile(destinationPath);
+  if (destinationExists && !overwrite) return res.status(412).send("Destination exists");
+  if (destinationExists) fs.rmSync(destinationPath, { force: true });
+  fs.renameSync(source.filePath, destinationPath);
+  renamePublicLinksForFile(source.name, destination.fileName, source.folder.id);
+  renameFilePermission(source.folder.id, source.name, destination.fileName);
+  renameFileExpiration(source.folder.id, source.name, destination.fileName);
+  renameFileVersions(source.folder.id, source.name, destination.fileName);
+  renameEncryptedMetadata(source.folder.id, source.name, destination.fileName);
+  deleteCloudFileLater(source.folder.id, source.name, "uploads");
+  syncFileVersionsToCloud(source.folder.id, destination.fileName);
+  auditLog("webdav.move", getAuditActor(req), { type: "file", id: destination.fileName }, "move", "success", { folderId: source.folder.id, overwrite });
+  return res.status(destinationExists ? 204 : 201).end();
+}
+
 function sendWebDavOptions(req, res) {
   const methods = ["OPTIONS", "PROPFIND", "GET", "HEAD", "PUT", "MKCOL", "LOCK", "UNLOCK"];
   if (WEBDAV_ALLOW_DELETE) methods.push("DELETE");
@@ -6068,6 +6109,7 @@ function registerWebDavRoutes() {
   const handler = async (req, res) => {
     try {
       if (req.method === "OPTIONS") return sendWebDavOptions(req, res);
+      if (req.headers.origin && req.headers.origin !== getExpectedOrigin(req)) return res.status(403).send("Origin denied");
       if (!authenticateWebDavRequest(req, res)) return;
 
       const segments = parseWebDavSegments(req);
@@ -6086,7 +6128,7 @@ function registerWebDavRoutes() {
         return res.status(405).send("DELETE is disabled for WebDAV MVP");
       }
 
-      if (req.method === "MOVE") return res.status(405).send("MOVE is disabled for WebDAV MVP");
+      if (req.method === "MOVE") return handleWebDavMove(req, res, segments);
       if (req.method === "LOCK" || req.method === "UNLOCK") return res.status(501).send("WebDAV locking is not supported in this MVP");
       return res.status(405).send("Method not allowed");
     } catch (error) {
