@@ -238,6 +238,7 @@ function restoreFile({ item, folder, restoredBy, loaders }) {
 }
 
 function restoreFolder({ item, restoredBy, loaders, getDefaultFolder }) {
+  const trashPath = getTrashAbsolutePath(item);
   const metadata = item.restoreMetadata || {};
   const folder = metadata.folder || {
     id: item.originalFolderId,
@@ -254,7 +255,6 @@ function restoreFolder({ item, restoredBy, loaders, getDefaultFolder }) {
     : folder;
   loaders.saveFolders([...folders, restoredFolder]);
 
-  const trashPath = getTrashAbsolutePath(item);
   const uploadSource = path.join(trashPath, "uploads");
   const tempSource = path.join(trashPath, "temp");
   const uploadDestination = resolveRuntimePath("uploads", restoredFolder.id === "root" ? "" : restoredFolder.id);
