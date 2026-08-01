@@ -68,16 +68,24 @@ async function login(port, username, password) {
   };
 }
 
-function multipart(filename, bytes) {
+function multipartParts(parts, { close = true } = {}) {
   const boundary = `----rootark-${crypto.randomBytes(12).toString("hex")}`;
+  const chunks = [];
+  for (const { field = "file", filename, bytes = Buffer.alloc(0) } of parts) {
+    const disposition = filename === undefined
+      ? `--${boundary}\r\nContent-Disposition: form-data; name="${field}"\r\n\r\n`
+      : `--${boundary}\r\nContent-Disposition: form-data; name="${field}"; filename="${filename}"\r\nContent-Type: application/octet-stream\r\n\r\n`;
+    chunks.push(Buffer.from(disposition), Buffer.from(bytes), Buffer.from("\r\n"));
+  }
+  if (close) chunks.push(Buffer.from(`--${boundary}--\r\n`));
   return {
-    body: Buffer.concat([
-      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: text/plain\r\n\r\n`),
-      bytes,
-      Buffer.from(`\r\n--${boundary}--\r\n`),
-    ]),
+    body: Buffer.concat(chunks),
     contentType: `multipart/form-data; boundary=${boundary}`,
   };
+}
+
+function multipart(filename, bytes) {
+  return multipartParts([{ filename, bytes }]);
 }
 
 function isContained(parent, candidate) {
@@ -140,6 +148,7 @@ async function createHarness(t) {
       });
     }
     fs.rmSync(dir, { recursive: true, force: true });
+    assert.equal(fs.existsSync(dir), false);
   });
   assert.equal((await waitForServer(port)).status, 200);
   return { dir, port, quarantineDir, password };
@@ -147,6 +156,10 @@ async function createHarness(t) {
 
 async function upload(port, session, filename, bytes) {
   const payload = multipart(filename, bytes);
+  return uploadPayload(port, session, payload);
+}
+
+async function uploadPayload(port, session, payload) {
   return request(port, `/upload?folderId=${FOLDER_ID}`, {
     method: "POST",
     headers: {
@@ -158,6 +171,25 @@ async function upload(port, session, filename, bytes) {
     },
     body: payload.body,
   });
+}
+
+function filesUnder(dir) {
+  if (!fs.existsSync(dir)) return [];
+  if (fs.statSync(dir).isFile()) return [crypto.createHash("sha256").update(fs.readFileSync(dir)).digest("hex")];
+  return fs.readdirSync(dir, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .sort();
+}
+
+function assertRejectedClean(harness, response) {
+  assert.equal(response.status, 400, response.body);
+  assert.deepEqual(pending(harness.dir), {});
+  assert.deepEqual(quarantine(harness.dir).items, []);
+  assert.deepEqual(filesUnder(path.join(harness.dir, "temp", ".incoming")), []);
+  assert.deepEqual(filesUnder(path.join(harness.dir, "temp", FOLDER_ID)), []);
+  assert.deepEqual(filesUnder(harness.quarantineDir), []);
+  assert.deepEqual(filesUnder(path.join(harness.dir, "uploads")), []);
 }
 
 function pending(dir) {
@@ -252,4 +284,42 @@ test("users without upload permission are rejected before Multer creates artifac
   assert.deepEqual(quarantine(harness.dir).items, []);
   assert.deepEqual(fs.existsSync(path.join(harness.dir, "temp", ".incoming")) ? fs.readdirSync(path.join(harness.dir, "temp", ".incoming")) : [], []);
   assert.equal(fs.existsSync(path.join(harness.dir, "temp", FOLDER_ID, "denied.txt")), false);
+});
+
+test("Multer rejects malformed or disallowed multipart bodies without artifacts", { timeout: 30_000 }, async (t) => {
+  const harness = await createHarness(t);
+  const session = await login(harness.port, "uploader", harness.password);
+  const checkout = [path.join(ROOT, "temp", ".incoming"), path.join(ROOT, "temp", FOLDER_ID), path.join(ROOT, "data", "pending-uploads.json"), path.join(ROOT, "data", "quarantine.json")];
+  const checkoutBefore = checkout.map((target) => filesUnder(target));
+  const normal = multipart("truncated.txt", Buffer.from("partial"));
+  const cases = [
+    ["truncated multipart body", { ...normal, body: normal.body.subarray(0, normal.body.length - 8) }],
+    ["malformed boundary", { body: Buffer.from("not-a-multipart-body"), contentType: "multipart/form-data; boundary=missing" }],
+    ["unexpected file field", multipartParts([{ field: "attachment", filename: "wrong.txt", bytes: "wrong" }])],
+    ["multiple file parts", multipartParts([{ filename: "one.txt", bytes: "one" }, { filename: "two.txt", bytes: "two" }])],
+    ["nested field name", multipartParts([{ field: "versionComment[nested]", bytes: "value" }, { filename: "nested.txt", bytes: "file" }])],
+    ["oversized file", multipart("large.bin", Buffer.alloc(8 * 1024 * 1024 + 1, 0x61))],
+  ];
+
+  for (const [name, payload] of cases) {
+    await t.test(name, async () => {
+      const response = await uploadPayload(harness.port, session, payload);
+      assertRejectedClean(harness, response);
+      assert.deepEqual(checkout.map((target) => filesUnder(target)), checkoutBefore);
+    });
+  }
+});
+
+test("valid binary and UTF-8 filename uploads preserve bytes and API names", { timeout: 30_000 }, async (t) => {
+  const harness = await createHarness(t);
+  const session = await login(harness.port, "uploader", harness.password);
+  const bytes = Buffer.from([0, 255, 1, 254, 13, 10, 128, 127]);
+  const fileName = "ação-測試.bin";
+  const response = await upload(harness.port, session, fileName, bytes);
+  const result = JSON.parse(response.body);
+
+  assert.equal(response.status, 200, response.body);
+  assert.equal(result.fileName, fileName);
+  assert.equal(result.originalName, fileName);
+  assert.deepEqual(fs.readFileSync(path.join(harness.dir, "temp", FOLDER_ID, fileName)), bytes);
 });

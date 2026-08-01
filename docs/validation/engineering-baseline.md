@@ -21,6 +21,12 @@ npm run validate
 - Locked production and development dependency audit at high severity.
 - Disposable test data only.
 
+## Multer security baseline
+
+The installed Multer version was `1.4.5-lts.2` under the declared `^1.4.5-lts.1` range. Multer 1.x is deprecated and its official changelog records multipart security fixes across 2.0 through 2.2. `2.2.0` is the smallest stable release outside the published ranges for [CVE-2026-5038](https://github.com/expressjs/multer/security/advisories/GHSA-3p4h-7m6x-2hcm) and [CVE-2026-5079](https://github.com/expressjs/multer/security/advisories/GHSA-72gw-mp4g-v24j); earlier 2.x releases also fixed CVE-2025-47935, CVE-2025-47944, CVE-2025-48997, CVE-2025-7338, CVE-2026-2359, CVE-2026-3304, and CVE-2026-3520. The documented major-version compatibility change is a Node.js minimum of 10.16.0.
+
+Root.ark uses Multer `^2.2.0` with one-file, 8 MiB simple-upload, flat-field, and bounded field-count limits. Focused real-server regressions cover parser failures and cleanup, single-file enforcement, binary integrity, UTF-8 filenames, authorization-before-parser behavior, traversal-safe basenames, and quarantine policy.
+
 ## Environment-dependent validation
 
 This baseline does not automatically validate live ClamAV, S3, Google Drive, Windows WebDAV mounting, browser-driven flows, long-running migration, cloud backup storage, scheduler behavior, retention under time/count pressure, hostile ZIP corpora beyond current protections, full production SQLite recovery, folder-trash, empty-trash, automatic cleanup, cloud trash deletion, chunked-upload, or synchronization exercises. The simple `POST /upload` multipart boundary is covered with a disabled scan provider while retaining the extension block; production HTTPS, reverse-proxy, Host, and Origin configuration also requires a real deployment environment. Those checks require disposable data and the relevant real prerequisites.

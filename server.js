@@ -4939,8 +4939,16 @@ const storage = multer.diskStorage({
   },
 });
 
-const upload = multer({ storage });
-const chunkUpload = multer({ dest: path.join(CHUNK_UPLOAD_DIR, "incoming") });
+const upload = multer({
+  storage,
+  defParamCharset: "utf8",
+  limits: { fileSize: SINGLE_UPLOAD_MAX_BYTES, files: 1, fields: 10, fieldNestingDepth: 0 },
+});
+const chunkUpload = multer({
+  dest: path.join(CHUNK_UPLOAD_DIR, "incoming"),
+  defParamCharset: "utf8",
+  limits: { files: 1, fields: 10, fieldNestingDepth: 0 },
+});
 
 function rejectLargeSingleUpload(req, res, next) {
   const contentLength = Number(req.headers["content-length"]) || 0;
