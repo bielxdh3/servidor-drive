@@ -8,6 +8,7 @@ const net = require("net");
 const { pipeline } = require("stream/promises");
 const mammoth = require("mammoth");
 const WordExtractor = require("word-extractor");
+const { previewText } = require("./services/documentPreviewService");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const QRCode = require("qrcode");
@@ -6760,31 +6761,11 @@ app.get("/preview/text/:scope/:name", authenticate, async (req, res) => {
   const target = await ensurePreviewAccess(req, res, req.params.scope, req.params.name, req.query.folderId);
   if (!target) return;
 
-  const extension = path.extname(target.name).toLowerCase();
-  const kind = getPreviewKind(target.name);
-
   try {
-    if (kind === "text") {
-      const stats = fs.statSync(target.filePath);
-      if (stats.size > MAX_TEXT_PREVIEW_BYTES) {
-        return res.status(413).json({ error: "Arquivo muito grande para preview textual. Use download." });
-      }
-      const content = fs.readFileSync(target.filePath, "utf-8");
-      return res.json({ content, format: "text", language: extension.replace(".", "") || "text" });
-    }
-
-    if (extension === ".docx") {
-      const result = await mammoth.extractRawText({ path: target.filePath });
-      return res.json({ content: result.value, format: "document", language: "docx" });
-    }
-
-    if (extension === ".doc") {
-      const document = await wordExtractor.extract(target.filePath);
-      return res.json({ content: document.getBody(), format: "document", language: "doc" });
-    }
-
-    res.status(400).json({ error: "Tipo de arquivo sem preview textual" });
+    return res.json(await previewText(target.filePath, target.name));
   } catch (error) {
+    if (error.message === "PREVIEW_TOO_LARGE") return res.status(413).json({ error: "Arquivo muito grande para preview textual. Use download." });
+    if (error.message === "PREVIEW_UNSUPPORTED") return res.status(400).json({ error: "Tipo de arquivo sem preview textual" });
     res.status(500).json({ error: "Nao foi possivel gerar a previa" });
   }
 });
