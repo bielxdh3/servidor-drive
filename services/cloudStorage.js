@@ -1,0 +1,102 @@
+const fs = require("fs");
+const path = require("path");
+const { pipeline } = require("stream/promises");
+
+function createCloudStorage(options = {}) {
+  const provider = String(options.provider || "local").toLowerCase();
+  const prefix = normalizePrefix(options.prefix || "rootark");
+  const rootFolderId = String(options.rootFolderId || "root");
+  const createS3Client = options.createS3Client || defaultS3Client(options.s3 || {});
+  const createGoogleDriveClient = options.createGoogleDriveClient || defaultGoogleDriveClient(options.gdrive || {});
+  let s3Client;
+  let driveClient;
+
+  function enabled() { return provider === "s3" || provider === "gdrive"; }
+  function status() {
+    return {
+      provider,
+      enabled: enabled(),
+      prefix,
+      s3: { bucketConfigured: Boolean(options.s3?.bucket), region: options.s3?.region || "", endpointConfigured: Boolean(options.s3?.endpoint) },
+      gdrive: { folderConfigured: Boolean(options.gdrive?.folderId), credentialsConfigured: Boolean(options.gdrive?.credentials || options.gdrive?.credentialsPath) },
+    };
+  }
+  function key(folderId = rootFolderId, fileName = "", area = "uploads") {
+    const segment = (value, name) => {
+      const raw = String(value || "").replace(/\\/g, "/");
+      if (raw.startsWith("/")) throw cloudError("invalid_path", `Invalid ${name}`);
+      const clean = raw.replace(/^\/+|\/+$/g, "");
+      if (!clean || clean.split("/").some((part) => !part || part === "." || part === "..")) throw cloudError("invalid_path", `Invalid ${name}`);
+      return clean;
+    };
+    const safeArea = segment(area, "area");
+    const safeFolder = segment(folderId || rootFolderId, "folder");
+    if (!fileName) return path.posix.join(prefix, safeArea, safeFolder);
+    const normalized = String(fileName).replace(/\\/g, "/");
+    if (normalized.includes("/") || normalized === "." || normalized === "..") throw cloudError("invalid_path", "Invalid filename");
+    return path.posix.join(prefix, safeArea, safeFolder, normalized);
+  }
+  function objectKey(folderId, fileName, area) {
+    if (!fileName) throw cloudError("invalid_path", "Invalid filename");
+    return key(folderId, fileName, area);
+  }
+  async function s3() { if (!s3Client) s3Client = await createS3Client(); return s3Client; }
+  async function drive() { if (!driveClient) driveClient = await createGoogleDriveClient(); return driveClient; }
+  function assertProvider() { if (!["local", "s3", "gdrive"].includes(provider)) throw cloudError("unsupported_provider", "Unsupported cloud provider"); }
+  function bucket() { if (!options.s3?.bucket) throw cloudError("configuration", "S3 bucket is not configured"); return options.s3.bucket; }
+  function folder() { if (!options.gdrive?.folderId) throw cloudError("configuration", "Google Drive folder is not configured"); return options.gdrive.folderId; }
+  function escapeQuery(value) { return String(value).replace(/'/g, "\\'"); }
+  async function findDriveFile(cloudKey) {
+    const result = await (await drive()).files.list({ q: `appProperties has { key='rootArkKey' and value='${escapeQuery(cloudKey)}' } and trashed=false`, fields: "files(id,name)", spaces: "drive", pageSize: 100 });
+    const files = result.data.files || [];
+    return files.sort((a, b) => String(a.id).localeCompare(String(b.id)))[0] || null;
+  }
+  async function upload(localPath, folderId, fileName, area = "uploads") {
+    assertProvider(); if (!enabled() || !fs.statSync(localPath, { throwIfNoEntry: false })?.isFile()) return null;
+    const cloudKey = objectKey(folderId, fileName, area);
+    if (provider === "s3") { const bucketName = bucket(); await (await s3()).send(new (require("@aws-sdk/client-s3").PutObjectCommand)({ Bucket: bucketName, Key: cloudKey, Body: fs.createReadStream(localPath) })); return { provider, key: cloudKey }; }
+    const existing = await findDriveFile(cloudKey);
+    const requestBody = { name: fileName, appProperties: { rootArkKey: cloudKey, rootArkFolderId: String(folderId || rootFolderId), rootArkArea: area } };
+    const media = { body: fs.createReadStream(localPath) };
+    if (existing) { await (await drive()).files.update({ fileId: existing.id, requestBody, media, fields: "id" }); return { provider, key: cloudKey, id: existing.id }; }
+    requestBody.parents = [folder()]; const result = await (await drive()).files.create({ requestBody, media, fields: "id" }); return { provider, key: cloudKey, id: result.data.id };
+  }
+  async function download(folderId, fileName, localPath, area = "uploads") {
+    assertProvider(); if (!enabled() || fs.existsSync(localPath)) return false;
+    const cloudKey = objectKey(folderId, fileName, area); fs.mkdirSync(path.dirname(localPath), { recursive: true });
+    try {
+      let input;
+      if (provider === "s3") { const bucketName = bucket(); input = (await (await s3()).send(new (require("@aws-sdk/client-s3").GetObjectCommand)({ Bucket: bucketName, Key: cloudKey }))).Body; }
+      else { const existing = await findDriveFile(cloudKey); if (!existing) return false; input = (await (await drive()).files.get({ fileId: existing.id, alt: "media" }, { responseType: "stream" })).data; }
+      await pipeline(input, fs.createWriteStream(localPath)); return true;
+    } catch (error) { fs.rmSync(localPath, { force: true }); throw classify(error); }
+  }
+  async function remove(folderId, fileName, area = "uploads") {
+    assertProvider(); if (!enabled()) return false; const cloudKey = objectKey(folderId, fileName, area);
+    if (provider === "s3") { const bucketName = bucket(); await (await s3()).send(new (require("@aws-sdk/client-s3").DeleteObjectCommand)({ Bucket: bucketName, Key: cloudKey })); return true; }
+    const existing = await findDriveFile(cloudKey); if (!existing) return false; await (await drive()).files.delete({ fileId: existing.id }); return true;
+  }
+  async function removePrefix(value) {
+    assertProvider(); if (!enabled()) return false;
+    const clean = normalizePrefix(value); if (clean !== prefix && !clean.startsWith(`${prefix}/`)) throw cloudError("invalid_prefix", "Prefix is outside cloud root");
+    if (provider === "s3") { const bucketName = bucket(); let token; do { const page = await (await s3()).send(new (require("@aws-sdk/client-s3").ListObjectsV2Command)({ Bucket: bucketName, Prefix: `${clean}/`, ContinuationToken: token })); const objects = (page.Contents || []).map(({ Key }) => ({ Key })).filter(({ Key }) => Key); if (objects.length) { const deleted = await (await s3()).send(new (require("@aws-sdk/client-s3").DeleteObjectsCommand)({ Bucket: bucketName, Delete: { Objects: objects } })); if (deleted.Errors?.length) throw cloudError("partial_delete", "Cloud prefix deletion was incomplete"); } token = page.NextContinuationToken; } while (token); return true; }
+    const [, area, folderId] = clean.split("/"); if (!area || !folderId) throw cloudError("invalid_prefix", "Invalid cloud prefix"); let token; do { const page = await (await drive()).files.list({ q: `appProperties has { key='rootArkFolderId' and value='${escapeQuery(folderId)}' } and appProperties has { key='rootArkArea' and value='${escapeQuery(area)}' } and trashed=false`, fields: "nextPageToken,files(id)", spaces: "drive", pageToken: token, pageSize: 100 }); for (const file of page.data.files || []) await (await drive()).files.delete({ fileId: file.id }); token = page.data.nextPageToken; } while (token); return true;
+  }
+  async function list(folderId, area = "uploads") {
+    assertProvider(); if (!enabled()) return []; const prefixKey = `${key(folderId, "", area)}/`; const files = [];
+    if (provider === "s3") { const bucketName = bucket(); let token; do { const page = await (await s3()).send(new (require("@aws-sdk/client-s3").ListObjectsV2Command)({ Bucket: bucketName, Prefix: prefixKey, ContinuationToken: token })); for (const item of page.Contents || []) { const name = path.posix.basename(item.Key || ""); if (name) files.push({ name, key: item.Key }); } token = page.NextContinuationToken; } while (token); return files; }
+    let token; do { const page = await (await drive()).files.list({ q: `appProperties has { key='rootArkFolderId' and value='${escapeQuery(folderId || rootFolderId)}' } and appProperties has { key='rootArkArea' and value='${escapeQuery(area)}' } and trashed=false`, fields: "nextPageToken,files(id,name,appProperties)", spaces: "drive", pageToken: token, pageSize: 100 }); for (const file of page.data.files || []) { const cloudKey = file.appProperties?.rootArkKey || ""; const name = path.posix.basename(cloudKey) || path.basename(file.name || ""); if (name) files.push({ name, id: file.id, key: cloudKey }); } token = page.data.nextPageToken; } while (token); return files;
+  }
+  const run = async (operation, ...args) => {
+    try { return await operation(...args); } catch (error) { throw classify(error); }
+  };
+  return { enabled, status, key, upload: (...args) => run(upload, ...args), download: (...args) => run(download, ...args), remove: (...args) => run(remove, ...args), removePrefix: (...args) => run(removePrefix, ...args), list: (...args) => run(list, ...args) };
+}
+
+function normalizePrefix(value) { const clean = String(value || "").replace(/\\/g, "/").replace(/^\/+|\/+$/g, ""); if (!clean || clean.split("/").some((part) => !part || part === "." || part === "..")) throw cloudError("invalid_prefix", "Invalid cloud prefix"); return clean; }
+function cloudError(code, message) { const error = new Error(message); error.code = code; return error; }
+function classify(error) { return error?.code ? error : cloudError("provider_error", "Cloud provider operation failed"); }
+function defaultS3Client(config) { return async () => { const { S3Client } = require("@aws-sdk/client-s3"); return new S3Client({ region: config.region || "us-east-1", ...(config.endpoint ? { endpoint: config.endpoint } : {}), ...(config.forcePathStyle ? { forcePathStyle: true } : {}) }); }; }
+function defaultGoogleDriveClient(config) { return async () => { const { google } = require("googleapis"); const auth = new google.auth.GoogleAuth({ ...(config.credentials ? { credentials: JSON.parse(config.credentials) } : {}), scopes: ["https://www.googleapis.com/auth/drive"] }); return google.drive({ version: "v3", auth }); }; }
+
+module.exports = { createCloudStorage };
