@@ -34,7 +34,7 @@ test("failed retries are bounded and cannot falsely report permanent completion"
   const pending = trashService.queueRemoteDeletion({ item: item("22222222-2222-4222-8222-222222222222"), deletedBy: "tester", loaders: {} });
   const failed = trashService.failRemoteDeletion(pending);
   assert.equal(failed.status, "remote_delete_pending");
-  assert.equal(failed.metadata.remoteDeletion.state, "failed");
+  assert.equal(failed.metadata.remoteDeletion.state, "retry_wait");
   assert.equal(failed.metadata.remoteDeletion.attempts, 1);
   const completed = trashService.completeRemoteDeletion(failed);
   assert.equal(completed.status, "permanently_deleted");
@@ -63,7 +63,8 @@ test("remote deletion state machine preserves terminal and retry boundaries", as
     for (let attempt = 0; attempt < 30; attempt += 1) pending = trashService.failRemoteDeletion(pending, new Error("provider detail must not persist"));
     assert.equal(pending.status, "remote_delete_pending");
     assert.equal(pending.metadata.remoteDeletion.attempts, 25);
-    assert.equal(pending.metadata.remoteDeletion.lastError, "remote_delete_failed");
+    assert.equal(pending.metadata.remoteDeletion.state, "terminal_failure");
+    assert.equal(pending.metadata.remoteDeletion.failureCategory, "provider_error");
     assert.equal(JSON.stringify(pending.metadata).includes("provider detail must not persist"), false);
   });
 
@@ -79,7 +80,7 @@ test("remote deletion state machine preserves terminal and retry boundaries", as
     const completed = trashService.completeRemoteDeletion(pending);
     assert.equal(completed.metadata.remoteDeletion.attempts, 1);
     assert.equal(completed.metadata.remoteDeletion.state, "completed");
-    assert.equal(completed.metadata.remoteDeletion.lastError, null);
+    assert.equal(completed.metadata.remoteDeletion.failureCategory, null);
     assert.ok(completed.metadata.remoteDeletion.completedAt);
   });
 
@@ -95,7 +96,7 @@ test("remote deletion state machine preserves terminal and retry boundaries", as
     pending = trashService.failRemoteDeletion(pending, new Error("sensitive provider response"));
     const reloaded = trashRepository.getTrashItem(pending.id);
     assert.equal(reloaded.status, "remote_delete_pending");
-    assert.equal(reloaded.metadata.remoteDeletion.state, "failed");
+    assert.equal(reloaded.metadata.remoteDeletion.state, "retry_wait");
     assert.equal(JSON.stringify(reloaded).includes("sensitive provider response"), false);
   });
 

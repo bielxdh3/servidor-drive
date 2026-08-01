@@ -3058,15 +3058,15 @@ function cleanupExpiredTrashItems() {
       if (!isCloudStorageEnabled()) {
         trashService.permanentlyDelete({ item, deletedBy: "system", loaders: getTrashLoaders() });
       } else {
-        const pending = trashService.queueRemoteDeletion({ item, deletedBy: "system", loaders: getTrashLoaders() });
+        const pending = trashService.queueRemoteDeletion({ item, deletedBy: "system", loaders: getTrashLoaders(), provider: getCloudStorageStatus().provider });
         auditLog("trash.remote_delete.queued", { username: "system", role: "system" }, { type: "trash", id: item.id }, "remote_delete", "success", {});
-        void deleteCloudTrashItem(pending).then(() => {
-          trashService.completeRemoteDeletion(pending);
-          auditLog("trash.remote_delete.completed", { username: "system", role: "system" }, { type: "trash", id: item.id }, "remote_delete", "success", {});
-        }).catch(() => {
-          trashService.failRemoteDeletion(pending);
-          auditLog("trash.remote_delete.failed", { username: "system", role: "system" }, { type: "trash", id: item.id }, "remote_delete", "failure", {});
-        });
+        void trashService.processRemoteDeletion({ item: pending, provider: deleteCloudTrashItem })
+          .then((result) => {
+            const state = result.metadata?.remoteDeletion?.state;
+            if (state === "completed") auditLog("trash.remote_delete.completed", { username: "system", role: "system" }, { type: "trash", id: item.id }, "remote_delete", "success", {});
+            else if (state === "terminal_failure") auditLog("trash.remote_delete.failed", { username: "system", role: "system" }, { type: "trash", id: item.id }, "remote_delete", "failure", { category: result.metadata?.remoteDeletion?.failureCategory });
+          })
+          .catch(() => {});
       }
       if (!isCloudStorageEnabled()) {
         auditLog(
@@ -4144,6 +4144,7 @@ function getTrashLoaders() {
 }
 
 function serializeTrashItemForUser(item) {
+  const remote = item.metadata?.remoteDeletion;
   return {
     id: item.id,
     itemType: item.itemType,
@@ -4154,6 +4155,21 @@ function serializeTrashItemForUser(item) {
     deletedAt: item.deletedAt,
     sizeBytes: item.sizeBytes,
     status: item.status,
+    ...(remote ? {
+      remoteDeletion: {
+        state: remote.state,
+        operationId: remote.operationId,
+        provider: remote.provider,
+        attempts: remote.attempts,
+        maxAttempts: remote.maxAttempts,
+        queuedAt: remote.queuedAt,
+        lastAttemptAt: remote.lastAttemptAt,
+        nextAttemptAt: remote.nextAttemptAt,
+        completedAt: remote.completedAt,
+        failureCategory: remote.failureCategory,
+        cancellationReason: remote.cancellationReason,
+      },
+    } : {}),
   };
 }
 
@@ -4228,12 +4244,12 @@ async function processPendingCloudTrashItems() {
   try {
     for (const item of trashRepository.listTrashItems({ status: "remote_delete_pending" })) {
       try {
-        await deleteCloudTrashItem(item);
-        trashService.completeRemoteDeletion(item);
-        auditLog("trash.remote_delete.completed", { username: "system", role: "system" }, { type: "trash", id: item.id }, "remote_delete", "success", {});
+        const result = await trashService.processRemoteDeletion({ item, provider: deleteCloudTrashItem });
+        const state = result.metadata?.remoteDeletion?.state;
+        if (state === "completed") auditLog("trash.remote_delete.completed", { username: "system", role: "system" }, { type: "trash", id: item.id }, "remote_delete", "success", {});
+        else if (state === "terminal_failure") auditLog("trash.remote_delete.failed", { username: "system", role: "system" }, { type: "trash", id: item.id }, "remote_delete", "failure", { category: result.metadata?.remoteDeletion?.failureCategory });
       } catch {
-        trashService.failRemoteDeletion(item);
-        auditLog("trash.remote_delete.failed", { username: "system", role: "system" }, { type: "trash", id: item.id }, "remote_delete", "failure", {});
+        // Persistence and claim failures are retried on the next scheduler tick.
       }
     }
   } catch (error) {
@@ -6464,6 +6480,7 @@ registerTrashRoutes(app, {
   deleteCloudTrashItemLater,
   ensureFolderDirectories,
   getAuditActor,
+  getCloudStorageStatus,
   getFolderById,
   getTrashLoaders,
   isTrashEnabled,
