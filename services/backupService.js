@@ -1,7 +1,8 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const archiver = require("archiver");
+const Database = require("better-sqlite3");
+const { ZipArchive } = require("archiver");
 const backupRepository = require("../repositories/backupRepository");
 const { getDatabasePath, getDb, isDbEnabled } = require("../db");
 const { resolveRuntimePath } = require("../src/runtime-paths");
@@ -126,12 +127,9 @@ async function collectBackupFiles(options = {}) {
   }
 
   if (isDbEnabled()) {
-    const databasePath = getDatabasePath();
-    for (const suffix of ["", "-wal", "-shm"]) {
-      const absolutePath = `${databasePath}${suffix}`;
-      if (fs.existsSync(absolutePath) && fs.statSync(absolutePath).isFile()) {
-        files.push({ absolutePath, entryPath: `data/rootark.sqlite${suffix}`, size: fs.statSync(absolutePath).size });
-      }
+    const snapshotPath = options.sqliteSnapshotPath;
+    if (snapshotPath && fs.existsSync(snapshotPath)) {
+      files.push({ absolutePath: snapshotPath, entryPath: "data/rootark.sqlite", size: fs.statSync(snapshotPath).size });
     }
   }
 
@@ -188,17 +186,22 @@ async function collectBackupFiles(options = {}) {
   return [...known.values()].sort((a, b) => a.entryPath.localeCompare(b.entryPath));
 }
 
-function checkpointDatabaseForBackup() {
-  if (!isDbEnabled()) return { skipped: true, reason: "database_disabled" };
-  const databasePath = getDatabasePath();
-  if (!fs.existsSync(databasePath)) return { skipped: true, reason: "database_not_found" };
-
-  const result = getDb().pragma("wal_checkpoint(TRUNCATE)");
-  const checkpoint = Array.isArray(result) ? result[0] : result;
-  if (checkpoint && Number(checkpoint.busy || checkpoint["busy"]) > 0) {
-    throw new Error("SQLite checkpoint ocupado; backup recusado para preservar consistencia");
+async function createSqliteSnapshot() {
+  if (!isDbEnabled() || !fs.existsSync(getDatabasePath())) return null;
+  const stageDir = resolveRuntimePath("data", `.sqlite-backup-${crypto.randomUUID()}`);
+  const snapshotPath = path.join(stageDir, "rootark.sqlite");
+  fs.mkdirSync(stageDir, { recursive: true });
+  try {
+    await getDb().backup(snapshotPath);
+    const snapshot = new Database(snapshotPath, { readonly: true, fileMustExist: true });
+    try {
+      if (snapshot.pragma("integrity_check", { simple: true }) !== "ok") throw new Error("SQLite snapshot integrity check failed");
+    } finally { snapshot.close(); }
+    return { stageDir, snapshotPath };
+  } catch (error) {
+    try { fs.rmSync(stageDir, { recursive: true, force: true }); } catch {}
+    throw error;
   }
-  return { skipped: false, result };
 }
 
 function calculateFileHash(filePath) {
@@ -895,10 +898,11 @@ async function createBackup(options = {}) {
     errorMessage: null,
     metadata: { notes: options.notes || "" },
   };
+  let sqliteSnapshot = null;
 
   try {
-    checkpointDatabaseForBackup();
-    const collectionOptions = { stageDir };
+    sqliteSnapshot = await createSqliteSnapshot();
+    const collectionOptions = { stageDir, sqliteSnapshotPath: sqliteSnapshot?.snapshotPath };
     const files = await collectBackupFiles(collectionOptions);
     const totalSize = files.reduce((sum, file) => sum + file.size, 0);
     const manifest = {
@@ -978,6 +982,10 @@ async function createBackup(options = {}) {
   } finally {
     fs.rmSync(stageDir, { recursive: true, force: true });
     try { fs.rmdirSync(path.dirname(stageDir)); } catch {}
+    if (sqliteSnapshot?.stageDir) {
+      try { fs.rmSync(sqliteSnapshot.stageDir, { recursive: true, force: true }); }
+      catch { console.error("[backup] SQLite staging cleanup failed"); }
+    }
     release();
   }
 }

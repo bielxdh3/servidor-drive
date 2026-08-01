@@ -37,7 +37,9 @@ test("configured SQLite backup and restore preserve the database path", { timeou
         const entry = zip.files.find((file) => file.path === "data/rootark.sqlite");
         assert.ok(entry);
         const archived = await entry.buffer();
-        fs.writeFileSync(databasePath, Buffer.from("mutated"));
+        const mutated = new Database(databasePath);
+        mutated.prepare("UPDATE proof SET value = 'mutated'").run();
+        mutated.close();
         await restoreService.restoreBackup(backup.id, { confirmation: "RESTORE", username: "test" });
         assert.deepEqual(fs.readFileSync(databasePath), archived);
       assert.equal(fs.existsSync(path.join(process.cwd(), "data", "backups")), true);
