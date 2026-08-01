@@ -3055,16 +3055,29 @@ function cleanupExpiredTrashItems() {
 
   for (const item of items) {
     try {
-      trashService.permanentlyDelete({ item, deletedBy: "system", loaders: getTrashLoaders() });
-      deleteCloudTrashItemLater(item);
-      auditLog(
-        item.itemType === "file" ? "trash.file.permanently_deleted" : "trash.folder.permanently_deleted",
-        { username: "system", role: "system" },
-        { type: "trash", id: item.id },
-        "auto_cleanup",
-        "success",
-        { retentionDays: getTrashRetentionDays(), itemType: item.itemType }
-      );
+      if (!isCloudStorageEnabled()) {
+        trashService.permanentlyDelete({ item, deletedBy: "system", loaders: getTrashLoaders() });
+      } else {
+        const pending = trashService.queueRemoteDeletion({ item, deletedBy: "system", loaders: getTrashLoaders() });
+        auditLog("trash.remote_delete.queued", { username: "system", role: "system" }, { type: "trash", id: item.id }, "remote_delete", "success", {});
+        void deleteCloudTrashItem(pending).then(() => {
+          trashService.completeRemoteDeletion(pending);
+          auditLog("trash.remote_delete.completed", { username: "system", role: "system" }, { type: "trash", id: item.id }, "remote_delete", "success", {});
+        }).catch(() => {
+          trashService.failRemoteDeletion(pending);
+          auditLog("trash.remote_delete.failed", { username: "system", role: "system" }, { type: "trash", id: item.id }, "remote_delete", "failure", {});
+        });
+      }
+      if (!isCloudStorageEnabled()) {
+        auditLog(
+          item.itemType === "file" ? "trash.file.permanently_deleted" : "trash.folder.permanently_deleted",
+          { username: "system", role: "system" },
+          { type: "trash", id: item.id },
+          "auto_cleanup",
+          "success",
+          { retentionDays: getTrashRetentionDays(), itemType: item.itemType }
+        );
+      }
     } catch (error) {
       auditLog("trash.delete.failed", { username: "system", role: "system" }, { type: "trash", id: item.id }, "auto_cleanup", "failure", {
         error: error.message,
@@ -4192,6 +4205,40 @@ function isWebDavEncryptedFile(folderId, fileName) {
 function isWebDavInternalStoredFile(folderId, fileName) {
   const name = path.basename(fileName || "");
   return isStoredVersionFile(folderId, name) || /\.v\d+$/i.test(name);
+}
+
+async function deleteCloudTrashItem(item) {
+  if (!isCloudStorageEnabled()) return false;
+  if (item.itemType === "folder") {
+    await deleteCloudPrefix(getCloudKey(item.originalFolderId, "", "uploads"));
+    await deleteCloudPrefix(getCloudKey(item.originalFolderId, "", "temp"));
+    return true;
+  }
+  await deleteFileFromCloud(item.originalFolderId || ROOT_FOLDER_ID, item.originalFileName, "uploads");
+  for (const version of item.restoreMetadata?.versions?.versions || []) {
+    if (version.storedAs && version.storedAs !== item.originalFileName) {
+      await deleteFileFromCloud(item.originalFolderId || ROOT_FOLDER_ID, version.storedAs, "uploads");
+    }
+  }
+  return true;
+}
+
+async function processPendingCloudTrashItems() {
+  if (!isCloudStorageEnabled()) return;
+  try {
+    for (const item of trashRepository.listTrashItems({ status: "remote_delete_pending" })) {
+      try {
+        await deleteCloudTrashItem(item);
+        trashService.completeRemoteDeletion(item);
+        auditLog("trash.remote_delete.completed", { username: "system", role: "system" }, { type: "trash", id: item.id }, "remote_delete", "success", {});
+      } catch {
+        trashService.failRemoteDeletion(item);
+        auditLog("trash.remote_delete.failed", { username: "system", role: "system" }, { type: "trash", id: item.id }, "remote_delete", "failure", {});
+      }
+    }
+  } catch (error) {
+    console.error("[cloud-trash] pending retry failed:", error.code || "persistence_error");
+  }
 }
 
 function deleteCloudTrashItemLater(item) {
@@ -6413,12 +6460,14 @@ registerTrashRoutes(app, {
   broadcastDataChanged,
   canManageTrash,
   canRestoreTrashItem,
+  deleteCloudTrashItem,
   deleteCloudTrashItemLater,
   ensureFolderDirectories,
   getAuditActor,
   getFolderById,
   getTrashLoaders,
   isTrashEnabled,
+  isCloudStorageEnabled,
   requirePermission,
   requireTrashManageAccess,
   rootFolderId: ROOT_FOLDER_ID,
@@ -7000,6 +7049,7 @@ initData();
 scheduleAutomaticBackups();
 cleanupExpiredTemporaryItems();
 cleanupExpiredTrashItems();
+void processPendingCloudTrashItems();
 repairCompressedTempUploads().catch((error) => {
   console.error("Falha ao reparar uploads temporarios:", error.message);
 });
@@ -7007,5 +7057,6 @@ cleanupOrphanTempUploads();
 cleanupIncomingUploads();
 setInterval(cleanupExpiredTemporaryItems, 60 * 1000);
 setInterval(cleanupExpiredTrashItems, 60 * 60 * 1000);
+setInterval(() => { void processPendingCloudTrashItems(); }, 60 * 1000);
 setInterval(cleanupIncomingUploads, 60 * 1000);
 server.listen(PORT, () => console.log(`Servidor rodando em http://localhost:${PORT}`));

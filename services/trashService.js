@@ -284,7 +284,7 @@ function restoreFolder({ item, restoredBy, loaders, getDefaultFolder }) {
   return trashRepository.saveTrashItem(item);
 }
 
-function permanentlyDelete({ item, deletedBy, loaders }) {
+function permanentlyDelete({ item, deletedBy, loaders, remoteDeletion = null }) {
   const target = getTrashAbsolutePath(item);
   fs.rmSync(target, { recursive: true, force: true });
   if (item.itemType === "file") {
@@ -298,9 +298,40 @@ function permanentlyDelete({ item, deletedBy, loaders }) {
   } else if (item.itemType === "folder") {
     removeFolderMetadata({ folderId: item.originalFolderId, loaders });
   }
-  item.status = "permanently_deleted";
+  if (remoteDeletion) item.metadata = { ...item.metadata, remoteDeletion };
+  item.status = remoteDeletion ? "remote_delete_pending" : "permanently_deleted";
   item.permanentlyDeletedBy = deletedBy;
   item.permanentlyDeletedAt = new Date().toISOString();
+  return trashRepository.saveTrashItem(item);
+}
+
+function queueRemoteDeletion({ item, deletedBy, loaders }) {
+  if (item.status !== "trashed") return item;
+  return permanentlyDelete({
+    item,
+    deletedBy,
+    loaders,
+    remoteDeletion: { state: "pending", attempts: 0, queuedAt: new Date().toISOString(), lastError: null },
+  });
+}
+
+function completeRemoteDeletion(item) {
+  if (item.status !== "remote_delete_pending") return item;
+  item.status = "permanently_deleted";
+  item.metadata = { ...item.metadata, remoteDeletion: { ...item.metadata?.remoteDeletion, state: "completed", completedAt: new Date().toISOString(), lastError: null } };
+  return trashRepository.saveTrashItem(item);
+}
+
+function failRemoteDeletion(item, error) {
+  if (item.status !== "remote_delete_pending") return item;
+  const previous = item.metadata?.remoteDeletion || {};
+  item.metadata = { ...item.metadata, remoteDeletion: {
+    ...previous,
+    state: "failed",
+    attempts: Math.min(25, (Number(previous.attempts) || 0) + 1),
+    lastAttemptAt: new Date().toISOString(),
+    lastError: "remote_delete_failed",
+  } };
   return trashRepository.saveTrashItem(item);
 }
 
@@ -318,6 +349,9 @@ module.exports = {
   moveFileToTrash,
   moveFolderToTrash,
   permanentlyDelete,
+  queueRemoteDeletion,
+  completeRemoteDeletion,
+  failRemoteDeletion,
   restoreFile,
   restoreFolder,
   summary,
