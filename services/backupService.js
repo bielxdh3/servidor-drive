@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const archiver = require("archiver");
+const { ZipArchive } = require("archiver");
 const backupRepository = require("../repositories/backupRepository");
 const { getDatabasePath, isDbEnabled } = require("../db");
 const { resolveRuntimePath } = require("../src/runtime-paths");
@@ -266,17 +266,25 @@ function acquireLock(operation) {
 
 async function createZipArchive(archivePath, manifest, files) {
   await new Promise((resolve, reject) => {
-    const output = fs.createWriteStream(archivePath);
-    const archive = archiver("zip", { zlib: { level: 9 } });
-    output.on("close", resolve);
-    output.on("error", reject);
-    archive.on("error", reject);
+    let settled = false;
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      if (error) fs.rmSync(archivePath, { force: true });
+      error ? reject(error) : resolve();
+    };
+    let output;
+    try { output = fs.createWriteStream(archivePath, { flags: "wx" }); } catch (error) { finish(error); return; }
+    const archive = new ZipArchive({ zlib: { level: 9 } });
+    output.once("close", () => finish());
+    output.once("error", finish);
+    archive.once("error", finish);
     archive.pipe(output);
     archive.append(JSON.stringify(manifest, null, 2), { name: "backup-manifest.json" });
     for (const file of files) {
       archive.file(file.absolutePath, { name: file.entryPath });
     }
-    archive.finalize();
+    Promise.resolve(archive.finalize()).catch(finish);
   });
 }
 
@@ -297,15 +305,53 @@ function retentionTombstone(archivePath) {
   return target;
 }
 
+function retentionTombstoneMetadata(tombstone) {
+  const root = path.resolve(BACKUPS_DIR);
+  const metadata = path.resolve(`${tombstone}.json`);
+  if (!metadata.startsWith(`${root}${path.sep}`)) throw new Error("Retention metadata escaped backup root");
+  return metadata;
+}
+
+function writeRetentionMetadata(tombstone, backup) {
+  const metadataPath = retentionTombstoneMetadata(tombstone);
+  const temporary = `${metadataPath}.${crypto.randomUUID()}.tmp`;
+  const value = JSON.stringify({ backupId: backup.id, filename: backup.filename, checksum: backup.checksum || null });
+  try {
+    fs.writeFileSync(temporary, value, { encoding: "utf8", flag: "wx" });
+    fs.renameSync(temporary, metadataPath);
+  } catch (error) {
+    fs.rmSync(temporary, { force: true });
+    throw error;
+  }
+  return metadataPath;
+}
+
 function recoverRetentionTombstones() {
   if (!fs.existsSync(BACKUPS_DIR)) return;
   for (const name of fs.readdirSync(BACKUPS_DIR)) {
     if (!name.endsWith(RETENTION_TOMBSTONE_SUFFIX)) continue;
     const original = getArchivePath(name.slice(0, -RETENTION_TOMBSTONE_SUFFIX.length));
     const tombstone = path.resolve(BACKUPS_DIR, name);
-    if (!original || !tombstone.startsWith(`${path.resolve(BACKUPS_DIR)}${path.sep}`)) continue;
-    if (fs.existsSync(original)) fs.rmSync(tombstone, { force: true });
-    else fs.renameSync(tombstone, original);
+    if (!original || !tombstone.startsWith(`${path.resolve(BACKUPS_DIR)}${path.sep}`)) throw new Error("Invalid retention tombstone path");
+    const metadataPath = retentionTombstoneMetadata(tombstone);
+    let metadata;
+    try { metadata = JSON.parse(fs.readFileSync(metadataPath, "utf8")); } catch { throw new Error("Malformed retention tombstone metadata"); }
+    if (metadata.filename !== path.basename(original) || !metadata.backupId) throw new Error("Retention tombstone identity mismatch");
+    const matches = backupRepository.listBackups().filter((backup) => backup.id === metadata.backupId || backup.filename === metadata.filename);
+    if (matches.length > 1) throw new Error("Ambiguous retention tombstone history");
+    if (fs.existsSync(original)) {
+      if (!metadata.checksum || matches.length === 0 || (matches[0].checksum && matches[0].checksum !== metadata.checksum)) throw new Error("Conflicting retention archive evidence");
+      if (fs.readFileSync(original).equals(fs.readFileSync(tombstone))) {
+        fs.rmSync(tombstone, { force: false });
+        fs.rmSync(metadataPath, { force: false });
+      } else throw new Error("Conflicting retention archive bytes");
+    } else if (matches.length === 1) {
+      fs.renameSync(tombstone, original);
+      fs.rmSync(metadataPath, { force: false });
+    } else {
+      fs.rmSync(tombstone, { force: false });
+      fs.rmSync(metadataPath, { force: false });
+    }
   }
 }
 
@@ -323,17 +369,21 @@ async function cleanupRetention() {
     const archivePath = getArchivePath(backup.filename);
     if (!archivePath || !fs.existsSync(archivePath)) continue;
     const tombstone = retentionTombstone(archivePath);
+    const metadataPath = retentionTombstoneMetadata(tombstone);
     fs.renameSync(archivePath, tombstone);
     let repositoryDeleted = false;
     try {
+      writeRetentionMetadata(tombstone, backup);
       backupRepository.deleteBackup(backup.id);
       repositoryDeleted = true;
     } catch (error) {
       try { fs.renameSync(tombstone, archivePath); } catch {}
+      fs.rmSync(metadataPath, { force: true });
       throw error;
     } finally {
       if (repositoryDeleted) {
         try { fs.rmSync(tombstone, { force: false }); } catch {}
+        try { fs.rmSync(metadataPath, { force: false }); } catch {}
       }
     }
   }
@@ -349,7 +399,9 @@ async function createBackup(options = {}) {
   const id = crypto.randomUUID();
   const createdAt = new Date().toISOString();
   const backupType = options.type || "manual";
-  const filename = `rootark-${backupType === "pre-restore" ? "pre-restore" : "backup"}-${timestampForName()}.zip`;
+  const filenameBase = `rootark-${backupType === "pre-restore" ? "pre-restore" : "backup"}-${timestampForName()}`;
+  let filename = `${filenameBase}.zip`;
+  if (fs.existsSync(path.join(BACKUPS_DIR, filename))) filename = `${filenameBase}-${String(process.pid % 1000).padStart(3, "0")}-${crypto.randomBytes(4).toString("hex")}.zip`;
   const archivePath = path.join(BACKUPS_DIR, filename);
   const stageDir = path.join(BACKUPS_DIR, ".cloud-stage", id);
   const baseEntry = {
