@@ -245,14 +245,14 @@ function getArchivePath(filename) {
 }
 
 async function cleanupRetention() {
-  const count = envNumber("BACKUP_RETENTION_COUNT", 10);
-  const days = envNumber("BACKUP_RETENTION_DAYS", 30);
-  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  const count = Math.max(0, Math.floor(envNumber("BACKUP_RETENTION_COUNT", 10)));
+  const days = Math.max(0, Math.floor(envNumber("BACKUP_RETENTION_DAYS", 30)));
+  const cutoff = days ? Date.now() - days * 24 * 60 * 60 * 1000 : null;
   const backups = backupRepository.listBackups()
     .filter((item) => item.status === "success" && item.type !== "pre-restore")
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt) || String(b.id).localeCompare(String(a.id)));
 
-  const toDelete = backups.filter((item, index) => index >= count || new Date(item.createdAt).getTime() < cutoff);
+  const toDelete = backups.filter((item, index) => (count > 0 && index >= count) || (cutoff && new Date(item.createdAt).getTime() < cutoff));
   for (const backup of toDelete) {
     const archivePath = getArchivePath(backup.filename);
     if (archivePath && fs.existsSync(archivePath)) fs.rmSync(archivePath, { force: true });
@@ -382,6 +382,7 @@ module.exports = {
   LOCK_FILE,
   acquireLock,
   calculateFileHash,
+  cleanupRetention,
   createBackup,
   deleteBackup,
   getArchivePath,
