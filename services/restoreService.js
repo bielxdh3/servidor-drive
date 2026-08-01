@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const Database = require("better-sqlite3");
 const unzipper = require("unzipper");
 const { closeDb, getDatabasePath, isDbEnabled } = require("../db");
 const { resolveRuntimePath } = require("../src/runtime-paths");
@@ -318,6 +319,29 @@ function restoreUploads(extractedRoot) {
   copyDirectoryContents(extractedUploads, destinationUploads);
 }
 
+function validateDatabase(pathname) {
+  const database = new Database(pathname, { readonly: true, fileMustExist: true });
+  try {
+    if (database.pragma("integrity_check", { simple: true }) !== "ok") throw new Error("Integridade SQLite invalida");
+    if (database.pragma("foreign_key_check", { simple: true }) !== undefined) throw new Error("Chaves estrangeiras SQLite invalidas");
+  } finally {
+    database.close();
+  }
+}
+
+function recoverDatabaseRollback(destinationPath) {
+  if (fs.existsSync(destinationPath)) return;
+  const prefix = `${path.basename(destinationPath)}.restore-rollback-`;
+  const candidate = fs.readdirSync(path.dirname(destinationPath)).find((name) => name.startsWith(prefix));
+  if (!candidate) return;
+  const rollbackPath = path.join(path.dirname(destinationPath), candidate);
+  fs.renameSync(rollbackPath, destinationPath);
+  for (const suffix of ["-wal", "-shm"]) {
+    const sidecar = `${rollbackPath}${suffix}`;
+    if (fs.existsSync(sidecar)) fs.renameSync(sidecar, `${destinationPath}${suffix}`);
+  }
+}
+
 function restoreDatabaseFiles(extractedRoot) {
   if (!isDbEnabled()) return false;
   const sourcePath = path.join(extractedRoot, "data", "rootark.sqlite");
@@ -326,11 +350,38 @@ function restoreDatabaseFiles(extractedRoot) {
   const destinationPath = getDatabasePath();
   closeDb();
   fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
+  recoverDatabaseRollback(destinationPath);
+  const token = crypto.randomUUID();
+  const stagePath = `${destinationPath}.restore-stage-${token}`;
+  const rollbackPath = `${destinationPath}.restore-rollback-${token}`;
   for (const suffix of ["", "-wal", "-shm"]) {
     const source = `${sourcePath}${suffix}`;
-    const destination = `${destinationPath}${suffix}`;
-    if (fs.existsSync(source)) fs.copyFileSync(source, destination);
-    else fs.rmSync(destination, { force: true });
+    if (fs.existsSync(source)) fs.copyFileSync(source, `${stagePath}${suffix}`);
+  }
+  try {
+    validateDatabase(stagePath);
+    for (const suffix of ["", "-wal", "-shm"]) {
+      const destination = `${destinationPath}${suffix}`;
+      if (fs.existsSync(destination)) fs.renameSync(destination, `${rollbackPath}${suffix}`);
+    }
+    try {
+      for (const suffix of ["", "-wal", "-shm"]) {
+        const staged = `${stagePath}${suffix}`;
+        if (fs.existsSync(staged)) fs.renameSync(staged, `${destinationPath}${suffix}`);
+      }
+    } catch (error) {
+      for (const suffix of ["", "-wal", "-shm"]) fs.rmSync(`${destinationPath}${suffix}`, { force: true });
+      for (const suffix of ["", "-wal", "-shm"]) {
+        const rollback = `${rollbackPath}${suffix}`;
+        if (fs.existsSync(rollback)) fs.renameSync(rollback, `${destinationPath}${suffix}`);
+      }
+      throw error;
+    }
+  } finally {
+    for (const suffix of ["", "-wal", "-shm"]) {
+      fs.rmSync(`${stagePath}${suffix}`, { force: true });
+      fs.rmSync(`${rollbackPath}${suffix}`, { force: true });
+    }
   }
   return true;
 }
@@ -389,4 +440,6 @@ module.exports = {
   restoreBackup,
   setCloudStorage,
   validateBackupArchive,
+  validateDatabase,
+  recoverDatabaseRollback,
 };
