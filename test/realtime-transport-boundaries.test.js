@@ -24,6 +24,10 @@ test("realtime transport declares bounded payload, compression, binary, and burs
   assert.match(contents, /if \(isBinary\) return socket\.close\(1003/);
   assert.match(contents, /REALTIME_MAX_MESSAGES_PER_WINDOW/);
   assert.match(contents, /Limite de mensagens excedido/);
+  assert.match(contents, /REALTIME_HEARTBEAT_MS/);
+  assert.match(contents, /socket\.ping\(\)/);
+  assert.match(contents, /socket\.terminate\(\)/);
+  assert.match(contents, /server\.once\("close", \(\) => clearInterval\(realtimeHeartbeat\)\)/);
 });
 
 test("WebDAV HTTP boundary rejects unauthenticated, hostile, traversing, and infinite-depth requests", { timeout: 20_000 }, async (t) => {

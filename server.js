@@ -45,7 +45,15 @@ const server = http.createServer(app);
 const REALTIME_MAX_PAYLOAD_BYTES = 16 * 1024;
 const REALTIME_MAX_MESSAGES_PER_WINDOW = 30;
 const REALTIME_RATE_WINDOW_MS = 10 * 1000;
+const REALTIME_HEARTBEAT_MS = 30 * 1000;
 const wss = new WebSocket.Server({ server, path: "/ws", maxPayload: REALTIME_MAX_PAYLOAD_BYTES, perMessageDeflate: false });
+const realtimeHeartbeat = setInterval(() => {
+  for (const socket of wss.clients) {
+    if (socket.isAlive === false) socket.terminate();
+    else { socket.isAlive = false; socket.ping(); }
+  }
+}, REALTIME_HEARTBEAT_MS);
+server.once("close", () => clearInterval(realtimeHeartbeat));
 const JWT_SECRET = String(process.env.JWT_SECRET || "");
 if (JWT_SECRET.length < 32 || JWT_SECRET === "rootark_secret_change_in_production") {
   throw new Error("JWT_SECRET deve ser definido explicitamente com pelo menos 32 caracteres seguros.");
@@ -4392,6 +4400,8 @@ wss.on("connection", (socket, req) => {
   }
 
   socket.user = user;
+  socket.isAlive = true;
+  socket.on("pong", () => { socket.isAlive = true; });
   socket.realtimeRate = { startedAt: Date.now(), count: 0 };
   sendRealtime(socket, "connected", { username: user.username });
 
