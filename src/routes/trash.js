@@ -132,6 +132,12 @@ function registerTrashRoutes(app, context) {
       }
       const persistedRemoteState = deleted.metadata?.remoteDeletion?.state;
       if (operationError && (!remoteRequired || !["pending", "retry_wait", "completed", "terminal_failure"].includes(persistedRemoteState))) {
+        if (!remoteRequired && deleted.status === "trashed") {
+          auditLog("trash.delete.failed", getAuditActor(req), { type: "trash", id }, "permanently_delete", "failure", {
+            category: operationError.code || "operational_failure",
+          });
+          return res.status(500).json({ error: "Erro ao excluir permanentemente" });
+        }
         return persistenceFailure(req, id, operationError, res);
       }
       const remoteDeletion = remoteRequired ? remoteStatus(deleted) : "not_required";
@@ -190,11 +196,12 @@ function registerTrashRoutes(app, context) {
           continue;
         }
         const state = isCloudStorageEnabled() ? remoteStatus(persisted) : "not_required";
-        if (operationError && (isCloudStorageEnabled() ? !["pending", "retry_wait", "completed", "terminal_failure"].includes(state) : persisted.status !== "permanently_deleted")) {
+        if (operationError && isCloudStorageEnabled() && !["pending", "retry_wait", "completed", "terminal_failure"].includes(state)) {
           persistenceFailed = true;
           recordPersistenceFailure(req, item.id, operationError);
           continue;
         }
+        if (operationError && !isCloudStorageEnabled()) continue;
         if (state === "completed" || state === "not_required") deletedCount += 1;
         else if (state === "terminal_failure") terminalCount += 1;
         else pendingCount += 1;
