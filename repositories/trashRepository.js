@@ -62,6 +62,9 @@ function saveJsonItems(items) {
 function listTrashItems(options = {}) {
   const status = options.status || "trashed";
   if (isDbEnabled() && hasTrashTable()) {
+    if (status === "*") {
+      return getDb().prepare("SELECT * FROM trash_items ORDER BY deleted_at DESC").all().map(rowToItem);
+    }
     return getDb().prepare(`
       SELECT * FROM trash_items
       WHERE status = ?
@@ -70,7 +73,7 @@ function listTrashItems(options = {}) {
   }
 
   return loadJsonItems()
-    .filter((item) => item.status === status)
+    .filter((item) => status === "*" || item.status === status)
     .sort((a, b) => new Date(b.deletedAt) - new Date(a.deletedAt));
 }
 

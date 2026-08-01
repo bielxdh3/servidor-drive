@@ -5,6 +5,130 @@ const { resolveRuntimePath } = require("../src/runtime-paths");
 const trashRepository = require("../repositories/trashRepository");
 
 const TRASH_STORAGE_DIR = resolveRuntimePath("data", "trash");
+const REMOTE_LOCK_DIR = resolveRuntimePath("data", "trash-remote-locks");
+const DEFAULT_MAX_REMOTE_ATTEMPTS = 25;
+const MAX_REMOTE_BACKOFF_MS = 60 * 60 * 1000;
+
+function getClock(clock) {
+  if (typeof clock === "function") return clock;
+  if (clock && typeof clock.now === "function") return () => clock.now();
+  return () => Date.now();
+}
+
+function nowIso(clock) {
+  return new Date(getClock(clock)()).toISOString();
+}
+
+function remoteState(item) {
+  const state = item?.metadata?.remoteDeletion;
+  if (!state) return null;
+  if (state.state === "failed") return { ...state, state: "retry_wait" };
+  return state;
+}
+
+function remoteIdentity(item, provider) {
+  const folderId = item.originalFolderId || "root";
+  if (item.itemType === "folder") {
+    return {
+      provider,
+      kind: "prefix",
+      prefixes: [`uploads/${folderId}`, `temp/${folderId}`],
+    };
+  }
+  const objects = [item.originalFileName].filter(Boolean);
+  for (const version of item.restoreMetadata?.versions?.versions || []) {
+    if (version.storedAs && !objects.includes(version.storedAs)) objects.push(version.storedAs);
+  }
+  return { provider, kind: "object", folderId, area: "uploads", objects };
+}
+
+function failureCategory(error) {
+  const code = String(error?.code || "");
+  if (["not_found", "NoSuchKey", "notFound"].includes(code) || error?.missing === true) return "missing_object";
+  if (["partial_delete", "partial_failure"].includes(code)) return "partial_failure";
+  if (["configuration", "invalid_path", "invalid_prefix", "unsupported_provider"].includes(code)) return code;
+  return "provider_error";
+}
+
+function backoffMs(attempts) {
+  return Math.min(MAX_REMOTE_BACKOFF_MS, 1000 * (2 ** Math.max(0, attempts - 1)));
+}
+
+function transition(state, next, at, details = {}) {
+  return {
+    ...state,
+    ...details,
+    state: next,
+    transitions: [...(Array.isArray(state.transitions) ? state.transitions : []), { state: next, at }],
+  };
+}
+
+function lockFile(operationId) {
+  return path.join(REMOTE_LOCK_DIR, `${safeName(operationId)}.lock`);
+}
+
+function releaseRemoteClaim(claim) {
+  if (!claim?.path) return;
+  try {
+    const current = fs.readFileSync(claim.path, "utf8");
+    if (current === claim.token) fs.rmSync(claim.path, { force: true });
+  } catch {
+    // A missing lock is already released; never mask the operation result.
+  }
+}
+
+function claimRemoteDeletion({ item, clock, leaseMs = 60 * 1000, workerId = crypto.randomUUID() }) {
+  const current = trashRepository.getTrashItem(item.id) || item;
+  const previous = remoteState(current);
+  if (!previous || !["pending", "retry_wait"].includes(previous.state)) return null;
+  const now = getClock(clock)();
+  const nextAt = new Date(previous.nextAttemptAt || 0).getTime();
+  if (Number.isFinite(nextAt) && nextAt > now) return null;
+  const operationId = previous.operationId || crypto.randomUUID();
+  const token = `${workerId}:${crypto.randomUUID()}`;
+  const target = lockFile(operationId);
+  fs.mkdirSync(REMOTE_LOCK_DIR, { recursive: true });
+  try {
+    const fd = fs.openSync(target, "wx");
+    fs.writeFileSync(fd, token, "utf8");
+    fs.closeSync(fd);
+  } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+    try {
+      const lockState = fs.statSync(target);
+      if (lockState.mtimeMs + leaseMs <= now) fs.rmSync(target, { force: true });
+    } catch {
+      return null;
+    }
+    try {
+      const fd = fs.openSync(target, "wx");
+      fs.writeFileSync(fd, token, "utf8");
+      fs.closeSync(fd);
+    } catch {
+      return null;
+    }
+  }
+  const at = new Date(now).toISOString();
+  const claimed = transition(previous, previous.state, at, {
+    operationId,
+    leaseToken: token,
+    leaseUntil: new Date(now + leaseMs).toISOString(),
+    workerId,
+  });
+  try {
+    const fresh = trashRepository.getTrashItem(item.id) || current;
+    const freshState = remoteState(fresh);
+    if (!freshState || !["pending", "retry_wait"].includes(freshState.state)) {
+      releaseRemoteClaim({ path: target, token });
+      return null;
+    }
+    const saved = trashRepository.saveTrashItem({ ...fresh, metadata: { ...fresh.metadata, remoteDeletion: claimed } });
+    return { item: saved, token, path: target };
+  } catch (error) {
+    releaseRemoteClaim({ path: target, token });
+    throw error;
+  }
+}
 
 function ensureTrashStorage() {
   fs.mkdirSync(TRASH_STORAGE_DIR, { recursive: true });
@@ -225,6 +349,7 @@ function getTrashAbsolutePath(item) {
 }
 
 function restoreFile({ item, folder, restoredBy, loaders }) {
+  cancelRemoteDeletion(item, "restored");
   const sourcePath = getTrashAbsolutePath(item);
   const destinationDir = folder.uploadDir;
   const restoredName = getAvailableRestoreName(destinationDir, item.originalFileName);
@@ -238,6 +363,7 @@ function restoreFile({ item, folder, restoredBy, loaders }) {
 }
 
 function restoreFolder({ item, restoredBy, loaders, getDefaultFolder }) {
+  cancelRemoteDeletion(item, "restored");
   const trashPath = getTrashAbsolutePath(item);
   const metadata = item.restoreMetadata || {};
   const folder = metadata.folder || {
@@ -284,7 +410,7 @@ function restoreFolder({ item, restoredBy, loaders, getDefaultFolder }) {
   return trashRepository.saveTrashItem(item);
 }
 
-function permanentlyDelete({ item, deletedBy, loaders }) {
+function permanentlyDelete({ item, deletedBy, loaders, remoteDeletion = null }) {
   const target = getTrashAbsolutePath(item);
   fs.rmSync(target, { recursive: true, force: true });
   if (item.itemType === "file") {
@@ -298,10 +424,113 @@ function permanentlyDelete({ item, deletedBy, loaders }) {
   } else if (item.itemType === "folder") {
     removeFolderMetadata({ folderId: item.originalFolderId, loaders });
   }
-  item.status = "permanently_deleted";
+  if (remoteDeletion) item.metadata = { ...item.metadata, remoteDeletion };
+  item.status = remoteDeletion ? "remote_delete_pending" : "permanently_deleted";
   item.permanentlyDeletedBy = deletedBy;
   item.permanentlyDeletedAt = new Date().toISOString();
   return trashRepository.saveTrashItem(item);
+}
+
+function queueRemoteDeletion({ item, deletedBy, loaders, provider = "unknown", clock, maxAttempts, operationId }) {
+  if (item.status !== "trashed") return item;
+  const existing = remoteState(item);
+  if (existing) return item;
+  maxAttempts = Math.max(1, Math.min(100, Number(maxAttempts) || DEFAULT_MAX_REMOTE_ATTEMPTS));
+  const queuedAt = nowIso(clock);
+  operationId = operationId || crypto.randomUUID();
+  return permanentlyDelete({
+    item,
+    deletedBy,
+    loaders,
+    remoteDeletion: {
+      operationId,
+      provider,
+      identity: remoteIdentity(item, provider),
+      state: "pending",
+      attempts: 0,
+      maxAttempts,
+      queuedAt,
+      lastAttemptAt: null,
+      nextAttemptAt: queuedAt,
+      completedAt: null,
+      failureCategory: null,
+      cancellationReason: null,
+      leaseToken: null,
+      leaseUntil: null,
+      transitions: [{ state: "pending", at: queuedAt }],
+    },
+  });
+}
+
+function completeRemoteDeletion(item, { clock, claimToken } = {}) {
+  const previous = remoteState(item);
+  if (item.status !== "remote_delete_pending" || !previous || ["completed", "cancelled", "terminal_failure"].includes(previous.state)) return item;
+  if (claimToken && previous.leaseToken !== claimToken) return item;
+  const completedAt = nowIso(clock);
+  const completed = transition(previous, "completed", completedAt, {
+    completedAt,
+    lastAttemptAt: previous.lastAttemptAt || completedAt,
+    nextAttemptAt: null,
+    failureCategory: null,
+    leaseToken: null,
+    leaseUntil: null,
+  });
+  item.status = "permanently_deleted";
+  item.metadata = { ...item.metadata, remoteDeletion: completed };
+  return trashRepository.saveTrashItem(item);
+}
+
+function failRemoteDeletion(item, error, { clock, claimToken } = {}) {
+  const previous = remoteState(item);
+  if (item.status !== "remote_delete_pending" || !previous || ["completed", "cancelled", "terminal_failure"].includes(previous.state)) return item;
+  if (claimToken && previous.leaseToken !== claimToken) return item;
+  const attempts = Math.min(Number(previous.maxAttempts) || DEFAULT_MAX_REMOTE_ATTEMPTS, (Number(previous.attempts) || 0) + 1);
+  const failedAt = nowIso(clock);
+  const terminal = attempts >= (Number(previous.maxAttempts) || DEFAULT_MAX_REMOTE_ATTEMPTS);
+  const nextState = terminal ? "terminal_failure" : "retry_wait";
+  const nextAttemptAt = terminal ? null : new Date(getClock(clock)() + backoffMs(attempts)).toISOString();
+  item.metadata = { ...item.metadata, remoteDeletion: transition(previous, nextState, failedAt, {
+    attempts,
+    lastAttemptAt: failedAt,
+    nextAttemptAt,
+    failureCategory: failureCategory(error),
+    leaseToken: null,
+    leaseUntil: null,
+  }) };
+  return trashRepository.saveTrashItem(item);
+}
+
+function cancelRemoteDeletion(item, reason = "cancelled", { clock } = {}) {
+  const previous = remoteState(item);
+  if (!previous || ["completed", "cancelled"].includes(previous.state)) return item;
+  const at = nowIso(clock);
+  item.metadata = { ...item.metadata, remoteDeletion: transition(previous, "cancelled", at, {
+    cancellationReason: String(reason).slice(0, 120),
+    nextAttemptAt: null,
+    leaseToken: null,
+    leaseUntil: null,
+  }) };
+  return trashRepository.saveTrashItem(item);
+}
+
+async function processRemoteDeletion({ item, provider, clock, leaseMs, workerId } = {}) {
+  if (typeof provider !== "function") throw new TypeError("Remote deletion provider is required");
+  const claim = claimRemoteDeletion({ item, clock, leaseMs, workerId });
+  if (!claim) return trashRepository.getTrashItem(item.id) || item;
+  try {
+    const current = trashRepository.getTrashItem(item.id) || claim.item;
+    const state = remoteState(current);
+    if (current.status !== "remote_delete_pending" || !state || state.state === "cancelled") return current;
+    const result = await provider(current);
+    // Provider remove operations are idempotent; false means the object was already absent.
+    return completeRemoteDeletion(current, { clock, claimToken: claim.token });
+  } catch (error) {
+    const current = trashRepository.getTrashItem(item.id) || claim.item;
+    if (failureCategory(error) === "missing_object") return completeRemoteDeletion(current, { clock, claimToken: claim.token });
+    return failRemoteDeletion(current, error, { clock, claimToken: claim.token });
+  } finally {
+    releaseRemoteClaim(claim);
+  }
 }
 
 function summary() {
@@ -318,6 +547,12 @@ module.exports = {
   moveFileToTrash,
   moveFolderToTrash,
   permanentlyDelete,
+  queueRemoteDeletion,
+  completeRemoteDeletion,
+  failRemoteDeletion,
+  cancelRemoteDeletion,
+  processRemoteDeletion,
+  claimRemoteDeletion,
   restoreFile,
   restoreFolder,
   summary,
