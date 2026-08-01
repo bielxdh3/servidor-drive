@@ -4,10 +4,10 @@ O sistema de backup protege metadados, banco SQLite local e arquivos enviados se
 
 ## Local
 
-Backups ficam em:
+Backups, o lock, o histórico JSON e os temporários de restore ficam no diretório de runtime do processo:
 
 ```text
-./data/backups
+<runtime-root>/data/backups
 ```
 
 Formato:
@@ -34,10 +34,10 @@ BACKUP_COMPRESS=true
 
 ## O que entra
 
-- `./data/rootark.sqlite`, `rootark.sqlite-wal`, `rootark.sqlite-shm`, se existirem.
-- JSON antigos em `./data/*.json`, se existirem.
-- `./uploads`, se `BACKUP_INCLUDE_UPLOADS=true`.
-- metadados importantes em `./data`.
+- O banco SQLite configurado por `DATABASE_URL`, com `-wal` e `-shm` quando existirem; ele é restaurado no mesmo caminho configurado.
+- JSON antigos em `<runtime-root>/data/*.json`, se existirem.
+- `<runtime-root>/uploads`, se `BACKUP_INCLUDE_UPLOADS=true`.
+- metadados importantes em `<runtime-root>/data`.
 
 ## O que não entra
 
@@ -94,8 +94,8 @@ O restore:
 - verifica checksum quando disponível;
 - bloqueia path traversal;
 - rejeita paths absolutos e symlinks;
-- extrai em `./data/backups/.restore-tmp`;
-- restaura `data` e `uploads`;
+- extrai em `<runtime-root>/data/backups/.restore-tmp`;
+- restaura JSON em `<runtime-root>/data` e uploads em `<runtime-root>/uploads`;
 - limpa temporários.
 
 Se o backup tiver SQLite, reinicie o servidor após restaurar para garantir que o banco recarregue limpo.
@@ -118,7 +118,7 @@ Se necessário:
 
 1. Pare o servidor.
 2. Extraia um backup em uma pasta separada.
-3. Copie `data/rootark.sqlite*` para `./data`.
+3. Se `DATABASE_URL` estiver configurada, copie `data/rootark.sqlite`, `data/rootark.sqlite-wal` e `data/rootark.sqlite-shm` para o caminho configurado e seus arquivos auxiliares. Com o caminho padrão, copie-os para `./data/rootark.sqlite*`.
 4. Copie `uploads` para `./uploads`.
 5. Reinicie o servidor.
 
