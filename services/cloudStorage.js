@@ -90,12 +90,15 @@ function createCloudStorage(options = {}) {
     do {
       const page = await (await drive()).files.list({
         q: "appProperties has { key='rootArkKey' } and trashed=false",
-        fields: "nextPageToken,files(id,name,appProperties)",
+        fields: "nextPageToken,files(id,name,parents,appProperties)",
         spaces: "drive",
         pageToken: token,
         pageSize: 100,
       });
       for (const file of page.data.files || []) {
+        if (!Array.isArray(file.parents) || !file.parents.includes(folder())) {
+          throw cloudError("outside_configured_parent", "Drive object is outside the configured parent folder");
+        }
         const properties = file.appProperties || {};
         const parsed = parseInventoryKey(properties.rootArkKey);
         if (String(properties.rootArkFolderId || "") !== parsed.folderId || String(properties.rootArkArea || "") !== parsed.area) {

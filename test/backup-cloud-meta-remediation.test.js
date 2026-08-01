@@ -83,7 +83,7 @@ function syncBackup(entries) {
       restoreSync: {
         operationId: `op-${id}`,
         state: "pending",
-        entries,
+        entries: entries.map((entry, index) => ({ entryId: entry.entryId || `entry-${index}`, leaseToken: null, leaseUntil: null, ...entry })),
         transitions: [{ state: "pending", at: new Date(clock.value).toISOString() }],
       },
     },
@@ -99,7 +99,7 @@ test("authoritative cloud backup and restore matrix", async (t) => {
   });
   await t.test("Drive global pagination", async () => {
     let page = 0;
-    const storage = createCloudStorage({ provider: "gdrive", prefix: "rootark", gdrive: { folderId: "drive-root" }, createGoogleDriveClient: async () => ({ files: { list: async () => page++ === 0 ? { data: { files: [{ id: "a", appProperties: { rootArkKey: "rootark/uploads/root/a.txt", rootArkFolderId: "root", rootArkArea: "uploads" } }], nextPageToken: "next" } } : { data: { files: [{ id: "b", appProperties: { rootArkKey: "rootark/uploads/orphan/b.txt", rootArkFolderId: "orphan", rootArkArea: "uploads" } }] } } } }) });
+    const storage = createCloudStorage({ provider: "gdrive", prefix: "rootark", gdrive: { folderId: "drive-root" }, createGoogleDriveClient: async () => ({ files: { list: async () => page++ === 0 ? { data: { files: [{ id: "a", parents: ["drive-root"], appProperties: { rootArkKey: "rootark/uploads/root/a.txt", rootArkFolderId: "root", rootArkArea: "uploads" } }], nextPageToken: "next" } } : { data: { files: [{ id: "b", parents: ["drive-root"], appProperties: { rootArkKey: "rootark/uploads/orphan/b.txt", rootArkFolderId: "orphan", rootArkArea: "uploads" } }] } } } }) });
     assert.equal((await storage.inventory()).length, 2);
   });
   await t.test("cloud-only unknown folder", async () => { const result = await runBackup([object("orphan.txt", "orphan", { folderId: "orphan" })]); assert.ok(result.entries.includes("uploads/orphan/orphan.txt")); });
@@ -118,8 +118,9 @@ test("authoritative cloud backup and restore matrix", async (t) => {
   await t.test("traversal key", async () => { const result = await runBackup([object("bad.txt", "x", { folderId: ".." })]); assert.equal(result.ok, false); });
   await t.test("absolute key", async () => { const result = await runBackup([object("bad.txt", "x", { folderId: "/root" })]); assert.equal(result.ok, false); });
   await t.test("foreign prefix", async () => { const storage = createCloudStorage({ provider: "s3", prefix: "rootark", s3: { bucket: "bucket" }, createS3Client: async () => ({ send: async () => ({ Contents: [{ Key: "foreign/uploads/root/a.txt" }] }) }) }); await assert.rejects(storage.inventory(), /outside the configured prefix/); });
-  await t.test("malformed Drive appProperties", async () => { const storage = createCloudStorage({ provider: "gdrive", prefix: "rootark", gdrive: { folderId: "root" }, createGoogleDriveClient: async () => ({ files: { list: async () => ({ data: { files: [{ id: "x", appProperties: { rootArkKey: "rootark/uploads/root/x.txt", rootArkFolderId: "wrong", rootArkArea: "uploads" } }] } }) } }) }); await assert.rejects(storage.inventory(), /does not match/); });
-  await t.test("missing Drive key", async () => { const storage = createCloudStorage({ provider: "gdrive", prefix: "rootark", gdrive: { folderId: "root" }, createGoogleDriveClient: async () => ({ files: { list: async () => ({ data: { files: [{ id: "x", appProperties: {} }] } }) } }) }); await assert.rejects(storage.inventory()); });
+  await t.test("malformed Drive appProperties", async () => { const storage = createCloudStorage({ provider: "gdrive", prefix: "rootark", gdrive: { folderId: "root" }, createGoogleDriveClient: async () => ({ files: { list: async () => ({ data: { files: [{ id: "x", parents: ["root"], appProperties: { rootArkKey: "rootark/uploads/root/x.txt", rootArkFolderId: "wrong", rootArkArea: "uploads" } }] } }) } }) }); await assert.rejects(storage.inventory(), /does not match/); });
+  await t.test("missing Drive key", async () => { const storage = createCloudStorage({ provider: "gdrive", prefix: "rootark", gdrive: { folderId: "root" }, createGoogleDriveClient: async () => ({ files: { list: async () => ({ data: { files: [{ id: "x", parents: ["root"], appProperties: {} }] } }) } }) }); await assert.rejects(storage.inventory()); });
+  await t.test("Drive file outside configured parent", async () => { const storage = createCloudStorage({ provider: "gdrive", prefix: "rootark", gdrive: { folderId: "root" }, createGoogleDriveClient: async () => ({ files: { list: async () => ({ data: { files: [{ id: "x", parents: ["foreign"], appProperties: { rootArkKey: "rootark/uploads/root/x.txt", rootArkFolderId: "root", rootArkArea: "uploads" } }] } }) } }) }); await assert.rejects(storage.inventory(), /configured parent/); });
   await t.test("inventory failure", async () => { const result = await runBackup([], { failInventory: true }); assert.equal(result.ok, false); });
   await t.test("download failure", async () => { const result = await runBackup([object("x.txt")], { failDownload: true }); assert.equal(result.ok, false); });
   await t.test("truncated stream", async () => { const result = await runBackup([object("x.txt", "full")], { truncated: true }); assert.equal(result.ok, false); });
@@ -139,6 +140,19 @@ test("authoritative cloud backup and restore matrix", async (t) => {
   await t.test("restart resumes sync", async () => { reset(); fs.writeFileSync(path.join(runtime, "uploads", "restart.txt"), "restart"); const saved = syncBackup([{ path: "uploads/restart.txt", area: "uploads", folderId: "root", name: "restart.txt", state: "pending", attempts: 0, maxAttempts: 5, nextAttemptAt: null }]); const reloaded = backupRepository.getBackup(saved.id); const result = await restoreService.processRestoreSync({ backupId: reloaded.id, clock, uploader: { enabled: () => true, upload: async () => true } }); assert.equal(result.metadata.restoreSync.state, "completed"); });
   await t.test("exact local bytes", async () => { reset(); const bytes = Buffer.from([0, 255, 1, 2]); fs.writeFileSync(path.join(runtime, "uploads", "bytes.bin"), bytes); const saved = syncBackup([{ path: "uploads/bytes.bin", area: "uploads", folderId: "root", name: "bytes.bin", state: "pending", attempts: 0, maxAttempts: 5, nextAttemptAt: null }]); let received; await restoreService.processRestoreSync({ backupId: saved.id, clock, uploader: { enabled: () => true, upload: async (localPath) => { received = fs.readFileSync(localPath); } } }); assert.deepEqual(received, bytes); });
   await t.test("provider success then persistence failure", async () => { reset(); fs.writeFileSync(path.join(runtime, "uploads", "persist.txt"), "persist"); const saved = syncBackup([{ path: "uploads/persist.txt", area: "uploads", folderId: "root", name: "persist.txt", state: "pending", attempts: 0, maxAttempts: 5, nextAttemptAt: null }]); const original = backupRepository.saveBackup; let saves = 0; backupRepository.saveBackup = (...args) => { saves += 1; if (saves > 1) throw new Error("persist"); return original(...args); }; let calls = 0; try { await assert.rejects(restoreService.processRestoreSync({ backupId: saved.id, clock, uploader: { enabled: () => true, upload: async () => { calls += 1; } } })); } finally { backupRepository.saveBackup = original; } assert.equal(calls, 1); });
+  await t.test("overlapping workers cannot upload a claimed entry twice", async () => {
+    reset(); fs.writeFileSync(path.join(runtime, "uploads", "overlap.txt"), "overlap");
+    const saved = syncBackup([{ path: "uploads/overlap.txt", area: "uploads", folderId: "root", name: "overlap.txt", state: "pending", attempts: 0, maxAttempts: 5, nextAttemptAt: null }]);
+    let calls = 0; let release;
+    const first = restoreService.processRestoreSync({ backupId: saved.id, clock, workerId: "first", uploader: { enabled: () => true, upload: async () => { calls += 1; await new Promise((resolve) => { release = resolve; }); } } });
+    await new Promise((resolve) => setImmediate(resolve));
+    const second = await restoreService.processRestoreSync({ backupId: saved.id, clock, workerId: "second", uploader: { enabled: () => true, upload: async () => { calls += 1; } } });
+    assert.equal(calls, 1);
+    assert.equal(second.metadata.restoreSync.entries[0].state, "in_progress");
+    release();
+    const completed = await first;
+    assert.equal(completed.metadata.restoreSync.state, "completed");
+  });
   await t.test("idempotent completed retry", async () => { reset(); const saved = syncBackup([{ path: "uploads/done.txt", area: "uploads", folderId: "root", name: "done.txt", state: "completed", attempts: 1, maxAttempts: 5, nextAttemptAt: null }]); let calls = 0; const result = await restoreService.processRestoreSync({ backupId: saved.id, clock, uploader: { enabled: () => true, upload: async () => { calls += 1; } } }); assert.equal(calls, 0); assert.equal(result.metadata.restoreSync.state, "completed"); });
   await t.test("sensitive entry exclusion", async () => { const result = await runBackup([object(".env", "secret")]); assert.equal(result.ok, false); });
   await t.test("checkout isolation", () => { assert.equal(backupService.getArchivePath("../outside.zip"), null); assert.ok(backupService.getArchivePath("rootark-backup-2026-08-01-00-00-00.zip").startsWith(backupService.BACKUPS_DIR)); });

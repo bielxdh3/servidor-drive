@@ -1,9 +1,8 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const archiver = require("archiver");
+const { ZipArchive } = require("archiver");
 const backupRepository = require("../repositories/backupRepository");
-const foldersRepository = require("../repositories/foldersRepository");
 const { getDatabasePath, isDbEnabled } = require("../db");
 const { resolveRuntimePath } = require("../src/runtime-paths");
 
@@ -131,19 +130,8 @@ async function collectBackupFiles(options = {}) {
   }
   const areas = ["uploads", ...(includeTemp || includePending ? ["temp"] : [])];
   const remoteIdentities = new Set();
-  const remotes = typeof cloudStorage.inventory === "function"
-    ? await cloudStorage.inventory()
-    : await (async () => {
-      let folders = [];
-      try { folders = foldersRepository.loadFolders(); } catch {}
-      const folderIds = new Set(["root", ...folders.map((folder) => String(folder.id || "")).filter(Boolean)]);
-      const entries = [];
-      for (const folderId of folderIds) for (const area of areas) {
-        if (folderId !== "root" && (!folderId || folderId === "." || folderId === ".." || /[\\\\/]/.test(folderId))) throw new Error("Cloud backup inventory contains an unsafe folder");
-        for (const remote of await cloudStorage.list(folderId, area)) entries.push({ ...remote, folderId, area, providerIdentity: remote.id || remote.key || `${area}/${folderId}/${remote.name}` });
-      }
-      return entries;
-    })();
+  if (typeof cloudStorage.inventory !== "function") throw new Error("Authoritative cloud inventory is required");
+  const remotes = await cloudStorage.inventory();
   for (const remote of remotes) {
     if (!areas.includes(remote.area)) continue;
     const folderId = String(remote.folderId || "");
@@ -214,7 +202,7 @@ function acquireLock(operation) {
 async function createZipArchive(archivePath, manifest, files) {
   await new Promise((resolve, reject) => {
     const output = fs.createWriteStream(archivePath);
-    const archive = archiver("zip", { zlib: { level: 9 } });
+    const archive = new ZipArchive({ zlib: { level: 9 } });
     output.on("close", resolve);
     output.on("error", reject);
     archive.on("error", reject);

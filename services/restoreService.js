@@ -8,6 +8,7 @@ const backupRepository = require("../repositories/backupRepository");
 const backupService = require("./backupService");
 
 const RESTORE_TMP_DIR = path.join(backupService.BACKUPS_DIR, ".restore-tmp");
+const RESTORE_SYNC_LOCK_DIR = resolveRuntimePath("data", "restore-sync-locks");
 const RESTORABLE_ROOTS = new Set(["data", "uploads"]);
 const S_IFMT = 0xf000;
 const S_IFLNK = 0xa000;
@@ -30,7 +31,7 @@ function syncEntries(manifest) {
       const name = parts.pop();
       const folderId = parts.join("/") || "root";
       if (!name || !folderId || folderId.includes("/") || folderId === "." || folderId === ".." || /(^|\/)(\.env|.*credentials.*|.*\.key)$/i.test(name)) return null;
-      return { path: entryPath, area, folderId, name, state: "pending", attempts: 0, maxAttempts: 5, nextAttemptAt: null, failureCategory: null };
+      return { entryId: crypto.randomUUID(), path: entryPath, area, folderId, name, providerIdentity: null, state: "pending", attempts: 0, maxAttempts: 5, nextAttemptAt: null, failureCategory: null, leaseToken: null, leaseUntil: null };
     })
     .filter(Boolean);
 }
@@ -55,8 +56,73 @@ function syncTransition(sync, state, at, details = {}) {
   return { ...sync, ...details, state, transitions: [...(sync.transitions || []), { state, at }] };
 }
 
-function saveRestoreSync(backup, restoreSync) {
+function saveRestoreSync(backup, restoreSync, expectedLeaseToken = null) {
+  if (expectedLeaseToken) {
+    const persisted = backupRepository.getBackup(backup.id);
+    if (!persisted?.metadata?.restoreSync?.entries?.some((entry) => entry.leaseToken === expectedLeaseToken)) return persisted || backup;
+  }
   return backupRepository.saveBackup({ ...backup, metadata: { ...backup.metadata, restoreSync } });
+}
+
+function syncLockPath(backupId, entryId) {
+  return path.join(RESTORE_SYNC_LOCK_DIR, `${String(backupId).replace(/[^a-zA-Z0-9_-]/g, "_")}-${String(entryId).replace(/[^a-zA-Z0-9_-]/g, "_")}.lock`);
+}
+
+function releaseSyncLease(lease) {
+  if (!lease?.path) return;
+  try {
+    if (fs.readFileSync(lease.path, "utf8") === lease.token) fs.rmSync(lease.path, { force: true });
+  } catch {}
+}
+
+function claimSyncEntry(backupId, entryId, { now, leaseMs = 60 * 1000, workerId = crypto.randomUUID(), providerIdentity } = {}) {
+  const current = backupRepository.getBackup(backupId);
+  const sync = current?.metadata?.restoreSync;
+  const index = sync?.entries?.findIndex((entry) => entry.entryId === entryId);
+  if (!current || !sync || index < 0) return null;
+  const existing = sync.entries[index];
+  const leaseUntil = new Date(existing.leaseUntil || 0).getTime();
+  if (existing.state === "completed" || existing.state === "terminal_failure" || (existing.leaseToken && leaseUntil > now)) return null;
+  const token = `${workerId}:${crypto.randomUUID()}`;
+  const lockPath = syncLockPath(backupId, entryId);
+  fs.mkdirSync(RESTORE_SYNC_LOCK_DIR, { recursive: true });
+  let fd;
+  try {
+    fd = fs.openSync(lockPath, "wx");
+    fs.writeFileSync(fd, token, "utf8");
+    fs.closeSync(fd);
+  } catch (error) {
+    if (fd !== undefined) { try { fs.closeSync(fd); } catch {} }
+    if (error.code !== "EEXIST") throw error;
+    try {
+      if (fs.statSync(lockPath).mtimeMs + leaseMs <= now) fs.rmSync(lockPath, { force: true });
+    } catch { return null; }
+    try {
+      fd = fs.openSync(lockPath, "wx");
+      fs.writeFileSync(fd, token, "utf8");
+      fs.closeSync(fd);
+    } catch { if (fd !== undefined) { try { fs.closeSync(fd); } catch {} } return null; }
+  }
+  const claimedEntry = {
+    ...existing,
+    state: "in_progress",
+    attempts: (Number(existing.attempts) || 0) + 1,
+    nextAttemptAt: null,
+    leaseToken: token,
+    leaseUntil: new Date(now + leaseMs).toISOString(),
+    providerIdentity: providerIdentity || existing.providerIdentity || "cloud",
+  };
+  const entries = sync.entries.map((entry, currentIndex) => currentIndex === index ? claimedEntry : { ...entry });
+  try {
+    const saved = saveRestoreSync(current, { ...sync, entries, lastAttemptAt: new Date(now).toISOString() });
+    const persisted = backupRepository.getBackup(backupId);
+    const persistedEntry = persisted?.metadata?.restoreSync?.entries?.find((entry) => entry.entryId === entryId);
+    if (persistedEntry?.leaseToken !== token) throw Object.assign(new Error("Restore lease was not persisted"), { code: "lease_persistence_failed" });
+    return { backup: saved, entry: claimedEntry, token, path: lockPath };
+  } catch (error) {
+    releaseSyncLease({ path: lockPath, token });
+    throw error;
+  }
 }
 
 function cancelRestoreSync(backupId, reason = "cancelled", { clock } = {}) {
@@ -64,49 +130,56 @@ function cancelRestoreSync(backupId, reason = "cancelled", { clock } = {}) {
   const current = backup?.metadata?.restoreSync;
   if (!backup || !current || ["completed", "cancelled"].includes(current.state)) return backup;
   const at = syncNow(clock);
-  return saveRestoreSync(backup, syncTransition(current, "cancelled", at, { cancellationReason: String(reason).slice(0, 120) }));
+  const entries = current.entries.map((entry) => ({ ...entry, state: "cancelled", leaseToken: null, leaseUntil: null, nextAttemptAt: null }));
+  return saveRestoreSync(backup, syncTransition({ ...current, entries }, "cancelled", at, { cancellationReason: String(reason).slice(0, 120) }));
 }
 
-async function processRestoreSync({ backupId, clock, maxAttempts = 5, uploader } = {}) {
-  const backup = backupRepository.getBackup(backupId);
+async function processRestoreSync({ backupId, clock, maxAttempts = 5, uploader, leaseMs = 60 * 1000, workerId } = {}) {
   const provider = uploader || cloudStorage;
-  const current = backup?.metadata?.restoreSync;
-  if (!backup || !current || !provider?.enabled?.() || ["completed", "cancelled", "terminal_failure"].includes(current.state)) return backup;
+  let latest = backupRepository.getBackup(backupId);
+  if (!latest || !latest.metadata?.restoreSync || !provider?.enabled?.()) return latest;
+  if (latest.metadata.restoreSync.entries?.length && latest.metadata.restoreSync.entries.every((entry) => entry.state === "completed") && latest.metadata.restoreSync.state !== "completed") {
+    const at = syncNow(clock);
+    latest = saveRestoreSync(latest, syncTransition(latest.metadata.restoreSync, "completed", at, { completedAt: at, failureCategory: null }));
+  }
+  if (["completed", "cancelled", "terminal_failure"].includes(latest.metadata.restoreSync.state)) return latest;
   const now = typeof clock === "function" ? clock() : clock?.now ? clock.now() : Date.now();
-  const entries = current.entries.map((entry) => ({ ...entry }));
-  for (const entry of entries) {
-    if (entry.state === "completed") continue;
-    if (entry.nextAttemptAt && new Date(entry.nextAttemptAt).getTime() > now) continue;
-    entry.attempts += 1;
-    entry.maxAttempts = Math.max(1, Number(entry.maxAttempts || maxAttempts));
-    entry.nextAttemptAt = null;
-    const marked = { ...current, entries, lastAttemptAt: syncNow(clock) };
-    saveRestoreSync(backup, marked);
+  const providerIdentity = provider.provider || provider.name || "cloud";
+  for (const candidate of latest.metadata.restoreSync.entries || []) {
+    if (candidate.state === "completed" || candidate.state === "terminal_failure") continue;
+    if (candidate.nextAttemptAt && new Date(candidate.nextAttemptAt).getTime() > now) continue;
+    const lease = claimSyncEntry(backupId, candidate.entryId, { now, leaseMs, workerId, providerIdentity });
+    if (!lease) continue;
     try {
-      const localPath = resolveRuntimePath(entry.path);
+      const localPath = resolveRuntimePath(lease.entry.path);
       if (!fs.existsSync(localPath) || !fs.statSync(localPath).isFile()) throw Object.assign(new Error("restore source unavailable"), { code: "source_unavailable" });
-      await provider.upload(localPath, entry.folderId, entry.name, entry.area);
-      entry.state = "completed";
-      entry.failureCategory = null;
+      await provider.upload(localPath, lease.entry.folderId, lease.entry.name, lease.entry.area);
+      const current = backupRepository.getBackup(backupId);
+      const entry = current?.metadata?.restoreSync?.entries?.find((value) => value.entryId === lease.entry.entryId);
+      if (!entry || entry.leaseToken !== lease.token) continue;
+      const entries = current.metadata.restoreSync.entries.map((value) => value.entryId === lease.entry.entryId ? { ...value, state: "completed", failureCategory: null, nextAttemptAt: null, leaseToken: null, leaseUntil: null } : { ...value });
+      const state = entries.some((value) => value.state === "terminal_failure") ? "terminal_failure" : entries.every((value) => value.state === "completed") ? "completed" : "pending";
+      const at = syncNow(clock);
+      saveRestoreSync(current, syncTransition({ ...current.metadata.restoreSync, entries }, state, at, { completedAt: state === "completed" ? at : null, failureCategory: null }), lease.token);
     } catch (error) {
-      entry.failureCategory = ["source_unavailable", "configuration"].includes(error.code) ? error.code : "provider_error";
-      if (entry.attempts >= entry.maxAttempts) entry.state = "terminal_failure";
-      else {
-        entry.state = "retry_wait";
-        entry.nextAttemptAt = new Date(now + Math.min(60 * 60 * 1000, 1000 * (2 ** (entry.attempts - 1)))).toISOString();
-      }
+      const current = backupRepository.getBackup(backupId);
+      const entry = current?.metadata?.restoreSync?.entries?.find((value) => value.entryId === lease.entry.entryId && value.leaseToken === lease.token);
+      if (!entry) continue;
+      const attempts = Math.max(1, Number(entry.attempts) || 1);
+      const failureCategory = ["source_unavailable", "configuration"].includes(error.code) ? error.code : "provider_error";
+      const terminal = attempts >= Math.max(1, Number(entry.maxAttempts || maxAttempts));
+      const at = syncNow(clock);
+      const nextAttemptAt = terminal ? null : new Date(now + Math.min(60 * 60 * 1000, 1000 * (2 ** (attempts - 1)))).toISOString();
+      const entries = current.metadata.restoreSync.entries.map((value) => value.entryId === lease.entry.entryId ? { ...value, state: terminal ? "terminal_failure" : "retry_wait", failureCategory, nextAttemptAt, leaseToken: null, leaseUntil: null } : { ...value });
+      const state = terminal ? "terminal_failure" : "pending";
+      saveRestoreSync(current, syncTransition({ ...current.metadata.restoreSync, entries }, state, at, { failureCategory: terminal ? failureCategory : null }), lease.token);
+      if (error.code === "lease_persistence_failed" || error.code === "persistence_error") throw error;
+    } finally {
+      releaseSyncLease(lease);
     }
-    const state = entries.some((item) => item.state === "terminal_failure") ? "terminal_failure" : entries.every((item) => item.state === "completed") ? "completed" : "pending";
-    const at = syncNow(clock);
-    const updated = syncTransition({ ...current, entries, lastAttemptAt: at }, state, at, { completedAt: state === "completed" ? at : null, failureCategory: state === "terminal_failure" ? entry.failureCategory : null });
-    saveRestoreSync(backup, updated);
-    if (state === "terminal_failure") break;
+    latest = backupRepository.getBackup(backupId) || latest;
   }
-  if (entries.length && entries.every((entry) => entry.state === "completed") && current.state !== "completed") {
-    const at = syncNow(clock);
-    saveRestoreSync(backup, syncTransition({ ...current, entries }, "completed", at, { completedAt: at }));
-  }
-  return backupRepository.getBackup(backupId) || backup;
+  return backupRepository.getBackup(backupId) || latest;
 }
 
 function isZipSymlink(entry) {
