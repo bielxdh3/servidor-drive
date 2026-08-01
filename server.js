@@ -42,7 +42,10 @@ const { createRequirePermission } = require("./src/middlewares/permissions");
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server, path: "/ws" });
+const REALTIME_MAX_PAYLOAD_BYTES = 16 * 1024;
+const REALTIME_MAX_MESSAGES_PER_WINDOW = 30;
+const REALTIME_RATE_WINDOW_MS = 10 * 1000;
+const wss = new WebSocket.Server({ server, path: "/ws", maxPayload: REALTIME_MAX_PAYLOAD_BYTES, perMessageDeflate: false });
 const JWT_SECRET = String(process.env.JWT_SECRET || "");
 if (JWT_SECRET.length < 32 || JWT_SECRET === "rootark_secret_change_in_production") {
   throw new Error("JWT_SECRET deve ser definido explicitamente com pelo menos 32 caracteres seguros.");
@@ -965,7 +968,12 @@ function parseWebDavSegments(req) {
   if (!suffix) return [];
 
   return suffix.split("/").map((segment) => {
-    const decoded = decodeURIComponent(segment);
+    let decoded = segment;
+    for (let index = 0; index < 3; index += 1) {
+      const next = decodeURIComponent(decoded);
+      if (next === decoded) break;
+      decoded = next;
+    }
     if (
       !decoded ||
       decoded === "." ||
@@ -4384,10 +4392,16 @@ wss.on("connection", (socket, req) => {
   }
 
   socket.user = user;
+  socket.realtimeRate = { startedAt: Date.now(), count: 0 };
   sendRealtime(socket, "connected", { username: user.username });
 
-  socket.on("message", (rawMessage) => {
+  socket.on("message", (rawMessage, isBinary) => {
     if (!refreshRealtimeUser(socket)) return;
+    if (isBinary) return socket.close(1003, "Quadro binario nao suportado");
+    const now = Date.now();
+    if (now - socket.realtimeRate.startedAt >= REALTIME_RATE_WINDOW_MS) socket.realtimeRate = { startedAt: now, count: 0 };
+    socket.realtimeRate.count += 1;
+    if (socket.realtimeRate.count > REALTIME_MAX_MESSAGES_PER_WINDOW) return socket.close(1008, "Limite de mensagens excedido");
     let message = {};
     try {
       message = JSON.parse(rawMessage.toString());
