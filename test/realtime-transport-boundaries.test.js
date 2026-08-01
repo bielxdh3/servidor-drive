@@ -76,7 +76,7 @@ test("WebDAV HTTP boundary rejects unauthenticated, hostile, traversing, and inf
   assert.equal((await request(portNumber, "/dav", { method: "PROPFIND", headers: { authorization: basic, origin: "https://evil.test" } })).status, 403);
   assert.equal((await request(portNumber, "/dav", { method: "PROPFIND", headers: { authorization: basic, depth: "0" } })).status, 207);
   assert.equal((await request(portNumber, "/dav", { method: "PROPFIND", headers: { authorization: basic, depth: "1" } })).status, 207);
-  assert.equal((await request(portNumber, "/dav", { method: "PROPFIND", headers: { authorization: basic, "content-type": "application/xml" }, body: "<broken" })).status, 207);
+  assert.equal((await request(portNumber, "/dav", { method: "PROPFIND", headers: { authorization: basic, "content-type": "application/xml" }, body: "<broken" })).status, 400);
   assert.equal((await request(portNumber, "/dav/source.txt", { method: "GET", headers: { authorization: basic } })).status, 200);
   assert.equal((await request(portNumber, "/dav/source.txt", { method: "HEAD", headers: { authorization: basic } })).status, 200);
   assert.equal((await request(portNumber, "/dav/source.txt", { method: "LOCK", headers: { authorization: basic } })).status, 501);
