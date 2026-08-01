@@ -115,7 +115,9 @@ function stop(child) {
     child.once("error", () => finish(child.exitCode));
     if (process.platform === "win32") spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore" });
     else child.kill("SIGKILL");
-    timer = setTimeout(() => finish(child.exitCode), 5_000);
+    // A SIGKILLed child can fail to emit its exit event when the test runner
+    // has already reaped the process; the kernel has still released the port.
+    timer = setTimeout(() => finish(child.exitCode), 1_000);
   });
 }
 
