@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const { ZipArchive } = require("archiver");
+const archiver = require("archiver");
 const backupRepository = require("../repositories/backupRepository");
 const { getDatabasePath, isDbEnabled } = require("../db");
 const { resolveRuntimePath } = require("../src/runtime-paths");
@@ -150,7 +150,7 @@ function acquireLock(operation) {
 async function createZipArchive(archivePath, manifest, files) {
   await new Promise((resolve, reject) => {
     const output = fs.createWriteStream(archivePath);
-    const archive = new ZipArchive({ zlib: { level: 9 } });
+    const archive = archiver("zip", { zlib: { level: 9 } });
     output.on("close", resolve);
     output.on("error", reject);
     archive.on("error", reject);
