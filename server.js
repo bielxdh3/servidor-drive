@@ -31,6 +31,7 @@ const backupService = require("./services/backupService");
 const restoreService = require("./services/restoreService");
 const trashRepository = require("./repositories/trashRepository");
 const trashService = require("./services/trashService");
+const { createCloudStorage } = require("./services/cloudStorage");
 const registerAuthRoutes = require("./src/routes/auth");
 const registerAnalyticsRoutes = require("./src/routes/analytics");
 const registerAuditRoutes = require("./src/routes/audit");
@@ -106,8 +107,13 @@ const ENCRYPTION_ITERATIONS = 100000;
 const wordExtractor = new WordExtractor();
 const openFileTokens = new Map();
 let analyticsSummaryCache = null;
-let s3ClientCache = null;
-let googleDriveClientCache = null;
+const cloudStorage = createCloudStorage({
+  provider: CLOUD_STORAGE_PROVIDER,
+  prefix: CLOUD_STORAGE_PREFIX,
+  rootFolderId: ROOT_FOLDER_ID,
+  s3: { bucket: process.env.AWS_S3_BUCKET, region: process.env.AWS_REGION, endpoint: process.env.AWS_ENDPOINT_URL, forcePathStyle: process.env.AWS_FORCE_PATH_STYLE === "true" },
+  gdrive: { folderId: process.env.GOOGLE_DRIVE_FOLDER_ID, credentials: process.env.GOOGLE_SERVICE_ACCOUNT_JSON, credentialsPath: process.env.GOOGLE_APPLICATION_CREDENTIALS },
+});
 
 function shouldUseDatabase() {
   return dbConfig.isDbEnabled();
@@ -144,320 +150,15 @@ const ENCRYPTION_LEVELS = {
   dual: { description: "Criptografia dupla", icon: "dual", requiresKey: true },
 };
 
-function isCloudStorageEnabled() {
-  return CLOUD_STORAGE_PROVIDER === "s3" || CLOUD_STORAGE_PROVIDER === "gdrive";
-}
-
-function getCloudStorageStatus() {
-  return {
-    provider: CLOUD_STORAGE_PROVIDER,
-    enabled: isCloudStorageEnabled(),
-    prefix: CLOUD_STORAGE_PREFIX,
-    s3: {
-      bucketConfigured: Boolean(process.env.AWS_S3_BUCKET),
-      region: process.env.AWS_REGION || "",
-      endpointConfigured: Boolean(process.env.AWS_ENDPOINT_URL),
-    },
-    gdrive: {
-      folderConfigured: Boolean(process.env.GOOGLE_DRIVE_FOLDER_ID),
-      credentialsConfigured: Boolean(process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.GOOGLE_SERVICE_ACCOUNT_JSON),
-    },
-  };
-}
-
-function getCloudKey(folderId = ROOT_FOLDER_ID, fileName = "", area = "uploads") {
-  return path.posix.join(
-    CLOUD_STORAGE_PREFIX,
-    area,
-    String(folderId || ROOT_FOLDER_ID),
-    path.basename(fileName || "")
-  );
-}
-
-async function getS3Client() {
-  if (s3ClientCache) return s3ClientCache;
-
-  const { S3Client } = require("@aws-sdk/client-s3");
-  const config = {
-    region: process.env.AWS_REGION || "us-east-1",
-  };
-
-  if (process.env.AWS_ENDPOINT_URL) config.endpoint = process.env.AWS_ENDPOINT_URL;
-  if (process.env.AWS_FORCE_PATH_STYLE === "true") config.forcePathStyle = true;
-
-  s3ClientCache = new S3Client(config);
-  return s3ClientCache;
-}
-
-async function getGoogleDriveClient() {
-  if (googleDriveClientCache) return googleDriveClientCache;
-
-  const { google } = require("googleapis");
-  let auth;
-
-  if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
-    const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
-    auth = new google.auth.GoogleAuth({
-      credentials,
-      scopes: ["https://www.googleapis.com/auth/drive"],
-    });
-  } else {
-    auth = new google.auth.GoogleAuth({
-      scopes: ["https://www.googleapis.com/auth/drive"],
-    });
-  }
-
-  googleDriveClientCache = google.drive({ version: "v3", auth });
-  return googleDriveClientCache;
-}
-
-async function findGoogleDriveFileByKey(cloudKey) {
-  const drive = await getGoogleDriveClient();
-  const response = await drive.files.list({
-    q: `appProperties has { key='rootArkKey' and value='${String(cloudKey).replace(/'/g, "\\'")}' } and trashed=false`,
-    fields: "files(id, name)",
-    spaces: "drive",
-    pageSize: 1,
-  });
-
-  return response.data.files?.[0] || null;
-}
-
-async function uploadFileToCloud(localPath, folderId, fileName, area = "uploads") {
-  if (!isCloudStorageEnabled() || !isExistingFile(localPath)) return null;
-
-  const cloudKey = getCloudKey(folderId, fileName, area);
-
-  if (CLOUD_STORAGE_PROVIDER === "s3") {
-    if (!process.env.AWS_S3_BUCKET) throw new Error("AWS_S3_BUCKET nao configurado");
-    const { PutObjectCommand } = require("@aws-sdk/client-s3");
-    const client = await getS3Client();
-    await client.send(new PutObjectCommand({
-      Bucket: process.env.AWS_S3_BUCKET,
-      Key: cloudKey,
-      Body: fs.createReadStream(localPath),
-    }));
-    return { provider: "s3", key: cloudKey };
-  }
-
-  if (CLOUD_STORAGE_PROVIDER === "gdrive") {
-    if (!process.env.GOOGLE_DRIVE_FOLDER_ID) throw new Error("GOOGLE_DRIVE_FOLDER_ID nao configurado");
-    const drive = await getGoogleDriveClient();
-    const existing = await findGoogleDriveFileByKey(cloudKey);
-    const requestBody = {
-      name: path.basename(fileName),
-      appProperties: {
-        rootArkKey: cloudKey,
-        rootArkFolderId: String(folderId || ROOT_FOLDER_ID),
-        rootArkArea: area,
-      },
-    };
-    const media = { body: fs.createReadStream(localPath) };
-
-    if (existing?.id) {
-      await drive.files.update({ fileId: existing.id, requestBody, media, fields: "id" });
-      return { provider: "gdrive", key: cloudKey, id: existing.id };
-    }
-
-    requestBody.parents = [process.env.GOOGLE_DRIVE_FOLDER_ID];
-    const created = await drive.files.create({ requestBody, media, fields: "id" });
-    return { provider: "gdrive", key: cloudKey, id: created.data.id };
-  }
-
-  return null;
-}
-
-async function downloadFileFromCloud(folderId, fileName, localPath, area = "uploads") {
-  if (!isCloudStorageEnabled() || isExistingFile(localPath)) return false;
-
-  const cloudKey = getCloudKey(folderId, fileName, area);
-  fs.mkdirSync(path.dirname(localPath), { recursive: true });
-
-  if (CLOUD_STORAGE_PROVIDER === "s3") {
-    if (!process.env.AWS_S3_BUCKET) throw new Error("AWS_S3_BUCKET nao configurado");
-    const { GetObjectCommand } = require("@aws-sdk/client-s3");
-    const client = await getS3Client();
-    const response = await client.send(new GetObjectCommand({
-      Bucket: process.env.AWS_S3_BUCKET,
-      Key: cloudKey,
-    }));
-
-    await new Promise((resolve, reject) => {
-      const output = fs.createWriteStream(localPath);
-      response.Body.pipe(output);
-      response.Body.on("error", reject);
-      output.on("finish", resolve);
-      output.on("error", reject);
-    });
-    return true;
-  }
-
-  if (CLOUD_STORAGE_PROVIDER === "gdrive") {
-    const drive = await getGoogleDriveClient();
-    const existing = await findGoogleDriveFileByKey(cloudKey);
-    if (!existing?.id) return false;
-
-    const response = await drive.files.get(
-      { fileId: existing.id, alt: "media" },
-      { responseType: "stream" }
-    );
-
-    await new Promise((resolve, reject) => {
-      const output = fs.createWriteStream(localPath);
-      response.data.pipe(output);
-      response.data.on("error", reject);
-      output.on("finish", resolve);
-      output.on("error", reject);
-    });
-    return true;
-  }
-
-  return false;
-}
-
-async function deleteFileFromCloud(folderId, fileName, area = "uploads") {
-  if (!isCloudStorageEnabled()) return false;
-
-  const cloudKey = getCloudKey(folderId, fileName, area);
-
-  if (CLOUD_STORAGE_PROVIDER === "s3") {
-    if (!process.env.AWS_S3_BUCKET) throw new Error("AWS_S3_BUCKET nao configurado");
-    const { DeleteObjectCommand } = require("@aws-sdk/client-s3");
-    const client = await getS3Client();
-    await client.send(new DeleteObjectCommand({
-      Bucket: process.env.AWS_S3_BUCKET,
-      Key: cloudKey,
-    }));
-    return true;
-  }
-
-  if (CLOUD_STORAGE_PROVIDER === "gdrive") {
-    const drive = await getGoogleDriveClient();
-    const existing = await findGoogleDriveFileByKey(cloudKey);
-    if (!existing?.id) return false;
-    await drive.files.delete({ fileId: existing.id });
-    return true;
-  }
-
-  return false;
-}
-
-async function deleteCloudPrefix(prefix) {
-  if (!isCloudStorageEnabled()) return false;
-
-  const normalizedPrefix = String(prefix || "").replace(/^\/+|\/+$/g, "");
-  if (!normalizedPrefix || !normalizedPrefix.startsWith(CLOUD_STORAGE_PREFIX)) return false;
-
-  if (CLOUD_STORAGE_PROVIDER === "s3") {
-    if (!process.env.AWS_S3_BUCKET) throw new Error("AWS_S3_BUCKET nao configurado");
-    const { ListObjectsV2Command, DeleteObjectsCommand } = require("@aws-sdk/client-s3");
-    const client = await getS3Client();
-    let ContinuationToken;
-
-    do {
-      const listed = await client.send(new ListObjectsV2Command({
-        Bucket: process.env.AWS_S3_BUCKET,
-        Prefix: `${normalizedPrefix}/`,
-        ContinuationToken,
-      }));
-      const objects = (listed.Contents || []).map((item) => ({ Key: item.Key })).filter((item) => item.Key);
-      if (objects.length > 0) {
-        await client.send(new DeleteObjectsCommand({
-          Bucket: process.env.AWS_S3_BUCKET,
-          Delete: { Objects: objects },
-        }));
-      }
-      ContinuationToken = listed.NextContinuationToken;
-    } while (ContinuationToken);
-
-    return true;
-  }
-
-  if (CLOUD_STORAGE_PROVIDER === "gdrive") {
-    const drive = await getGoogleDriveClient();
-    const parts = normalizedPrefix.split("/");
-    const area = parts[1];
-    const folderId = parts[2];
-    if (!area || !folderId) return false;
-    let pageToken;
-    do {
-      const response = await drive.files.list({
-        q: `appProperties has { key='rootArkFolderId' and value='${String(folderId).replace(/'/g, "\\'")}' } and appProperties has { key='rootArkArea' and value='${String(area).replace(/'/g, "\\'")}' } and trashed=false`,
-        fields: "nextPageToken, files(id)",
-        spaces: "drive",
-        pageToken,
-        pageSize: 100,
-      });
-
-      for (const file of response.data.files || []) {
-        await drive.files.delete({ fileId: file.id });
-      }
-      pageToken = response.data.nextPageToken;
-    } while (pageToken);
-
-    return true;
-  }
-
-  return false;
-}
-
-async function listCloudFiles(folderId, area = "uploads") {
-  if (!isCloudStorageEnabled()) return [];
-
-  if (CLOUD_STORAGE_PROVIDER === "s3") {
-    if (!process.env.AWS_S3_BUCKET) throw new Error("AWS_S3_BUCKET nao configurado");
-    const { ListObjectsV2Command } = require("@aws-sdk/client-s3");
-    const client = await getS3Client();
-    const prefix = `${getCloudKey(folderId, "", area)}/`;
-    const files = [];
-    let ContinuationToken;
-
-    do {
-      const listed = await client.send(new ListObjectsV2Command({
-        Bucket: process.env.AWS_S3_BUCKET,
-        Prefix: prefix,
-        ContinuationToken,
-      }));
-
-      for (const item of listed.Contents || []) {
-        const name = path.posix.basename(item.Key || "");
-        if (name) files.push({ name, key: item.Key });
-      }
-
-      ContinuationToken = listed.NextContinuationToken;
-    } while (ContinuationToken);
-
-    return files;
-  }
-
-  if (CLOUD_STORAGE_PROVIDER === "gdrive") {
-    const drive = await getGoogleDriveClient();
-    const files = [];
-    let pageToken;
-
-    do {
-      const response = await drive.files.list({
-        q: `appProperties has { key='rootArkFolderId' and value='${String(folderId || ROOT_FOLDER_ID).replace(/'/g, "\\'")}' } and appProperties has { key='rootArkArea' and value='${String(area).replace(/'/g, "\\'")}' } and trashed=false`,
-        fields: "nextPageToken, files(id, name, appProperties)",
-        spaces: "drive",
-        pageToken,
-        pageSize: 100,
-      });
-
-      for (const file of response.data.files || []) {
-        const key = file.appProperties?.rootArkKey || "";
-        const name = path.posix.basename(key) || path.basename(file.name || "");
-        if (name) files.push({ name, id: file.id, key });
-      }
-
-      pageToken = response.data.nextPageToken;
-    } while (pageToken);
-
-    return files;
-  }
-
-  return [];
-}
+// Cloud provider operations live in services/cloudStorage. These thin adapters preserve route behavior.
+function isCloudStorageEnabled() { return cloudStorage.enabled(); }
+function getCloudStorageStatus() { return cloudStorage.status(); }
+function getCloudKey(folderId = ROOT_FOLDER_ID, fileName = "", area = "uploads") { return cloudStorage.key(folderId, fileName, area); }
+async function uploadFileToCloud(localPath, folderId, fileName, area = "uploads") { return cloudStorage.upload(localPath, folderId, fileName, area); }
+async function downloadFileFromCloud(folderId, fileName, localPath, area = "uploads") { return cloudStorage.download(folderId, fileName, localPath, area); }
+async function deleteFileFromCloud(folderId, fileName, area = "uploads") { return cloudStorage.remove(folderId, fileName, area); }
+async function deleteCloudPrefix(prefix) { return cloudStorage.removePrefix(prefix); }
+async function listCloudFiles(folderId, area = "uploads") { return cloudStorage.list(folderId, area); }
 
 async function syncFolderCacheFromCloud(folderId, area = "uploads") {
   if (!isCloudStorageEnabled()) return;
