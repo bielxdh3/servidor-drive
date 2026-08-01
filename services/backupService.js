@@ -265,37 +265,94 @@ function acquireLock(operation) {
 }
 
 async function createZipArchive(archivePath, manifest, files) {
+  const closeTimeoutMs = Math.max(50, Math.min(5000, envNumber("BACKUP_OUTPUT_CLOSE_TIMEOUT_MS", 1000)));
+  const cleanupRetries = 2;
+  const cleanupDelayMs = 25;
   await new Promise((resolve, reject) => {
     let settled = false;
     let owned = false;
-    let closed = false;
+    let outputClosed = false;
     let finalized = false;
-    const finish = (error) => {
-      if (settled) return;
-      settled = true;
-      if (error && owned) fs.rmSync(archivePath, { force: true });
-      error ? reject(error) : resolve();
-    };
-    const complete = () => {
-      if (finalized && closed) finish();
-    };
-    let fd;
+    let archive;
     let output;
+    let fd;
+
+    const closeOutput = () => {
+      if (!output || outputClosed || output.destroyed) return;
+      try { output.destroy(); } catch {}
+    };
+
+    const waitForOutputClose = () => {
+      if (!output || outputClosed || output.closed) return Promise.resolve();
+      return new Promise((done) => {
+        let timer;
+        const finishWait = () => {
+          if (timer) clearTimeout(timer);
+          output.removeListener("close", finishWait);
+          done();
+        };
+        timer = setTimeout(finishWait, closeTimeoutMs);
+        output.once("close", finishWait);
+      });
+    };
+
+    const removeOwnedArchive = async () => {
+      if (!owned) return;
+      let lastError;
+      for (let attempt = 0; attempt <= cleanupRetries; attempt += 1) {
+        try {
+          fs.rmSync(archivePath, { force: false });
+          return;
+        } catch (error) {
+          if (error.code === "ENOENT") return;
+          lastError = error;
+          if (attempt < cleanupRetries) await new Promise((done) => setTimeout(done, cleanupDelayMs));
+        }
+      }
+      throw lastError;
+    };
+
+    const stopArchive = () => {
+      try {
+        if (archive && typeof archive.abort === "function") archive.abort();
+        else if (archive && typeof archive.destroy === "function") archive.destroy();
+      } catch {}
+      closeOutput();
+    };
+
+    const finish = async (error) => {
+      if (settled) return;
+      if (error) {
+        settled = true;
+        stopArchive();
+        await waitForOutputClose();
+        try { await removeOwnedArchive(); } catch (cleanupError) { error.cleanupError = cleanupError; }
+        reject(error);
+        return;
+      }
+      if (!finalized || !outputClosed) return;
+      settled = true;
+      resolve();
+    };
+
+    const onArchiveError = (error) => { void finish(error); };
+    const onOutputError = (error) => { void finish(error); };
+
     try {
       fd = fs.openSync(archivePath, "wx");
       owned = true;
       output = fs.createWriteStream(archivePath, { fd, autoClose: true });
-      const archive = new ZipArchive({ zlib: { level: 9 } });
-      output.once("close", () => { closed = true; complete(); });
-      output.once("error", finish);
-      archive.once("error", finish);
+      archive = new ZipArchive({ zlib: { level: 9 } });
+      output.on("close", () => { outputClosed = true; void finish(); });
+      output.on("error", onOutputError);
+      archive.on("error", onArchiveError);
       archive.pipe(output);
       archive.append(JSON.stringify(manifest, null, 2), { name: "backup-manifest.json" });
       for (const file of files) archive.file(file.absolutePath, { name: file.entryPath });
-      Promise.resolve(archive.finalize()).then(() => { finalized = true; complete(); }, finish);
+      Promise.resolve(archive.finalize()).then(() => { finalized = true; void finish(); }, onArchiveError);
     } catch (error) {
       if (fd !== undefined && !output) { try { fs.closeSync(fd); } catch {} }
-      finish(error);
+      void finish(error);
     }
   });
 }
@@ -508,13 +565,23 @@ async function createBackup(options = {}) {
     await cleanupRetention();
     return saved;
   } catch (error) {
-    if (archiveCreated) fs.rmSync(archivePath, { force: true });
-    const failed = backupRepository.saveBackup({
-      ...baseEntry,
-      finishedAt: new Date().toISOString(),
-      errorMessage: error.message,
-      metadata: { ...baseEntry.metadata, durationMs: Date.now() - startedAt },
-    });
+    let cleanupError = null;
+    if (archiveCreated) {
+      try { fs.rmSync(archivePath, { force: false }); } catch (cleanupFailure) { cleanupError = cleanupFailure; }
+    }
+    let failed;
+    try {
+      failed = backupRepository.saveBackup({
+        ...baseEntry,
+        finishedAt: new Date().toISOString(),
+        errorMessage: error.message,
+        metadata: { ...baseEntry.metadata, durationMs: Date.now() - startedAt },
+      });
+    } catch (historyError) {
+      historyError.archiveCleanupError = cleanupError;
+      throw historyError;
+    }
+    if (cleanupError) error.archiveCleanupError = cleanupError;
     throw Object.assign(error, { backup: failed });
   } finally {
     fs.rmSync(stageDir, { recursive: true, force: true });
@@ -562,6 +629,7 @@ module.exports = {
   calculateFileHash,
   cleanupRetention,
   createBackup,
+  createZipArchive,
   deleteBackup,
   getArchivePath,
   getBackupOrThrow,
