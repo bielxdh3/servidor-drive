@@ -128,6 +128,18 @@ const WEBDAV_MOVE_RECONCILIATION_INTERVAL_MS = parseBoundedNumber("WEBDAV_MOVE_R
 const WEBDAV_MOVE_RECONCILIATION_MAX_ATTEMPTS = parseBoundedNumber("WEBDAV_MOVE_RECONCILIATION_MAX_ATTEMPTS", 5, 1, 100);
 const WEBDAV_MOVE_RECONCILIATION_LEASE_MS = parseBoundedNumber("WEBDAV_MOVE_RECONCILIATION_LEASE_MS", 60 * 1000, 1000, 60 * 60 * 1000);
 const WEBDAV_MOVE_RECONCILIATION_MAX_BACKOFF_MS = parseBoundedNumber("WEBDAV_MOVE_RECONCILIATION_MAX_BACKOFF_MS", 60 * 60 * 1000, 1000, 24 * 60 * 60 * 1000);
+const WEBDAV_MOVE_REMOTE_INTENT_STATES = new Set([
+  "claimed",
+  "destination_uploaded",
+  "retry_wait",
+  "cloud_reconciliation_claimed",
+  "cloud_destination_uploaded",
+  "cloud_source_removal_pending",
+  "uploaded",
+  "delete-claimed",
+  "delete-uncertain",
+  "uncertain",
+]);
 let webDavReconciliationRunning = false;
 let webDavReconciliationTimer = null;
 const ENCRYPTION_ITERATIONS = 100000;
@@ -6253,6 +6265,41 @@ function rollbackWebDavMoveJournal(journal) {
   fs.rmSync(path.dirname(journal.metadata.directory), { recursive: true, force: true });
 }
 
+function isDurablyCompletedWebDavMove(journal) {
+  return ["committed", "cloud_complete", "completed"].includes(journal.phase) || journal.cloud?.state === "completed";
+}
+
+function finalizeWebDavMoveJournal(journal) {
+  if (!isSafeWebDavMoveJournal(journal)) throw new Error("Journal WebDAV invalido");
+  journal.phase = "committed";
+  writeWebDavMoveJournal(journal);
+  fs.rmSync(journal.destinationBackupPath, { force: true });
+  fs.rmSync(journal.stagePath, { force: true });
+  fs.rmSync(journal.metadata.directory, { recursive: true, force: true });
+  fs.rmSync(journal.journalPath, { force: true });
+  fs.rmSync(path.dirname(journal.metadata.directory), { recursive: true, force: true });
+  fs.rmSync(webDavMoveLockPath(journal.transactionId), { force: true });
+}
+
+function cleanupOrphanWebDavMoveArtifacts() {
+  if (!fs.existsSync(WEBDAV_MOVE_JOURNAL_DIR)) return;
+  const transactionPattern = /^rootark-webdav-move-([a-f0-9-]{36})$/i;
+  for (const name of fs.readdirSync(WEBDAV_MOVE_JOURNAL_DIR)) {
+    const match = transactionPattern.exec(name);
+    if (!match) continue;
+    const directory = path.resolve(WEBDAV_MOVE_JOURNAL_DIR, name);
+    const journalPath = path.resolve(WEBDAV_MOVE_JOURNAL_DIR, `rootark-webdav-move-${match[1]}.json`);
+    if (fs.existsSync(journalPath) || !isSafeChildPath(WEBDAV_MOVE_JOURNAL_DIR, directory)) continue;
+    fs.rmSync(directory, { recursive: true, force: true });
+    fs.rmSync(webDavMoveLockPath(match[1]), { force: true });
+  }
+  for (const name of fs.readdirSync(WEBDAV_MOVE_JOURNAL_DIR).filter((entry) => /^rootark-webdav-move-[a-f0-9-]{36}\.lock$/i.test(entry))) {
+    const transactionId = name.slice("rootark-webdav-move-".length, -".lock".length);
+    const journalPath = path.resolve(WEBDAV_MOVE_JOURNAL_DIR, `rootark-webdav-move-${transactionId}.json`);
+    if (!fs.existsSync(journalPath)) fs.rmSync(path.join(WEBDAV_MOVE_JOURNAL_DIR, name), { force: true });
+  }
+}
+
 function recoverWebDavMoveJournals() {
   if (!fs.existsSync(WEBDAV_MOVE_JOURNAL_DIR)) return;
   for (const name of fs.readdirSync(WEBDAV_MOVE_JOURNAL_DIR).filter((entry) => /^rootark-webdav-move-[a-f0-9-]{36}\.json$/i.test(entry))) {
@@ -6260,20 +6307,16 @@ function recoverWebDavMoveJournals() {
     let journal;
     try { journal = JSON.parse(fs.readFileSync(journalPath, "utf8")); } catch { throw new Error("Journal WebDAV invalido"); }
     if (!isSafeWebDavMoveJournal(journal)) throw new Error("Journal WebDAV ambiguo");
-    if (["cloud_source_removal_pending", "cloud_destination_uploaded", "cloud_reconciliation_claimed"].includes(journal.phase)) {
+    if (isDurablyCompletedWebDavMove(journal)) {
+      finalizeWebDavMoveJournal(journal);
       continue;
     }
-    if (["committed", "cloud_complete"].includes(journal.phase)) {
-      fs.rmSync(journal.destinationBackupPath, { force: true });
-      fs.rmSync(journal.stagePath, { force: true });
-      fs.rmSync(journal.journalPath, { force: true });
-      fs.rmSync(journal.metadata.directory, { recursive: true, force: true });
-      fs.rmSync(path.dirname(journal.metadata.directory), { recursive: true, force: true });
-    } else {
-      restoreWebDavMoveMetadata(journal.metadata);
-      rollbackWebDavMoveJournal(journal);
-    }
+    if (journal.phase === "terminal_reconciliation_failure" || journal.cloud?.state === "terminal_reconciliation_failure") continue;
+    if (WEBDAV_MOVE_REMOTE_INTENT_STATES.has(journal.phase) || WEBDAV_MOVE_REMOTE_INTENT_STATES.has(journal.cloud?.state)) continue;
+    restoreWebDavMoveMetadata(journal.metadata);
+    rollbackWebDavMoveJournal(journal);
   }
+  cleanupOrphanWebDavMoveArtifacts();
 }
 
 function webDavCloudTransition(journal, state, at, details = {}) {
@@ -6367,16 +6410,6 @@ function markWebDavMoveRetry(journal, error, now = Date.now()) {
   });
   writeWebDavMoveJournal(journal);
   return terminal;
-}
-
-function finalizeWebDavMoveJournal(journal) {
-  journal.phase = "committed";
-  writeWebDavMoveJournal(journal);
-  fs.rmSync(journal.destinationBackupPath, { force: true });
-  fs.rmSync(journal.stagePath, { force: true });
-  fs.rmSync(journal.journalPath, { force: true });
-  fs.rmSync(journal.metadata.directory, { recursive: true, force: true });
-  fs.rmSync(path.dirname(journal.metadata.directory), { recursive: true, force: true });
 }
 
 async function reconcileWebDavMoveCloud(journal, { claimToken = null, now = Date.now() } = {}) {
@@ -6561,11 +6594,7 @@ async function handleWebDavMove(req, res, segments) {
     }
     journal.phase = "committed";
     journal.completedOperations.push("move.commit");
-    writeWebDavMoveJournal(journal);
-    fs.rmSync(journal.destinationBackupPath, { force: true });
-    fs.rmSync(journal.journalPath, { force: true });
-    fs.rmSync(journal.metadata.directory, { recursive: true, force: true });
-    fs.rmSync(path.dirname(journal.metadata.directory), { recursive: true, force: true });
+    finalizeWebDavMoveJournal(journal);
     auditLog("webdav.move", getAuditActor(req), { type: "file", id: destination.fileName }, "move", "success", { folderId: source.folder.id, overwrite });
     return res.status(destinationExists ? 204 : 201).end();
   } catch (error) {
@@ -6577,8 +6606,7 @@ async function handleWebDavMove(req, res, segments) {
         try { journal.phase = "terminal_reconciliation_failure"; journal.cloud.lastFailureCategory = "local_rollback_failed"; writeWebDavMoveJournal(journal); } catch {}
       }
     } else if (!cloudReconciliationPending && !["terminal_reconciliation_failure"].includes(journal.phase)) {
-      fs.rmSync(journal.destinationBackupPath, { force: true });
-      fs.rmSync(journal.journalPath, { force: true });
+      try { finalizeWebDavMoveJournal(journal); } catch {}
     }
     auditLog("webdav.error", getAuditActor(req), { type: "webdav", id: getSafeWebDavAuditPath(req) }, "move", "failure", { error: error.message, path: getSafeWebDavAuditPath(req) });
     if (cloudReconciliationPending) return res.status(202).json({ status: journal.cloud.state || "retry_wait", transactionId, fileName: destination.fileName });
