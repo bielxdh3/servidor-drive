@@ -7,14 +7,24 @@ const backupService = require("./backupService");
 
 const RESTORE_TMP_DIR = path.join(backupService.BACKUPS_DIR, ".restore-tmp");
 const RESTORABLE_ROOTS = new Set(["data", "uploads"]);
+const S_IFMT = 0xf000;
+const S_IFLNK = 0xa000;
+
+function isZipSymlink(entry) {
+  if (entry.type === "SymbolicLink") return true;
+  const madeByUnix = (Number(entry.versionMadeBy) >>> 8) === 3;
+  const unixMode = Number(entry.externalFileAttributes) >>> 16;
+  return madeByUnix && (unixMode & S_IFMT) === S_IFLNK;
+}
 
 function assertSafeZipPath(entryPath) {
-  const normalized = String(entryPath || "").replace(/\\/g, "/");
-  if (!normalized || normalized.startsWith("/") || /^[a-zA-Z]:/.test(normalized)) {
+  const archivePath = String(entryPath || "").replace(/\\/g, "/");
+  if (!archivePath || archivePath.startsWith("/") || /^[a-zA-Z]:/.test(archivePath)) {
     throw new Error(`Caminho invalido no backup: ${entryPath}`);
   }
-  const parts = normalized.split("/");
+  const parts = archivePath.split("/");
   if (parts.includes("..")) throw new Error(`Path traversal bloqueado: ${entryPath}`);
+  const normalized = path.posix.normalize(archivePath);
   if (parts[0] !== "backup-manifest.json" && !RESTORABLE_ROOTS.has(parts[0])) {
     throw new Error(`Entrada nao permitida no backup: ${entryPath}`);
   }
@@ -42,9 +52,13 @@ async function validateBackupArchive(backup, archivePath) {
   }
 
   const { zip, manifest } = await readManifest(archivePath);
+  const destinations = new Set();
   for (const entry of zip.files) {
-    if (entry.type === "SymbolicLink") throw new Error(`Symlink bloqueado no backup: ${entry.path}`);
-    assertSafeZipPath(entry.path);
+    if (isZipSymlink(entry)) throw new Error(`Symlink bloqueado no backup: ${entry.path}`);
+    const safePath = assertSafeZipPath(entry.path);
+    const destinationKey = safePath.replace(/\/+$/, "").toLowerCase();
+    if (destinations.has(destinationKey)) throw new Error(`Entrada duplicada no backup: ${entry.path}`);
+    destinations.add(destinationKey);
   }
   if (!manifest.backup_id) throw new Error("Manifest invalido");
   return { zip, manifest };
@@ -58,10 +72,12 @@ async function extractArchive(zip, targetDir) {
     const safePath = assertSafeZipPath(entry.path);
     if (safePath === "backup-manifest.json") continue;
     if (entry.type === "Directory") continue;
-    if (entry.type === "SymbolicLink") throw new Error(`Symlink bloqueado no backup: ${entry.path}`);
+    if (isZipSymlink(entry)) throw new Error(`Symlink bloqueado no backup: ${entry.path}`);
 
-    const destination = path.resolve(targetDir, safePath);
-    if (!destination.startsWith(path.resolve(targetDir))) {
+    const root = path.resolve(targetDir);
+    const destination = path.resolve(root, safePath);
+    const relative = path.relative(root, destination);
+    if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
       throw new Error(`Path traversal bloqueado: ${entry.path}`);
     }
     fs.mkdirSync(path.dirname(destination), { recursive: true });
