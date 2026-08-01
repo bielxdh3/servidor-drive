@@ -140,7 +140,7 @@ async function collectBackupFiles(options = {}) {
     if (remoteIdentities.has(identity)) throw new Error("Cloud backup inventory contains a duplicate provider identity");
     remoteIdentities.add(identity);
     if (!folderId || folderId === "." || folderId === ".." || /[\\\\/]/.test(folderId)) throw new Error("Cloud backup inventory contains an unsafe folder");
-    if (!name || name !== path.basename(name) || isSensitivePath(`${remote.area}/${folderId}/${name}`)) throw new Error("Cloud backup inventory contains an unsafe path");
+    if (!name || name !== path.basename(name) || /[\\/]/.test(name) || isSensitivePath(`${remote.area}/${folderId}/${name}`)) throw new Error("Cloud backup inventory contains an unsafe path");
     const entryPath = normalizeEntryPath(path.posix.join(remote.area, folderId === "root" ? "" : folderId, name));
     const key = collisionKey(entryPath);
     if (collisions.has(key) && collisions.get(key) !== entryPath) throw new Error("Backup entry collision");
