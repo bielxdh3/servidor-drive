@@ -3062,11 +3062,15 @@ function cleanupExpiredTrashItems() {
         auditLog("trash.remote_delete.queued", { username: "system", role: "system" }, { type: "trash", id: item.id }, "remote_delete", "success", {});
         void trashService.processRemoteDeletion({ item: pending, provider: deleteCloudTrashItem })
           .then((result) => {
-            const state = result.metadata?.remoteDeletion?.state;
+            const persisted = trashRepository.getTrashItem(item.id) || result;
+            const state = persisted.metadata?.remoteDeletion?.state;
             if (state === "completed") auditLog("trash.remote_delete.completed", { username: "system", role: "system" }, { type: "trash", id: item.id }, "remote_delete", "success", {});
-            else if (state === "terminal_failure") auditLog("trash.remote_delete.failed", { username: "system", role: "system" }, { type: "trash", id: item.id }, "remote_delete", "failure", { category: result.metadata?.remoteDeletion?.failureCategory });
+            else if (state === "terminal_failure") auditLog("trash.remote_delete.failed", { username: "system", role: "system" }, { type: "trash", id: item.id }, "remote_delete", "failure", { category: persisted.metadata?.remoteDeletion?.failureCategory });
           })
-          .catch(() => {});
+          .catch((error) => {
+            auditLog("trash.remote_delete.operational_failure", { username: "system", role: "system" }, { type: "trash", id: item.id }, "remote_delete", "failure", { category: error.code || "persistence_error" });
+            console.error("[cloud-trash] remote deletion state could not be persisted:", error.code || "persistence_error");
+          });
       }
       if (!isCloudStorageEnabled()) {
         auditLog(
@@ -4248,8 +4252,9 @@ async function processPendingCloudTrashItems() {
         const state = result.metadata?.remoteDeletion?.state;
         if (state === "completed") auditLog("trash.remote_delete.completed", { username: "system", role: "system" }, { type: "trash", id: item.id }, "remote_delete", "success", {});
         else if (state === "terminal_failure") auditLog("trash.remote_delete.failed", { username: "system", role: "system" }, { type: "trash", id: item.id }, "remote_delete", "failure", { category: result.metadata?.remoteDeletion?.failureCategory });
-      } catch {
-        // Persistence and claim failures are retried on the next scheduler tick.
+      } catch (error) {
+        auditLog("trash.remote_delete.operational_failure", { username: "system", role: "system" }, { type: "trash", id: item.id }, "remote_delete", "failure", { category: error.code || "persistence_error" });
+        console.error("[cloud-trash] pending remote deletion failed:", error.code || "persistence_error");
       }
     }
   } catch (error) {

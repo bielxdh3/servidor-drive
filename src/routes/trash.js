@@ -26,6 +26,20 @@ function registerTrashRoutes(app, context) {
   const listVisibleItems = () => trashRepository.listTrashItems({ status: "*" })
     .filter((item) => ["trashed", "remote_delete_pending"].includes(item.status));
   const remoteStatus = (item) => item.metadata?.remoteDeletion?.state || "pending";
+  const loadPersistedItem = (id) => {
+    const persisted = trashRepository.getTrashItem(id);
+    if (!persisted) throw Object.assign(new Error("Trash item persistence is unavailable"), { code: "persistence_unavailable" });
+    return persisted;
+  };
+  const recordPersistenceFailure = (req, id, error) => {
+    auditLog("trash.delete.persistence_failed", getAuditActor(req), { type: "trash", id }, "persistence", "failure", {
+      category: error?.code === "persistence_unavailable" ? "reload_failed" : "persistence_error",
+    });
+  };
+  const persistenceFailure = (req, id, error, res) => {
+    recordPersistenceFailure(req, id, error);
+    return res.status(500).json({ error: "Erro de persistencia da lixeira" });
+  };
 
   app.get("/trash", authenticate, requirePermission("listFiles"), (req, res) => {
     if (!isTrashEnabled()) return res.status(503).json({ error: "Lixeira desativada" });
@@ -101,21 +115,32 @@ function registerTrashRoutes(app, context) {
 
     try {
       const remoteRequired = isCloudStorageEnabled();
-      let deleted = remoteRequired
-        ? trashService.queueRemoteDeletion({ item, deletedBy: req.user.username, loaders: getTrashLoaders(), provider: getCloudStorageStatus?.().provider })
-        : trashService.permanentlyDelete({ item, deletedBy: req.user.username, loaders: getTrashLoaders() });
-      let remoteDeletion = remoteRequired ? "pending" : "not_required";
-      if (remoteRequired) {
+      let operationError = null;
+      try {
+        let deleted = remoteRequired
+          ? trashService.queueRemoteDeletion({ item, deletedBy: req.user.username, loaders: getTrashLoaders(), provider: getCloudStorageStatus?.().provider })
+          : trashService.permanentlyDelete({ item, deletedBy: req.user.username, loaders: getTrashLoaders() });
+        if (remoteRequired) await trashService.processRemoteDeletion({ item: deleted, provider: deleteCloudTrashItem });
+      } catch (error) {
+        operationError = error;
+      }
+      let deleted;
+      try {
+        deleted = loadPersistedItem(id);
+      } catch (error) {
+        return persistenceFailure(req, id, error, res);
+      }
+      const persistedRemoteState = deleted.metadata?.remoteDeletion?.state;
+      if (operationError && (!remoteRequired || !["pending", "retry_wait", "completed", "terminal_failure"].includes(persistedRemoteState))) {
+        return persistenceFailure(req, id, operationError, res);
+      }
+      const remoteDeletion = remoteRequired ? remoteStatus(deleted) : "not_required";
+      if (remoteRequired && persistedRemoteState === "pending") {
         auditLog("trash.remote_delete.queued", getAuditActor(req), { type: "trash", id }, "remote_delete", "success", {});
-        try {
-          deleted = await trashService.processRemoteDeletion({ item: deleted, provider: deleteCloudTrashItem });
-          remoteDeletion = remoteStatus(deleted);
-          if (remoteDeletion === "completed") auditLog("trash.remote_delete.completed", getAuditActor(req), { type: "trash", id }, "remote_delete", "success", {});
-          else if (remoteDeletion === "terminal_failure") auditLog("trash.remote_delete.failed", getAuditActor(req), { type: "trash", id }, "remote_delete", "failure", {});
-        } catch (error) {
-          remoteDeletion = "terminal_failure";
-          auditLog("trash.remote_delete.failed", getAuditActor(req), { type: "trash", id }, "remote_delete", "failure", { category: "persistence_failure" });
-        }
+      } else if (remoteDeletion === "completed") {
+        auditLog("trash.remote_delete.completed", getAuditActor(req), { type: "trash", id }, "remote_delete", "success", {});
+      } else if (remoteDeletion === "terminal_failure") {
+        auditLog("trash.remote_delete.failed", getAuditActor(req), { type: "trash", id }, "remote_delete", "failure", { category: deleted.metadata.remoteDeletion.failureCategory });
       }
       if (["completed", "not_required"].includes(remoteDeletion)) {
         auditLog(
@@ -145,36 +170,46 @@ function registerTrashRoutes(app, context) {
     const items = listVisibleItems();
     let deletedCount = 0;
     let pendingCount = 0;
+    let terminalCount = 0;
+    let persistenceFailed = false;
     for (const item of items) {
       try {
+        let operationError = null;
         if (!isCloudStorageEnabled()) {
-          trashService.permanentlyDelete({ item, deletedBy: req.user.username, loaders: getTrashLoaders() });
-          deletedCount += 1;
+          try { trashService.permanentlyDelete({ item, deletedBy: req.user.username, loaders: getTrashLoaders() }); } catch (error) { operationError = error; }
+        } else {
+          try {
+            const queued = trashService.queueRemoteDeletion({ item, deletedBy: req.user.username, loaders: getTrashLoaders(), provider: getCloudStorageStatus?.().provider });
+            await trashService.processRemoteDeletion({ item: queued, provider: deleteCloudTrashItem });
+          } catch (error) { operationError = error; }
+        }
+        let persisted;
+        try { persisted = loadPersistedItem(item.id); } catch (error) {
+          persistenceFailed = true;
+          recordPersistenceFailure(req, item.id, error);
           continue;
         }
-        let deleted = trashService.queueRemoteDeletion({ item, deletedBy: req.user.username, loaders: getTrashLoaders(), provider: getCloudStorageStatus?.().provider });
-        auditLog("trash.remote_delete.queued", getAuditActor(req), { type: "trash", id: item.id }, "remote_delete", "success", {});
-        try {
-          deleted = await trashService.processRemoteDeletion({ item: deleted, provider: deleteCloudTrashItem });
-          if (remoteStatus(deleted) === "completed") {
-            deletedCount += 1;
-            auditLog("trash.remote_delete.completed", getAuditActor(req), { type: "trash", id: item.id }, "remote_delete", "success", {});
-          } else {
-            pendingCount += 1;
-            if (remoteStatus(deleted) === "terminal_failure") auditLog("trash.remote_delete.failed", getAuditActor(req), { type: "trash", id: item.id }, "remote_delete", "failure", {});
-          }
-        } catch {
-          pendingCount += 1;
+        const state = isCloudStorageEnabled() ? remoteStatus(persisted) : "not_required";
+        if (operationError && (isCloudStorageEnabled() ? !["pending", "retry_wait", "completed", "terminal_failure"].includes(state) : persisted.status !== "permanently_deleted")) {
+          persistenceFailed = true;
+          recordPersistenceFailure(req, item.id, operationError);
+          continue;
         }
+        if (state === "completed" || state === "not_required") deletedCount += 1;
+        else if (state === "terminal_failure") terminalCount += 1;
+        else pendingCount += 1;
       } catch (error) {
         auditLog("trash.delete.failed", getAuditActor(req), { type: "trash", id: item.id }, "empty_trash", "failure", {
-          error: error.message,
+          category: error.code || "operational_failure",
         });
       }
     }
+    const persistedItems = listVisibleItems();
+    terminalCount = persistedItems.filter((entry) => remoteStatus(entry) === "terminal_failure").length;
+    if (persistenceFailed) return res.status(500).json({ error: "Erro de persistencia da lixeira" });
     auditLog("trash.emptied", getAuditActor(req), { type: "trash", id: "all" }, "emptied", "success", { deletedCount });
     broadcastDataChanged("trash", { action: "emptied" });
-    res.json({ message: "Lixeira esvaziada", deletedCount, pendingCount, terminalCount: items.filter((item) => remoteStatus(item) === "terminal_failure").length });
+    res.json({ message: "Lixeira esvaziada", deletedCount, pendingCount, terminalCount });
   });
 }
 
