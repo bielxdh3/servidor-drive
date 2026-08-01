@@ -150,6 +150,7 @@ test("remote pending state persists through SQLite reopen", () => {
   const script = [
     `process.chdir(${JSON.stringify(sqliteRuntime)});`,
     'process.env.DB_ENABLED = "true";',
+    'process.env.DATABASE_URL = require("path").join(process.cwd(), "data", "rootark.sqlite");',
     `require(${JSON.stringify(migrationPath)}).runMigrations({ backup: false });`,
     `const repo = require(${JSON.stringify(repositoryPath)});`,
     `const service = require(${JSON.stringify(servicePath)});`,
