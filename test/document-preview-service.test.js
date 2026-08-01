@@ -21,4 +21,15 @@ test("document preview bounds text inputs", async (t) => {
     assert.equal(result.content.endsWith("[preview truncated]"), true); assert.ok(result.content.length <= MAX_OUTPUT_CHARS + 32);
   });
   await t.test("malformed DOCX returns a parser failure", async () => await assert.rejects(previewText(write("broken.docx", "not a zip"), "broken.docx")));
+  for (const extension of [".json", ".csv", ".log", ".xml", ".yaml", ".yml"]) {
+    await t.test(`${extension} is accepted as bounded text`, async () => assert.equal((await previewText(write(`data${extension}`, "ok"), `data${extension}`)).language, extension.slice(1)));
+  }
+  await t.test("invalid UTF-8 is decoded without executing content", async () => assert.ok((await previewText(write("invalid.txt", Buffer.from([0xc3, 0x28])), "invalid.txt")).content.length > 0));
+  await t.test("uppercase supported extension is normalized", async () => assert.equal((await previewText(write("upper.TXT", "ok"), "upper.TXT")).language, "txt"));
+  await t.test("missing input fails without creating artifacts", async () => await assert.rejects(previewText(path.join(dir, "missing.txt"), "missing.txt")));
+  await t.test("directory input is rejected", async () => { const nested = path.join(dir, "folder.txt"); fs.mkdirSync(nested); await assert.rejects(previewText(nested, "folder.txt"), /PREVIEW_TOO_LARGE/); });
+  await t.test("malformed DOC is rejected", async () => await assert.rejects(previewText(write("broken.doc", "not an ole document"), "broken.doc")));
+  await t.test("text format reports its extension", async () => assert.equal((await previewText(write("language.xml", "<x/>"), "language.xml")).format, "text"));
+  await t.test("empty text is stable", async () => assert.equal((await previewText(write("empty.txt", ""), "empty.txt")).content, ""));
+  await t.test("preview creates no temporary files", async () => { const target = write("clean.txt", "ok"); const before = fs.readdirSync(dir).sort(); await previewText(target, "clean.txt"); assert.deepEqual(fs.readdirSync(dir).sort(), before); });
 });
