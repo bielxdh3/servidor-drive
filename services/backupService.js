@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const { ZipArchive } = require("archiver");
+const archiver = require("archiver");
 const backupRepository = require("../repositories/backupRepository");
 const { getDatabasePath, isDbEnabled } = require("../db");
 const { resolveRuntimePath } = require("../src/runtime-paths");
@@ -14,6 +14,7 @@ let cloudStorage = null;
 function setCloudStorage(storage) {
   cloudStorage = storage || null;
 }
+const RETENTION_TOMBSTONE_SUFFIX = ".retention-tombstone";
 
 function envBool(name, fallback) {
   const value = process.env[name];
@@ -171,58 +172,102 @@ function calculateFileHash(filePath) {
   });
 }
 
-function acquireLock(operation) {
-  fs.mkdirSync(BACKUPS_DIR, { recursive: true });
-  if (operationLock) {
-    const error = new Error(`Operacao de ${operationLock} em andamento`);
-    error.code = "BACKUP_LOCKED";
-    throw error;
-  }
+function lockRecord(operation, token) {
+  return {
+    token,
+    operation,
+    pid: process.pid,
+    startedAt: new Date().toISOString(),
+    runtimeRoot: path.resolve(resolveRuntimePath(".")),
+  };
+}
 
+function writeLock(operation) {
+  const token = crypto.randomUUID();
   let fd;
   try {
     fd = fs.openSync(LOCK_FILE, "wx");
-    fs.writeFileSync(fd, JSON.stringify({ operation, pid: process.pid, startedAt: new Date().toISOString() }));
+    fs.writeFileSync(fd, JSON.stringify(lockRecord(operation, token)), "utf8");
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    return token;
   } catch (error) {
-    const staleMs = Math.max(60_000, envNumber("BACKUP_LOCK_STALE_MS", 6 * 60 * 60 * 1000));
-    let stale = false;
-    try {
-      const stat = fs.statSync(LOCK_FILE);
-      const lock = JSON.parse(fs.readFileSync(LOCK_FILE, "utf8"));
-      const age = Date.now() - stat.mtimeMs;
-      if (Number.isInteger(lock.pid) && lock.pid > 0) {
-        try { process.kill(lock.pid, 0); } catch (pidError) { stale = pidError.code === "ESRCH" && age >= staleMs; }
-      } else {
-        stale = age >= staleMs;
-      }
-    } catch {
-      try { stale = Date.now() - fs.statSync(LOCK_FILE).mtimeMs >= staleMs; } catch {}
+    if (fd !== undefined) {
+      try { fs.closeSync(fd); } catch {}
+      try { fs.rmSync(LOCK_FILE, { force: true }); } catch {}
     }
-    if (stale) {
-      try { fs.rmSync(LOCK_FILE, { force: true }); fd = fs.openSync(LOCK_FILE, "wx"); fs.writeFileSync(fd, JSON.stringify({ operation, pid: process.pid, startedAt: new Date().toISOString() })); }
-      catch {}
+    throw error;
+  }
+}
+
+function isStaleLock() {
+  const staleMs = Math.max(60_000, envNumber("BACKUP_LOCK_STALE_MS", 6 * 60 * 60 * 1000));
+  let stat;
+  try { stat = fs.statSync(LOCK_FILE); } catch { return false; }
+  const age = Date.now() - stat.mtimeMs;
+  if (age < staleMs) return false;
+  try {
+    const lock = JSON.parse(fs.readFileSync(LOCK_FILE, "utf8"));
+    if (Number.isInteger(lock.pid) && lock.pid > 0) {
+      try { process.kill(lock.pid, 0); return false; } catch (error) { return error.code === "ESRCH"; }
     }
-    if (fd === undefined) {
-    const locked = new Error("Outra operacao de backup/restauracao esta em andamento");
-    locked.code = "BACKUP_LOCKED";
-    throw locked;
+  } catch {
+    return true;
+  }
+  return true;
+}
+
+function acquireLock(operation) {
+  fs.mkdirSync(BACKUPS_DIR, { recursive: true });
+  if (operationLock) {
+    const error = new Error(`Operacao de ${operationLock.operation} em andamento`);
+    error.code = "BACKUP_LOCKED";
+    throw error;
+  }
+  let token;
+  try {
+    token = writeLock(operation);
+  } catch (error) {
+    if (error.code !== "EEXIST") {
+      const failed = new Error("Falha ao gravar lock de backup");
+      failed.code = "BACKUP_LOCK_WRITE_FAILED";
+      throw failed;
+    }
+    if (!isStaleLock()) {
+      const locked = new Error("Outra operacao de backup/restauracao esta em andamento");
+      locked.code = "BACKUP_LOCKED";
+      throw locked;
+    }
+    try { fs.rmSync(LOCK_FILE, { force: false }); } catch {
+      const locked = new Error("Nao foi possivel reivindicar o lock de backup");
+      locked.code = "BACKUP_LOCKED";
+      throw locked;
+    }
+    try { token = writeLock(operation); } catch {
+      const locked = new Error("Nao foi possivel gravar o lock de backup");
+      locked.code = "BACKUP_LOCK_WRITE_FAILED";
+      throw locked;
     }
   }
-
-  operationLock = operation;
+  operationLock = { operation, token };
+  let released = false;
   return () => {
-    operationLock = null;
+    if (released) return;
+    released = true;
+    if (operationLock?.token === token) operationLock = null;
     try {
-      if (fd) fs.closeSync(fd);
-    } catch {}
-    fs.rmSync(LOCK_FILE, { force: true });
+      const current = JSON.parse(fs.readFileSync(LOCK_FILE, "utf8"));
+      if (current.token === token) fs.rmSync(LOCK_FILE, { force: false });
+    } catch {
+      // The lock is already gone or malformed; never delete another operation's lock.
+    }
   };
 }
 
 async function createZipArchive(archivePath, manifest, files) {
   await new Promise((resolve, reject) => {
     const output = fs.createWriteStream(archivePath);
-    const archive = new ZipArchive({ zlib: { level: 9 } });
+    const archive = archiver("zip", { zlib: { level: 9 } });
     output.on("close", resolve);
     output.on("error", reject);
     archive.on("error", reject);
@@ -241,13 +286,34 @@ function getArchivePath(filename) {
     return null;
   }
   const archivePath = path.resolve(BACKUPS_DIR, safeName);
-  return archivePath.startsWith(path.resolve(BACKUPS_DIR)) ? archivePath : null;
+  const root = path.resolve(BACKUPS_DIR);
+  return archivePath === root || archivePath.startsWith(`${root}${path.sep}`) ? archivePath : null;
+}
+
+function retentionTombstone(archivePath) {
+  const root = path.resolve(BACKUPS_DIR);
+  const target = path.resolve(`${archivePath}${RETENTION_TOMBSTONE_SUFFIX}`);
+  if (!target.startsWith(`${root}${path.sep}`)) throw new Error("Retention tombstone escaped backup root");
+  return target;
+}
+
+function recoverRetentionTombstones() {
+  if (!fs.existsSync(BACKUPS_DIR)) return;
+  for (const name of fs.readdirSync(BACKUPS_DIR)) {
+    if (!name.endsWith(RETENTION_TOMBSTONE_SUFFIX)) continue;
+    const original = getArchivePath(name.slice(0, -RETENTION_TOMBSTONE_SUFFIX.length));
+    const tombstone = path.resolve(BACKUPS_DIR, name);
+    if (!original || !tombstone.startsWith(`${path.resolve(BACKUPS_DIR)}${path.sep}`)) continue;
+    if (fs.existsSync(original)) fs.rmSync(tombstone, { force: true });
+    else fs.renameSync(tombstone, original);
+  }
 }
 
 async function cleanupRetention() {
   const count = Math.max(0, Math.floor(envNumber("BACKUP_RETENTION_COUNT", 10)));
   const days = Math.max(0, Math.floor(envNumber("BACKUP_RETENTION_DAYS", 30)));
   const cutoff = days ? Date.now() - days * 24 * 60 * 60 * 1000 : null;
+  recoverRetentionTombstones();
   const backups = backupRepository.listBackups()
     .filter((item) => item.status === "success" && item.type !== "pre-restore")
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt) || String(b.id).localeCompare(String(a.id)));
@@ -255,8 +321,21 @@ async function cleanupRetention() {
   const toDelete = backups.filter((item, index) => (count > 0 && index >= count) || (cutoff && new Date(item.createdAt).getTime() < cutoff));
   for (const backup of toDelete) {
     const archivePath = getArchivePath(backup.filename);
-    if (archivePath && fs.existsSync(archivePath)) fs.rmSync(archivePath, { force: true });
-    backupRepository.deleteBackup(backup.id);
+    if (!archivePath || !fs.existsSync(archivePath)) continue;
+    const tombstone = retentionTombstone(archivePath);
+    fs.renameSync(archivePath, tombstone);
+    let repositoryDeleted = false;
+    try {
+      backupRepository.deleteBackup(backup.id);
+      repositoryDeleted = true;
+    } catch (error) {
+      try { fs.renameSync(tombstone, archivePath); } catch {}
+      throw error;
+    } finally {
+      if (repositoryDeleted) {
+        try { fs.rmSync(tombstone, { force: false }); } catch {}
+      }
+    }
   }
 }
 
@@ -390,4 +469,5 @@ module.exports = {
   latestStatus,
   listBackups,
   setCloudStorage,
+  recoverRetentionTombstones,
 };
