@@ -114,6 +114,7 @@ const cloudStorage = createCloudStorage({
   gdrive: { folderId: process.env.GOOGLE_DRIVE_FOLDER_ID, credentials: process.env.GOOGLE_SERVICE_ACCOUNT_JSON, credentialsPath: process.env.GOOGLE_APPLICATION_CREDENTIALS },
 });
 backupService.setCloudStorage(cloudStorage);
+restoreService.setCloudStorage(cloudStorage);
 
 function shouldUseDatabase() {
   return dbConfig.isDbEnabled();

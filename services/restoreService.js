@@ -3,12 +3,18 @@ const path = require("path");
 const unzipper = require("unzipper");
 const { closeDb, getDatabasePath, isDbEnabled } = require("../db");
 const { resolveRuntimePath } = require("../src/runtime-paths");
+const backupRepository = require("../repositories/backupRepository");
 const backupService = require("./backupService");
 
 const RESTORE_TMP_DIR = path.join(backupService.BACKUPS_DIR, ".restore-tmp");
 const RESTORABLE_ROOTS = new Set(["data", "uploads"]);
 const S_IFMT = 0xf000;
 const S_IFLNK = 0xa000;
+let cloudStorage = null;
+
+function setCloudStorage(storage) {
+  cloudStorage = storage || null;
+}
 
 function isZipSymlink(entry) {
   if (entry.type === "SymbolicLink") return true;
@@ -163,11 +169,18 @@ async function restoreBackup(id, options = {}) {
     restoreDataFiles(restoreDir);
     restoreUploads(restoreDir);
     const restoredDatabase = restoreDatabaseFiles(restoreDir);
+    const cloudSync = cloudStorage?.enabled() && manifest.cloud_complete
+      ? { state: "pending", requestedAt: new Date().toISOString(), reason: "restore_requires_cloud_reconciliation" }
+      : { state: "not_required" };
+    if (cloudSync.state === "pending") {
+      backupRepository.saveBackup({ ...backup, metadata: { ...backup.metadata, restoreSync: cloudSync } });
+    }
     return {
       backup,
       manifest,
       preRestore,
       restartRecommended: restoredDatabase,
+      cloudSync,
     };
   } finally {
     fs.rmSync(restoreDir, { recursive: true, force: true });
@@ -185,5 +198,6 @@ async function getBackupManifest(id) {
 module.exports = {
   getBackupManifest,
   restoreBackup,
+  setCloudStorage,
   validateBackupArchive,
 };
