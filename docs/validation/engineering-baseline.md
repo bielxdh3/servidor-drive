@@ -17,13 +17,13 @@ npm run validate
 ## Included
 
 - First-party JavaScript syntax.
-- Current automated Node tests, including disposable real-server simple-upload coverage for authorization-before-Multer, suspicious-extension quarantine, filename/path containment, file-trash lifecycle safety, and JSON-mode backup/restore isolation. Backup regressions additionally reject checksum failures, traversal and absolute paths, disallowed or sensitive entries, Unix symlink metadata, invalid or duplicate manifests, and normalized destination collisions without extraction or runtime side effects. A disposable SQLite test proves the configured database path is archived and restored without changing `db.ROOT_DIR` or default database semantics.
+- Current automated Node tests, including disposable real-server simple-upload coverage for authorization-before-Multer, suspicious-extension quarantine, filename/path containment, file-trash lifecycle safety, and JSON-mode backup/restore isolation. The backup regression confirms representative `manageBackups` denial before archive/history/lock side effects, archive/history/pre-restore/restore-temp ownership by the child runtime root, checkout isolation, manifest/download access, safe archive inclusion and exclusion, invalid-confirmation non-mutation, and exact JSON/upload round-trip bytes. A disposable SQLite test proves the configured database path is archived and restored without changing `db.ROOT_DIR` or default database semantics.
 - Locked production and development dependency audit at high severity.
 - Disposable test data only.
 
 ## Environment-dependent validation
 
-This baseline does not automatically validate live ClamAV, S3, Google Drive, Windows WebDAV mounting, browser-driven flows, long-running migration, cloud backup storage, scheduler behavior, retention under time/count pressure, full production SQLite recovery, folder-trash, empty-trash, automatic cleanup, cloud trash deletion, chunked-upload, or synchronization exercises. The simple `POST /upload` multipart boundary is covered with a disabled scan provider while retaining the extension block; production HTTPS, reverse-proxy, Host, and Origin configuration also requires a real deployment environment. Those checks require disposable data and the relevant real prerequisites.
+This baseline does not automatically validate live ClamAV, S3, Google Drive, Windows WebDAV mounting, browser-driven flows, long-running migration, cloud backup storage, scheduler behavior, retention under time/count pressure, hostile ZIP corpora beyond current protections, full production SQLite recovery, folder-trash, empty-trash, automatic cleanup, cloud trash deletion, chunked-upload, or synchronization exercises. The simple `POST /upload` multipart boundary is covered with a disabled scan provider while retaining the extension block; production HTTPS, reverse-proxy, Host, and Origin configuration also requires a real deployment environment. Those checks require disposable data and the relevant real prerequisites.
 
 ## Data safety
 
