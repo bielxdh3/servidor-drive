@@ -17,7 +17,7 @@ Root.ark agora usa uma lixeira segura para arquivos e pastas. A exclusao comum n
 - Quem pode excluir arquivos/pastas continua seguindo as permissoes atuais de edicao/exclusao.
 - Admins e usuarios com `manageTrash` podem excluir definitivamente e esvaziar a lixeira.
 - Admins e usuarios com `manageTrash` podem restaurar qualquer item.
-- Usuarios comuns podem restaurar arquivos que eles mesmos excluiram, desde que ainda tenham acesso a pasta original.
+- Usuarios comuns podem restaurar arquivos que eles mesmos excluiram, desde que ainda tenham acesso a pasta original, e pastas que eles mesmos moveram para a lixeira.
 
 ## Rotas
 
@@ -59,7 +59,7 @@ Eventos registrados:
 
 ## Testes Recomendados
 
-A regressao real de runtime-root inicia o servidor a partir do checkout com um diretorio de trabalho sandbox e confirma que a exclusao grava o JSON e o arquivo fisico apenas no sandbox, sem escrever de volta no checkout. A cobertura completa de autorizacao e containment do ciclo de vida de arquivos na lixeira continua como proxima tarefa limitada; este teste nao altera nem declara cobertura de backup/restore.
+A regressao local inicia servidores com diretorios de trabalho descartaveis e cobre arquivos e pastas, visibilidade, restauracao pelo autor, exclusao definitiva por `manageTrash`, esvaziamento parcial seguro, caminhos adulterados e limpeza automatica por retencao. Os testes preservam sentinelas externas e confirmam que o checkout do modulo nao recebe artefatos. Exclusao em lixeiras de provedores cloud continua fora desta cobertura.
 
 1. Excluir um arquivo e confirmar que ele desaparece da lista normal.
 2. Abrir a aba Lixeira e confirmar que o arquivo aparece.

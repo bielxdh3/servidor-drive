@@ -4446,6 +4446,7 @@ function serializeTrashItemForUser(item) {
 function canRestoreTrashItem(req, item) {
   if (canManageTrash(req)) return true;
   if (item.deletedBy !== req.user?.username) return false;
+  if (item.itemType === "folder") return true;
   const folder = getFolderById(item.originalFolderId);
   return item.itemType === "file" && folder && hasFolderAccess(req, folder);
 }
