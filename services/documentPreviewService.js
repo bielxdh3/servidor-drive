@@ -1,22 +1,35 @@
 const fs = require("fs");
 const path = require("path");
 const { spawn, spawnSync } = require("node:child_process");
+const unzipper = require("unzipper");
 
 const MAX_INPUT_BYTES = Number(process.env.PREVIEW_MAX_INPUT_BYTES || 5 * 1024 * 1024);
 const MAX_OUTPUT_CHARS = Number(process.env.PREVIEW_MAX_OUTPUT_CHARS || 200_000);
 const TIMEOUT_MS = Number(process.env.PREVIEW_TIMEOUT_MS || 10_000);
+const MAX_DOCX_ENTRIES = Number(process.env.PREVIEW_MAX_DOCX_ENTRIES || 2_000);
+const MAX_DOCX_UNCOMPRESSED_BYTES = Number(process.env.PREVIEW_MAX_DOCX_UNCOMPRESSED_BYTES || 50 * 1024 * 1024);
+const MAX_DOCX_COMPRESSION_RATIO = Number(process.env.PREVIEW_MAX_DOCX_COMPRESSION_RATIO || 100);
+const MAX_CONCURRENT_PARSERS = Math.min(32, Math.max(1, Number(process.env.PREVIEW_MAX_CONCURRENCY || 2)));
+const MAX_PARSER_QUEUE = Math.min(128, Math.max(0, Number(process.env.PREVIEW_MAX_QUEUE || 16)));
+const TERMINATION_GRACE_MS = 100;
 const TEXT_EXTENSIONS = new Set([".txt", ".md", ".json", ".csv", ".log", ".xml", ".yaml", ".yml"]);
 const PARSER_WORKER = path.join(__dirname, "documentPreviewWorker.js");
+let activeParsers = 0;
+const parserQueue = [];
 
 function bounded(value) {
   const text = String(value || "");
   return text.length > MAX_OUTPUT_CHARS ? `${text.slice(0, MAX_OUTPUT_CHARS)}\n[preview truncated]` : text;
 }
 
-function killParserProcess(child) {
+function killParserProcess(child, force = false) {
   if (!child || child.exitCode !== null && child.exitCode !== undefined) return;
-  try { child.kill("SIGKILL"); } catch {}
-  if (process.platform === "win32" && child.pid) {
+  const signal = force ? "SIGKILL" : "SIGTERM";
+  try { child.kill(signal); } catch {}
+  if (child.pid && process.platform !== "win32") {
+    try { process.kill(-child.pid, signal); } catch {}
+  }
+  if (process.platform === "win32" && child.pid && force) {
     try { spawnSync("taskkill", ["/pid", String(child.pid), "/t", "/f"], { windowsHide: true, stdio: "ignore" }); } catch {}
   }
 }
@@ -27,7 +40,71 @@ function parserFailure(message, code = "PREVIEW_PARSER_FAILED") {
   return error;
 }
 
-function parseDocumentInChildProcess(filePath, extension, options = {}) {
+function childEnvironment() {
+  const allowed = ["PATH", "NODE_PATH", "SystemRoot", "WINDIR", "TEMP", "TMP", "PATHEXT", "COMSPEC"];
+  return Object.fromEntries(allowed.filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]));
+}
+
+function acquireParserSlot() {
+  if (activeParsers < MAX_CONCURRENT_PARSERS) {
+    activeParsers += 1;
+    return Promise.resolve(() => { activeParsers -= 1; drainParserQueue(); });
+  }
+  if (parserQueue.length >= MAX_PARSER_QUEUE) return Promise.reject(parserFailure("PREVIEW_BUSY", "PREVIEW_BUSY"));
+  return new Promise((resolve) => parserQueue.push(resolve));
+}
+
+function drainParserQueue() {
+  if (!parserQueue.length || activeParsers >= MAX_CONCURRENT_PARSERS) return;
+  activeParsers += 1;
+  const resolve = parserQueue.shift();
+  resolve(() => { activeParsers -= 1; drainParserQueue(); });
+}
+
+function isZipSymlink(entry) {
+  if (entry.type === "SymbolicLink") return true;
+  const madeByUnix = (Number(entry.versionMadeBy) >>> 8) === 3;
+  const unixMode = Number(entry.externalFileAttributes) >>> 16;
+  return madeByUnix && (unixMode & 0xf000) === 0xa000;
+}
+
+async function preflightDocx(filePath) {
+  const archive = await unzipper.Open.file(filePath);
+  if (archive.files.length > MAX_DOCX_ENTRIES) throw parserFailure("PREVIEW_DOCX_TOO_MANY_ENTRIES", "PREVIEW_DOCX_TOO_MANY_ENTRIES");
+  let totalUncompressed = 0;
+  const normalized = new Set();
+  const folded = new Set();
+  for (const entry of archive.files) {
+    const rawPath = String(entry.path || "").replace(/\\/g, "/");
+    const safePath = path.posix.normalize(rawPath);
+    if (!rawPath || rawPath.startsWith("/") || /^[a-zA-Z]:[\\/]/.test(rawPath) || safePath === ".." || safePath.startsWith("../") || rawPath.split("/").includes("..")) {
+      throw parserFailure("PREVIEW_DOCX_UNSAFE_PATH", "PREVIEW_DOCX_UNSAFE_PATH");
+    }
+    if (isZipSymlink(entry)) throw parserFailure("PREVIEW_DOCX_SYMLINK", "PREVIEW_DOCX_SYMLINK");
+    if (normalized.has(safePath)) throw parserFailure("PREVIEW_DOCX_DUPLICATE_PATH", "PREVIEW_DOCX_DUPLICATE_PATH");
+    normalized.add(safePath);
+    const caseKey = safePath.toLowerCase();
+    if (folded.has(caseKey)) throw parserFailure("PREVIEW_DOCX_CASE_COLLISION", "PREVIEW_DOCX_CASE_COLLISION");
+    folded.add(caseKey);
+    const flags = Number(entry.flags || 0);
+    if (flags & 1) throw parserFailure("PREVIEW_DOCX_ENCRYPTED", "PREVIEW_DOCX_ENCRYPTED");
+    const uncompressed = Number(entry.uncompressedSize);
+    const compressed = Number(entry.compressedSize);
+    if (!Number.isFinite(uncompressed) || !Number.isFinite(compressed) || uncompressed < 0 || compressed < 0) throw parserFailure("PREVIEW_DOCX_MALFORMED", "PREVIEW_DOCX_MALFORMED");
+    totalUncompressed += uncompressed;
+    if (totalUncompressed > MAX_DOCX_UNCOMPRESSED_BYTES || (uncompressed > 0 && compressed === 0) || (compressed > 0 && uncompressed / compressed > MAX_DOCX_COMPRESSION_RATIO)) {
+      throw parserFailure("PREVIEW_DOCX_RESOURCE_LIMIT", "PREVIEW_DOCX_RESOURCE_LIMIT");
+    }
+    if (safePath.toLowerCase().endsWith(".rels")) {
+      const relationships = (await entry.buffer()).toString("utf8");
+      if (/<Relationship\b[^>]*(?:TargetMode\s*=\s*["']External["']|Target\s*=\s*["'][^"']*(?:https?:|file:|\\\\|\/\/))/i.test(relationships)) {
+        throw parserFailure("PREVIEW_DOCX_EXTERNAL_RELATIONSHIP", "PREVIEW_DOCX_EXTERNAL_RELATIONSHIP");
+      }
+    }
+  }
+}
+
+async function parseDocumentInChildProcessUnbounded(filePath, extension, options = {}) {
   const spawnProcess = options.spawnImpl || spawn;
   const timeout = Number(options.timeoutMs ?? TIMEOUT_MS);
   const maxOutputBytes = Number(options.maxOutputBytes ?? Math.max(16_384, MAX_OUTPUT_CHARS * 8));
@@ -35,40 +112,58 @@ function parseDocumentInChildProcess(filePath, extension, options = {}) {
     let child;
     let settled = false;
     let timer;
+    let terminationTimer;
     let output = "";
     let errorOutput = "";
+    let outputBytes = 0;
+    let errorBytes = 0;
+    let closeConfirmed = false;
+    let pendingError = null;
     const finish = (error, value) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      clearTimeout(terminationTimer);
       if (error) reject(error); else resolve(value);
     };
-    const stop = () => killParserProcess(child);
+    const stop = (error) => {
+      if (pendingError || settled) return;
+      pendingError = error;
+      killParserProcess(child);
+      terminationTimer = setTimeout(() => {
+        killParserProcess(child, true);
+        finish(pendingError);
+      }, TERMINATION_GRACE_MS);
+      if (closeConfirmed) finish(pendingError);
+    };
     try {
       child = spawnProcess(process.execPath, [PARSER_WORKER, JSON.stringify({ filePath, extension })], {
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
+        detached: process.platform !== "win32",
+        env: childEnvironment(),
       });
     } catch (error) {
       finish(parserFailure("Falha ao iniciar parser", "PREVIEW_PARSER_START_FAILED"));
       return;
     }
     timer = setTimeout(() => {
-      stop();
-      finish(parserFailure("PREVIEW_TIMEOUT", "PREVIEW_TIMEOUT"));
+      stop(parserFailure("PREVIEW_TIMEOUT", "PREVIEW_TIMEOUT"));
     }, Math.max(1, timeout));
     child.stdout?.on("data", (chunk) => {
+      outputBytes += chunk.byteLength;
+      if (outputBytes > maxOutputBytes) return stop(parserFailure("PREVIEW_OUTPUT_TOO_LARGE", "PREVIEW_OUTPUT_TOO_LARGE"));
       output += chunk.toString();
-      if (Buffer.byteLength(output) > maxOutputBytes) {
-        stop();
-        finish(parserFailure("PREVIEW_OUTPUT_TOO_LARGE", "PREVIEW_OUTPUT_TOO_LARGE"));
-      }
     });
     child.stderr?.on("data", (chunk) => {
-      errorOutput += chunk.toString().slice(0, 512);
+      errorBytes += chunk.byteLength;
+      if (errorBytes > maxOutputBytes) return stop(parserFailure("PREVIEW_ERROR_OUTPUT_TOO_LARGE", "PREVIEW_ERROR_OUTPUT_TOO_LARGE"));
+      errorOutput += chunk.toString();
     });
-    child.once("error", () => finish(parserFailure("Falha no parser", "PREVIEW_PARSER_FAILED")));
+    child.once("error", () => stop(parserFailure("Falha no parser", "PREVIEW_PARSER_FAILED")));
     child.once("close", (code) => {
+      closeConfirmed = true;
+      if (pendingError) return finish(pendingError);
       if (settled) return;
       if (code !== 0) {
         finish(parserFailure(errorOutput.includes("PREVIEW_TIMEOUT") ? "PREVIEW_TIMEOUT" : "Falha no parser", errorOutput.includes("PREVIEW_TIMEOUT") ? "PREVIEW_TIMEOUT" : "PREVIEW_PARSER_FAILED"));
@@ -85,6 +180,13 @@ function parseDocumentInChildProcess(filePath, extension, options = {}) {
   });
 }
 
+async function parseDocumentInChildProcess(filePath, extension, options = {}) {
+  if (extension === ".docx") await preflightDocx(filePath);
+  const release = await acquireParserSlot();
+  try { return await parseDocumentInChildProcessUnbounded(filePath, extension, options); }
+  finally { release(); }
+}
+
 async function previewText(filePath, fileName, options = {}) {
   const extension = path.extname(fileName || filePath).toLowerCase();
   if (!TEXT_EXTENSIONS.has(extension) && extension !== ".doc" && extension !== ".docx") throw new Error("PREVIEW_UNSUPPORTED");
@@ -95,4 +197,4 @@ async function previewText(filePath, fileName, options = {}) {
   return { content, format: "document", language: extension.slice(1) };
 }
 
-module.exports = { MAX_INPUT_BYTES, MAX_OUTPUT_CHARS, TIMEOUT_MS, PARSER_WORKER, previewText, parseDocumentInChildProcess, killParserProcess };
+module.exports = { MAX_INPUT_BYTES, MAX_OUTPUT_CHARS, TIMEOUT_MS, MAX_DOCX_ENTRIES, MAX_DOCX_UNCOMPRESSED_BYTES, MAX_DOCX_COMPRESSION_RATIO, MAX_CONCURRENT_PARSERS, MAX_PARSER_QUEUE, PARSER_WORKER, previewText, parseDocumentInChildProcess, killParserProcess, preflightDocx };

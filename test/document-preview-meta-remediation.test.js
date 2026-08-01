@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { ZipArchive } = require("archiver");
 
 const servicePath = path.join(__dirname, "..", "services", "documentPreviewService.js");
 const workerPath = path.join(__dirname, "..", "services", "documentPreviewWorker.js");
@@ -38,7 +39,14 @@ test("document preview killable parser and route boundary matrix", async (t) => 
   const docxPath = path.join(dir, "fixture.docx");
   const docPath = path.join(dir, "fixture.doc");
   fs.writeFileSync(textPath, "fixture");
-  fs.writeFileSync(docxPath, "not a zip");
+  await new Promise((resolve, reject) => {
+    const output = fs.createWriteStream(docxPath);
+    const archive = new ZipArchive({ zlib: { level: 9 } });
+    output.on("close", resolve); output.on("error", reject); archive.on("error", reject); archive.pipe(output);
+    archive.append("<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"/>", { name: "[Content_Types].xml" });
+    archive.append("<document><body>fixture</body></document>", { name: "word/document.xml" });
+    archive.finalize();
+  });
   fs.writeFileSync(docPath, "not an ole document");
   const cases = [
     ["01 worker file exists", () => assert.equal(fs.existsSync(workerPath), true)],
