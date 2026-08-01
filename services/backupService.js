@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const { ZipArchive } = require("archiver");
+const archiver = require("archiver");
 const backupRepository = require("../repositories/backupRepository");
 const foldersRepository = require("../repositories/foldersRepository");
 const { getDatabasePath, isDbEnabled } = require("../db");
@@ -35,6 +35,10 @@ function timestampForName() {
 
 function normalizeEntryPath(value) {
   return String(value || "").replace(/\\/g, "/").replace(/^\/+/, "");
+}
+
+function collisionKey(value) {
+  return normalizeEntryPath(value).toLowerCase();
 }
 
 function isSensitivePath(relativePath) {
@@ -117,34 +121,55 @@ async function collectBackupFiles(options = {}) {
 
   const stageDir = options.stageDir;
   if (!stageDir) throw new Error("Cloud backup staging is required");
-  const known = new Map(files.map((file) => [file.entryPath, file]));
-  let folders = [];
-  try { folders = foldersRepository.loadFolders(); } catch {}
-  const folderIds = new Set(["root", ...folders.map((folder) => String(folder.id || "")).filter(Boolean)]);
+  const known = new Map();
+  const collisions = new Map();
+  for (const file of files) {
+    const key = collisionKey(file.entryPath);
+    if (collisions.has(key) && collisions.get(key) !== file.entryPath) throw new Error("Backup entry collision");
+    collisions.set(key, file.entryPath);
+    known.set(file.entryPath, file);
+  }
   const areas = ["uploads", ...(includeTemp || includePending ? ["temp"] : [])];
-  for (const folderId of folderIds) {
-    if (folderId !== "root" && (!folderId || folderId === "." || folderId === ".." || /[\\\\/]/.test(folderId))) {
-      throw new Error("Cloud backup inventory contains an unsafe folder");
-    }
-    for (const area of areas) {
-      for (const remote of await cloudStorage.list(folderId, area)) {
-        const name = path.basename(remote.name || "");
-        if (!name || name !== remote.name || isSensitivePath(`${area}/${folderId}/${name}`)) throw new Error("Cloud backup inventory contains an unsafe path");
-        const entryPath = normalizeEntryPath(path.posix.join(area, folderId === "root" ? "" : folderId, name));
-        const staged = path.resolve(stageDir, entryPath);
-        if (!staged.startsWith(`${path.resolve(stageDir)}${path.sep}`)) throw new Error("Cloud backup staging escaped its boundary");
-        fs.mkdirSync(path.dirname(staged), { recursive: true });
-        if (!await cloudStorage.download(folderId, name, staged, area)) throw new Error("Cloud backup object is unavailable");
-        const local = known.get(entryPath);
-        if (local) {
-          if (await calculateFileHash(local.absolutePath) !== await calculateFileHash(staged)) throw new Error("Cloud and local backup objects differ");
-          fs.rmSync(staged, { force: true });
-        } else {
-          known.set(entryPath, { absolutePath: staged, entryPath, size: fs.statSync(staged).size, cloudOnly: true });
-        }
+  const remoteIdentities = new Set();
+  const remotes = typeof cloudStorage.inventory === "function"
+    ? await cloudStorage.inventory()
+    : await (async () => {
+      let folders = [];
+      try { folders = foldersRepository.loadFolders(); } catch {}
+      const folderIds = new Set(["root", ...folders.map((folder) => String(folder.id || "")).filter(Boolean)]);
+      const entries = [];
+      for (const folderId of folderIds) for (const area of areas) {
+        if (folderId !== "root" && (!folderId || folderId === "." || folderId === ".." || /[\\\\/]/.test(folderId))) throw new Error("Cloud backup inventory contains an unsafe folder");
+        for (const remote of await cloudStorage.list(folderId, area)) entries.push({ ...remote, folderId, area, providerIdentity: remote.id || remote.key || `${area}/${folderId}/${remote.name}` });
       }
+      return entries;
+    })();
+  for (const remote of remotes) {
+    if (!areas.includes(remote.area)) continue;
+    const folderId = String(remote.folderId || "");
+    const name = String(remote.name || "");
+    const identity = `${remote.provider || "cloud"}:${remote.providerIdentity || remote.id || remote.key || `${remote.area}/${folderId}/${name}`}`;
+    if (remoteIdentities.has(identity)) throw new Error("Cloud backup inventory contains a duplicate provider identity");
+    remoteIdentities.add(identity);
+    if (!folderId || folderId === "." || folderId === ".." || /[\\\\/]/.test(folderId)) throw new Error("Cloud backup inventory contains an unsafe folder");
+    if (!name || name !== path.basename(name) || isSensitivePath(`${remote.area}/${folderId}/${name}`)) throw new Error("Cloud backup inventory contains an unsafe path");
+    const entryPath = normalizeEntryPath(path.posix.join(remote.area, folderId === "root" ? "" : folderId, name));
+    const key = collisionKey(entryPath);
+    if (collisions.has(key) && collisions.get(key) !== entryPath) throw new Error("Backup entry collision");
+    collisions.set(key, entryPath);
+    const staged = path.resolve(stageDir, entryPath);
+    if (!staged.startsWith(`${path.resolve(stageDir)}${path.sep}`)) throw new Error("Cloud backup staging escaped its boundary");
+    fs.mkdirSync(path.dirname(staged), { recursive: true });
+    if (!await cloudStorage.download(folderId, name, staged, remote.area)) throw new Error("Cloud backup object is unavailable");
+    const local = known.get(entryPath);
+    if (local) {
+      if (await calculateFileHash(local.absolutePath) !== await calculateFileHash(staged)) throw new Error("Cloud and local backup objects differ");
+      fs.rmSync(staged, { force: true });
+    } else {
+      known.set(entryPath, { absolutePath: staged, entryPath, size: fs.statSync(staged).size, cloudOnly: true });
     }
   }
+  options.cloudComplete = true;
   return [...known.values()].sort((a, b) => a.entryPath.localeCompare(b.entryPath));
 }
 
@@ -189,7 +214,7 @@ function acquireLock(operation) {
 async function createZipArchive(archivePath, manifest, files) {
   await new Promise((resolve, reject) => {
     const output = fs.createWriteStream(archivePath);
-    const archive = new ZipArchive({ zlib: { level: 9 } });
+    const archive = archiver("zip", { zlib: { level: 9 } });
     output.on("close", resolve);
     output.on("error", reject);
     archive.on("error", reject);
@@ -255,7 +280,8 @@ async function createBackup(options = {}) {
   };
 
   try {
-    const files = await collectBackupFiles({ stageDir });
+    const collectionOptions = { stageDir };
+    const files = await collectBackupFiles(collectionOptions);
     const totalSize = files.reduce((sum, file) => sum + file.size, 0);
     const manifest = {
       backup_id: id,
@@ -270,7 +296,7 @@ async function createBackup(options = {}) {
       error_message: null,
       duration_ms: null,
       notes: options.notes || "",
-      cloud_complete: Boolean(cloudStorage?.enabled()),
+      cloud_complete: Boolean(collectionOptions.cloudComplete),
     };
 
     await createZipArchive(archivePath, manifest, files);
@@ -289,7 +315,7 @@ async function createBackup(options = {}) {
         ...baseEntry.metadata,
         manifest: { ...manifest, duration_ms: durationMs },
         includedFiles: files.length,
-        cloudComplete: Boolean(cloudStorage?.enabled()),
+        cloudComplete: Boolean(collectionOptions.cloudComplete),
       },
     });
 

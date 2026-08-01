@@ -51,6 +51,63 @@ function createCloudStorage(options = {}) {
     const files = result.data.files || [];
     return files.sort((a, b) => String(a.id).localeCompare(String(b.id)))[0] || null;
   }
+  function parseInventoryKey(value) {
+    const clean = String(value || "").replace(/\\/g, "/");
+    const root = `${prefix}/`;
+    if (!clean.startsWith(root)) throw cloudError("foreign_prefix", "Cloud object is outside the configured prefix");
+    const parts = clean.slice(root.length).split("/");
+    if (parts.length !== 3 || !["uploads", "temp"].includes(parts[0]) || !parts[1] || !parts[2]) {
+      throw cloudError("invalid_inventory_key", "Cloud object key is malformed");
+    }
+    if (parts.some((part) => !part || part === "." || part === "..")) throw cloudError("invalid_inventory_key", "Cloud object key is unsafe");
+    return { area: parts[0], folderId: parts[1], name: parts[2], key: clean };
+  }
+  async function inventory() {
+    assertProvider();
+    if (!enabled()) return [];
+    const objects = [];
+    const identities = new Set();
+    const add = (entry) => {
+      const identity = `${entry.provider}:${entry.providerIdentity || entry.key}`;
+      if (identities.has(identity)) throw cloudError("duplicate_inventory_identity", "Cloud inventory contains a duplicate identity");
+      identities.add(identity);
+      objects.push(entry);
+    };
+    if (provider === "s3") {
+      const bucketName = bucket();
+      let token;
+      do {
+        const page = await (await s3()).send(new (require("@aws-sdk/client-s3").ListObjectsV2Command)({ Bucket: bucketName, Prefix: `${prefix}/`, ContinuationToken: token }));
+        for (const object of page.Contents || []) {
+          const parsed = parseInventoryKey(object.Key);
+          add({ provider, providerIdentity: parsed.key, ...parsed });
+        }
+        token = page.NextContinuationToken;
+      } while (token);
+      return objects;
+    }
+    let token;
+    do {
+      const page = await (await drive()).files.list({
+        q: "appProperties has { key='rootArkKey' } and trashed=false",
+        fields: "nextPageToken,files(id,name,appProperties)",
+        spaces: "drive",
+        pageToken: token,
+        pageSize: 100,
+      });
+      for (const file of page.data.files || []) {
+        const properties = file.appProperties || {};
+        const parsed = parseInventoryKey(properties.rootArkKey);
+        if (String(properties.rootArkFolderId || "") !== parsed.folderId || String(properties.rootArkArea || "") !== parsed.area) {
+          throw cloudError("invalid_inventory_metadata", "Drive metadata does not match rootArkKey");
+        }
+        if (!file.id) throw cloudError("invalid_inventory_identity", "Drive object is missing its identity");
+        add({ provider, providerIdentity: String(file.id), id: String(file.id), ...parsed });
+      }
+      token = page.data.nextPageToken;
+    } while (token);
+    return objects;
+  }
   async function upload(localPath, folderId, fileName, area = "uploads") {
     assertProvider(); if (!enabled() || !fs.statSync(localPath, { throwIfNoEntry: false })?.isFile()) return null;
     const cloudKey = objectKey(folderId, fileName, area);
@@ -90,7 +147,7 @@ function createCloudStorage(options = {}) {
   const run = async (operation, ...args) => {
     try { return await operation(...args); } catch (error) { throw classify(error); }
   };
-  return { enabled, status, key, upload: (...args) => run(upload, ...args), download: (...args) => run(download, ...args), remove: (...args) => run(remove, ...args), removePrefix: (...args) => run(removePrefix, ...args), list: (...args) => run(list, ...args) };
+  return { enabled, status, key, inventory: (...args) => run(inventory, ...args), upload: (...args) => run(upload, ...args), download: (...args) => run(download, ...args), remove: (...args) => run(remove, ...args), removePrefix: (...args) => run(removePrefix, ...args), list: (...args) => run(list, ...args) };
 }
 
 function normalizePrefix(value) { const clean = String(value || "").replace(/\\/g, "/").replace(/^\/+|\/+$/g, ""); if (!clean || clean.split("/").some((part) => !part || part === "." || part === "..")) throw cloudError("invalid_prefix", "Invalid cloud prefix"); return clean; }

@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const unzipper = require("unzipper");
 const { closeDb, getDatabasePath, isDbEnabled } = require("../db");
 const { resolveRuntimePath } = require("../src/runtime-paths");
@@ -14,6 +15,98 @@ let cloudStorage = null;
 
 function setCloudStorage(storage) {
   cloudStorage = storage || null;
+}
+
+function syncNow(clock) {
+  return new Date(typeof clock === "function" ? clock() : clock?.now ? clock.now() : Date.now()).toISOString();
+}
+
+function syncEntries(manifest) {
+  return (manifest?.included_files || [])
+    .map((entry) => String(entry.path || "").replace(/\\/g, "/"))
+    .filter((entryPath) => entryPath.startsWith("uploads/") || entryPath.startsWith("temp/"))
+    .map((entryPath) => {
+      const [area, ...parts] = entryPath.split("/");
+      const name = parts.pop();
+      const folderId = parts.join("/") || "root";
+      if (!name || !folderId || folderId.includes("/") || folderId === "." || folderId === ".." || /(^|\/)(\.env|.*credentials.*|.*\.key)$/i.test(name)) return null;
+      return { path: entryPath, area, folderId, name, state: "pending", attempts: 0, maxAttempts: 5, nextAttemptAt: null, failureCategory: null };
+    })
+    .filter(Boolean);
+}
+
+function createRestoreSync(manifest, clock) {
+  const queuedAt = syncNow(clock);
+  const entries = syncEntries(manifest);
+  const state = entries.length ? "pending" : "completed";
+  return {
+    operationId: crypto.randomUUID(),
+    state,
+    queuedAt,
+    lastAttemptAt: null,
+    completedAt: state === "completed" ? queuedAt : null,
+    failureCategory: null,
+    entries,
+    transitions: [{ state, at: queuedAt }],
+  };
+}
+
+function syncTransition(sync, state, at, details = {}) {
+  return { ...sync, ...details, state, transitions: [...(sync.transitions || []), { state, at }] };
+}
+
+function saveRestoreSync(backup, restoreSync) {
+  return backupRepository.saveBackup({ ...backup, metadata: { ...backup.metadata, restoreSync } });
+}
+
+function cancelRestoreSync(backupId, reason = "cancelled", { clock } = {}) {
+  const backup = backupRepository.getBackup(backupId);
+  const current = backup?.metadata?.restoreSync;
+  if (!backup || !current || ["completed", "cancelled"].includes(current.state)) return backup;
+  const at = syncNow(clock);
+  return saveRestoreSync(backup, syncTransition(current, "cancelled", at, { cancellationReason: String(reason).slice(0, 120) }));
+}
+
+async function processRestoreSync({ backupId, clock, maxAttempts = 5, uploader } = {}) {
+  const backup = backupRepository.getBackup(backupId);
+  const provider = uploader || cloudStorage;
+  const current = backup?.metadata?.restoreSync;
+  if (!backup || !current || !provider?.enabled?.() || ["completed", "cancelled", "terminal_failure"].includes(current.state)) return backup;
+  const now = typeof clock === "function" ? clock() : clock?.now ? clock.now() : Date.now();
+  const entries = current.entries.map((entry) => ({ ...entry }));
+  for (const entry of entries) {
+    if (entry.state === "completed") continue;
+    if (entry.nextAttemptAt && new Date(entry.nextAttemptAt).getTime() > now) continue;
+    entry.attempts += 1;
+    entry.maxAttempts = Math.max(1, Number(entry.maxAttempts || maxAttempts));
+    entry.nextAttemptAt = null;
+    const marked = { ...current, entries, lastAttemptAt: syncNow(clock) };
+    saveRestoreSync(backup, marked);
+    try {
+      const localPath = resolveRuntimePath(entry.path);
+      if (!fs.existsSync(localPath) || !fs.statSync(localPath).isFile()) throw Object.assign(new Error("restore source unavailable"), { code: "source_unavailable" });
+      await provider.upload(localPath, entry.folderId, entry.name, entry.area);
+      entry.state = "completed";
+      entry.failureCategory = null;
+    } catch (error) {
+      entry.failureCategory = ["source_unavailable", "configuration"].includes(error.code) ? error.code : "provider_error";
+      if (entry.attempts >= entry.maxAttempts) entry.state = "terminal_failure";
+      else {
+        entry.state = "retry_wait";
+        entry.nextAttemptAt = new Date(now + Math.min(60 * 60 * 1000, 1000 * (2 ** (entry.attempts - 1)))).toISOString();
+      }
+    }
+    const state = entries.some((item) => item.state === "terminal_failure") ? "terminal_failure" : entries.every((item) => item.state === "completed") ? "completed" : "pending";
+    const at = syncNow(clock);
+    const updated = syncTransition({ ...current, entries, lastAttemptAt: at }, state, at, { completedAt: state === "completed" ? at : null, failureCategory: state === "terminal_failure" ? entry.failureCategory : null });
+    saveRestoreSync(backup, updated);
+    if (state === "terminal_failure") break;
+  }
+  if (entries.length && entries.every((entry) => entry.state === "completed") && current.state !== "completed") {
+    const at = syncNow(clock);
+    saveRestoreSync(backup, syncTransition({ ...current, entries }, "completed", at, { completedAt: at }));
+  }
+  return backupRepository.getBackup(backupId) || backup;
 }
 
 function isZipSymlink(entry) {
@@ -170,7 +263,7 @@ async function restoreBackup(id, options = {}) {
     restoreUploads(restoreDir);
     const restoredDatabase = restoreDatabaseFiles(restoreDir);
     const cloudSync = cloudStorage?.enabled() && manifest.cloud_complete
-      ? { state: "pending", requestedAt: new Date().toISOString(), reason: "restore_requires_cloud_reconciliation" }
+      ? createRestoreSync(manifest)
       : { state: "not_required" };
     if (cloudSync.state === "pending") {
       backupRepository.saveBackup({ ...backup, metadata: { ...backup.metadata, restoreSync: cloudSync } });
@@ -196,7 +289,10 @@ async function getBackupManifest(id) {
 }
 
 module.exports = {
+  cancelRestoreSync,
+  createRestoreSync,
   getBackupManifest,
+  processRestoreSync,
   restoreBackup,
   setCloudStorage,
   validateBackupArchive,

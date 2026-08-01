@@ -4281,6 +4281,19 @@ function deleteCloudTrashItemLater(item) {
   }
 }
 
+async function processPendingCloudRestoreSync() {
+  if (!isCloudStorageEnabled()) return;
+  for (const backup of backupService.listBackups()) {
+    const state = backup.metadata?.restoreSync?.state;
+    if (!["pending", "retry_wait"].includes(state)) continue;
+    try {
+      await restoreService.processRestoreSync({ backupId: backup.id });
+    } catch {
+      // The durable entry remains retryable; never create an unhandled rejection.
+    }
+  }
+}
+
 function initData() {
   if (!fs.existsSync("./data")) fs.mkdirSync("./data");
   if (!fs.existsSync("./data/trash")) fs.mkdirSync("./data/trash", { recursive: true });
@@ -7053,6 +7066,7 @@ scheduleAutomaticBackups();
 cleanupExpiredTemporaryItems();
 cleanupExpiredTrashItems();
 void processPendingCloudTrashItems();
+void processPendingCloudRestoreSync().catch(() => {});
 repairCompressedTempUploads().catch((error) => {
   console.error("Falha ao reparar uploads temporarios:", error.message);
 });
@@ -7061,5 +7075,6 @@ cleanupIncomingUploads();
 setInterval(cleanupExpiredTemporaryItems, 60 * 1000);
 setInterval(cleanupExpiredTrashItems, 60 * 60 * 1000);
 setInterval(() => { void processPendingCloudTrashItems(); }, 60 * 1000);
+setInterval(() => { void processPendingCloudRestoreSync().catch(() => {}); }, 60 * 1000);
 setInterval(cleanupIncomingUploads, 60 * 1000);
 server.listen(PORT, () => console.log(`Servidor rodando em http://localhost:${PORT}`));
