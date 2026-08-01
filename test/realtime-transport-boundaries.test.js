@@ -77,6 +77,11 @@ test("WebDAV HTTP boundary rejects unauthenticated, hostile, traversing, and inf
   assert.equal((await request(portNumber, "/dav", { method: "PROPFIND", headers: { authorization: basic, depth: "0" } })).status, 207);
   assert.equal((await request(portNumber, "/dav", { method: "PROPFIND", headers: { authorization: basic, depth: "1" } })).status, 207);
   assert.equal((await request(portNumber, "/dav", { method: "PROPFIND", headers: { authorization: basic, "content-type": "application/xml" }, body: "<broken" })).status, 207);
+  assert.equal((await request(portNumber, "/dav/source.txt", { method: "GET", headers: { authorization: basic } })).status, 200);
+  assert.equal((await request(portNumber, "/dav/source.txt", { method: "HEAD", headers: { authorization: basic } })).status, 200);
+  assert.equal((await request(portNumber, "/dav/source.txt", { method: "LOCK", headers: { authorization: basic } })).status, 501);
+  assert.equal((await request(portNumber, "/dav/source.txt", { method: "UNLOCK", headers: { authorization: basic } })).status, 501);
+  assert.equal((await request(portNumber, "/dav/source.txt", { method: "PUT", headers: { authorization: basic, "content-length": String(9 * 1024 * 1024) }, body: "" })).status, 413);
   assert.equal((await request(portNumber, "/dav/upload.bin", { method: "PUT", headers: { authorization: basic, "content-length": "3" }, body: Buffer.from([0, 1, 2]) })).status, 201);
   assert.equal((await request(portNumber, "/dav/upload.bin", { method: "PUT", headers: { "content-length": "3" }, body: "bad" })).status, 401);
   assert.equal((await request(portNumber, "/dav/source.txt", { method: "DELETE", headers: { authorization: basic } })).status, 405);
