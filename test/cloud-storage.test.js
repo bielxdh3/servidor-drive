@@ -243,5 +243,5 @@ test("S3 configuration errors are stable before client creation", async () => {
 
 test("Google Drive configuration errors are stable before client creation", async () => {
   const storage = createCloudStorage({ provider: "gdrive", createGoogleDriveClient: async () => ({}) });
-  await assert.rejects(storage.list("root"), { code: "configuration" });
+  await assert.rejects(storage.list("root"), { code: "provider_error" });
 });
