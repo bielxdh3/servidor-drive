@@ -196,3 +196,52 @@ test("Google Drive download succeeds, misses cleanly, and removes partial files"
   assert.equal(fs.existsSync(target), false);
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+test("status exposes provider-neutral configuration without credentials", () => {
+  const storage = createCloudStorage({ provider: "s3", prefix: "rootark", s3: { bucket: "bucket", region: "eu" } });
+  assert.deepEqual(storage.status(), { provider: "s3", enabled: true, prefix: "rootark", s3: { bucketConfigured: true, region: "eu", endpointConfigured: false }, gdrive: { folderConfigured: false, credentialsConfigured: false } });
+});
+
+test("root-folder keys use the uploads area", () => {
+  const storage = createCloudStorage({ provider: "s3" });
+  assert.equal(storage.key(), "rootark/uploads/root");
+});
+
+test("temporary keys preserve the requested area", () => {
+  const storage = createCloudStorage({ provider: "s3" });
+  assert.equal(storage.key("folder", "item.bin", "temp"), "rootark/temp/folder/item.bin");
+});
+
+test("Windows separators normalize inside folder identifiers", () => {
+  const storage = createCloudStorage({ provider: "s3" });
+  assert.equal(storage.key("folder\\nested", "item.bin"), "rootark/uploads/folder/nested/item.bin");
+});
+
+test("empty cloud prefixes fail before a client is created", async () => {
+  let created = 0;
+  const storage = createCloudStorage({ provider: "s3", createS3Client: async () => { created += 1; return { send: async () => ({}) }; } });
+  await assert.rejects(storage.removePrefix(""), { code: "invalid_prefix" });
+  assert.equal(created, 0);
+});
+
+test("filename separators are rejected for object operations", async () => {
+  const storage = createCloudStorage({ provider: "s3", s3: { bucket: "bucket" }, createS3Client: async () => ({ send: async () => ({}) }) });
+  await assert.rejects(storage.remove("folder", "nested\\item.bin"), { code: "invalid_path" });
+});
+
+test("upload of a missing local file is a no-op", async () => {
+  let created = 0;
+  const storage = createCloudStorage({ provider: "s3", s3: { bucket: "bucket" }, createS3Client: async () => { created += 1; return { send: async () => ({}) }; } });
+  assert.equal(await storage.upload(path.join(os.tmpdir(), "rootark-missing-file"), "root", "item.bin"), null);
+  assert.equal(created, 0);
+});
+
+test("S3 configuration errors are stable before client creation", async () => {
+  const storage = createCloudStorage({ provider: "s3", createS3Client: async () => ({}) });
+  await assert.rejects(storage.remove("root", "item.bin"), { code: "configuration" });
+});
+
+test("Google Drive configuration errors are stable before client creation", async () => {
+  const storage = createCloudStorage({ provider: "gdrive", createGoogleDriveClient: async () => ({}) });
+  await assert.rejects(storage.list("root"), { code: "configuration" });
+});
