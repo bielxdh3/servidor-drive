@@ -42,6 +42,7 @@ function createRestoreSync(manifest, clock) {
   const state = entries.length ? "pending" : "completed";
   return {
     operationId: crypto.randomUUID(),
+    revision: 0,
     state,
     queuedAt,
     lastAttemptAt: null,
@@ -56,25 +57,6 @@ function syncTransition(sync, state, at, details = {}) {
   return { ...sync, ...details, state, transitions: [...(sync.transitions || []), { state, at }] };
 }
 
-function saveRestoreSync(backup, restoreSync, expectedLeaseToken = null) {
-  if (expectedLeaseToken) {
-    const persisted = backupRepository.getBackup(backup.id);
-    if (!persisted?.metadata?.restoreSync?.entries?.some((entry) => entry.leaseToken === expectedLeaseToken)) return persisted || backup;
-  }
-  return backupRepository.saveBackup({ ...backup, metadata: { ...backup.metadata, restoreSync } });
-}
-
-function syncLockPath(backupId, entryId) {
-  return path.join(RESTORE_SYNC_LOCK_DIR, `${String(backupId).replace(/[^a-zA-Z0-9_-]/g, "_")}-${String(entryId).replace(/[^a-zA-Z0-9_-]/g, "_")}.lock`);
-}
-
-function releaseSyncLease(lease) {
-  if (!lease?.path) return;
-  try {
-    if (fs.readFileSync(lease.path, "utf8") === lease.token) fs.rmSync(lease.path, { force: true });
-  } catch {}
-}
-
 function claimSyncEntry(backupId, entryId, { now, leaseMs = 60 * 1000, workerId = crypto.randomUUID(), providerIdentity } = {}) {
   const current = backupRepository.getBackup(backupId);
   const sync = current?.metadata?.restoreSync;
@@ -84,63 +66,87 @@ function claimSyncEntry(backupId, entryId, { now, leaseMs = 60 * 1000, workerId 
   const leaseUntil = new Date(existing.leaseUntil || 0).getTime();
   if (existing.state === "completed" || existing.state === "terminal_failure" || (existing.leaseToken && leaseUntil > now)) return null;
   const token = `${workerId}:${crypto.randomUUID()}`;
-  const lockPath = syncLockPath(backupId, entryId);
-  fs.mkdirSync(RESTORE_SYNC_LOCK_DIR, { recursive: true });
-  let fd;
   try {
-    fd = fs.openSync(lockPath, "wx");
-    fs.writeFileSync(fd, token, "utf8");
-    fs.closeSync(fd);
+    const saved = backupRepository.mutateRestoreSyncEntry({
+      backupId,
+      operationId: sync.operationId,
+      entryId,
+      expectedState: ["pending", "retry_wait", "in_progress"],
+      expectedLeaseToken: existing.leaseToken || null,
+      expectedRevision: Number(sync.revision) || 0,
+      mutate: (entry) => ({
+        entry: {
+          ...entry,
+          state: "in_progress",
+          attempts: (Number(entry.attempts) || 0) + 1,
+          nextAttemptAt: null,
+          leaseToken: token,
+          leaseUntil: new Date(now + leaseMs).toISOString(),
+          providerIdentity: providerIdentity || entry.providerIdentity || "cloud",
+        },
+        details: { lastAttemptAt: new Date(now).toISOString() },
+        at: new Date(now).toISOString(),
+      }),
+    });
+    const claimedEntry = saved.metadata.restoreSync.entries.find((entry) => entry.entryId === entryId);
+    return { backup: saved, entry: claimedEntry, token };
   } catch (error) {
-    if (fd !== undefined) { try { fs.closeSync(fd); } catch {} }
-    if (error.code !== "EEXIST") throw error;
-    try {
-      if (fs.statSync(lockPath).mtimeMs + leaseMs <= now) fs.rmSync(lockPath, { force: true });
-    } catch { return null; }
-    try {
-      fd = fs.openSync(lockPath, "wx");
-      fs.writeFileSync(fd, token, "utf8");
-      fs.closeSync(fd);
-    } catch { if (fd !== undefined) { try { fs.closeSync(fd); } catch {} } return null; }
-  }
-  const claimedEntry = {
-    ...existing,
-    state: "in_progress",
-    attempts: (Number(existing.attempts) || 0) + 1,
-    nextAttemptAt: null,
-    leaseToken: token,
-    leaseUntil: new Date(now + leaseMs).toISOString(),
-    providerIdentity: providerIdentity || existing.providerIdentity || "cloud",
-  };
-  const entries = sync.entries.map((entry, currentIndex) => currentIndex === index ? claimedEntry : { ...entry });
-  try {
-    const saved = saveRestoreSync(current, { ...sync, entries, lastAttemptAt: new Date(now).toISOString() });
-    const persisted = backupRepository.getBackup(backupId);
-    const persistedEntry = persisted?.metadata?.restoreSync?.entries?.find((entry) => entry.entryId === entryId);
-    if (persistedEntry?.leaseToken !== token) throw Object.assign(new Error("Restore lease was not persisted"), { code: "lease_persistence_failed" });
-    return { backup: saved, entry: claimedEntry, token, path: lockPath };
-  } catch (error) {
-    releaseSyncLease({ path: lockPath, token });
+    if (["backup_revision_conflict", "backup_state_conflict", "backup_lease_conflict", "backup_mutation_conflict"].includes(error.code)) return null;
     throw error;
   }
 }
 
 function cancelRestoreSync(backupId, reason = "cancelled", { clock } = {}) {
-  const backup = backupRepository.getBackup(backupId);
+  let backup = backupRepository.getBackup(backupId);
   const current = backup?.metadata?.restoreSync;
   if (!backup || !current || ["completed", "cancelled"].includes(current.state)) return backup;
   const at = syncNow(clock);
-  const entries = current.entries.map((entry) => ({ ...entry, state: "cancelled", leaseToken: null, leaseUntil: null, nextAttemptAt: null }));
-  return saveRestoreSync(backup, syncTransition({ ...current, entries }, "cancelled", at, { cancellationReason: String(reason).slice(0, 120) }));
+  for (const entry of current.entries || []) {
+    if (entry.state === "cancelled" || entry.state === "completed") continue;
+    try {
+      backup = backupRepository.mutateRestoreSyncEntry({
+        backupId,
+        operationId: backup.metadata.restoreSync.operationId,
+        entryId: entry.entryId,
+        expectedState: entry.state,
+        expectedLeaseToken: entry.leaseToken || null,
+        expectedRevision: Number(backup.metadata.restoreSync.revision) || 0,
+        mutate: (latestEntry) => ({
+          entry: { ...latestEntry, state: "cancelled", leaseToken: null, leaseUntil: null, nextAttemptAt: null },
+          details: { cancellationReason: String(reason).slice(0, 120) },
+          at,
+        }),
+      });
+    } catch (error) {
+      if (!["backup_revision_conflict", "backup_state_conflict", "backup_lease_conflict", "backup_mutation_conflict"].includes(error.code)) throw error;
+      backup = backupRepository.getBackup(backupId) || backup;
+    }
+  }
+  return backupRepository.getBackup(backupId) || backup;
 }
 
 async function processRestoreSync({ backupId, clock, maxAttempts = 5, uploader, leaseMs = 60 * 1000, workerId } = {}) {
   const provider = uploader || cloudStorage;
   let latest = backupRepository.getBackup(backupId);
   if (!latest || !latest.metadata?.restoreSync || !provider?.enabled?.()) return latest;
-  if (latest.metadata.restoreSync.entries?.length && latest.metadata.restoreSync.entries.every((entry) => entry.state === "completed") && latest.metadata.restoreSync.state !== "completed") {
-    const at = syncNow(clock);
-    latest = saveRestoreSync(latest, syncTransition(latest.metadata.restoreSync, "completed", at, { completedAt: at, failureCategory: null }));
+  if (latest.metadata.restoreSync.entries?.length
+    && latest.metadata.restoreSync.entries.every((entry) => entry.state === "completed")
+    && latest.metadata.restoreSync.state !== "completed") {
+    const entry = latest.metadata.restoreSync.entries[0];
+    try {
+      latest = backupRepository.mutateRestoreSyncEntry({
+        backupId,
+        operationId: latest.metadata.restoreSync.operationId,
+        entryId: entry.entryId,
+        expectedState: "completed",
+        expectedLeaseToken: null,
+        expectedRevision: Number(latest.metadata.restoreSync.revision) || 0,
+        mutate: (latestEntry) => ({ entry: latestEntry, details: { failureCategory: null }, at: syncNow(clock) }),
+      });
+    } catch (error) {
+      if (!["backup_revision_conflict", "backup_state_conflict", "backup_lease_conflict", "backup_mutation_conflict"].includes(error.code)) throw error;
+      latest = backupRepository.getBackup(backupId) || latest;
+    }
   }
   if (["completed", "cancelled", "terminal_failure"].includes(latest.metadata.restoreSync.state)) return latest;
   const now = typeof clock === "function" ? clock() : clock?.now ? clock.now() : Date.now();
@@ -157,11 +163,18 @@ async function processRestoreSync({ backupId, clock, maxAttempts = 5, uploader, 
       const current = backupRepository.getBackup(backupId);
       const entry = current?.metadata?.restoreSync?.entries?.find((value) => value.entryId === lease.entry.entryId);
       if (!entry || entry.leaseToken !== lease.token) continue;
-      const entries = current.metadata.restoreSync.entries.map((value) => value.entryId === lease.entry.entryId ? { ...value, state: "completed", failureCategory: null, nextAttemptAt: null, leaseToken: null, leaseUntil: null } : { ...value });
-      const state = entries.some((value) => value.state === "terminal_failure") ? "terminal_failure" : entries.every((value) => value.state === "completed") ? "completed" : "pending";
       const at = syncNow(clock);
-      saveRestoreSync(current, syncTransition({ ...current.metadata.restoreSync, entries }, state, at, { completedAt: state === "completed" ? at : null, failureCategory: null }), lease.token);
+      backupRepository.mutateRestoreSyncEntry({
+        backupId,
+        operationId: current.metadata.restoreSync.operationId,
+        entryId: lease.entry.entryId,
+        expectedState: "in_progress",
+        expectedLeaseToken: lease.token,
+        expectedRevision: Number(current.metadata.restoreSync.revision) || 0,
+        mutate: (latestEntry) => ({ entry: { ...latestEntry, state: "completed", failureCategory: null, nextAttemptAt: null, leaseToken: null, leaseUntil: null }, details: { failureCategory: null }, at }),
+      });
     } catch (error) {
+      if (error.code?.startsWith("backup_")) throw error;
       const current = backupRepository.getBackup(backupId);
       const entry = current?.metadata?.restoreSync?.entries?.find((value) => value.entryId === lease.entry.entryId && value.leaseToken === lease.token);
       if (!entry) continue;
@@ -170,12 +183,19 @@ async function processRestoreSync({ backupId, clock, maxAttempts = 5, uploader, 
       const terminal = attempts >= Math.max(1, Number(entry.maxAttempts || maxAttempts));
       const at = syncNow(clock);
       const nextAttemptAt = terminal ? null : new Date(now + Math.min(60 * 60 * 1000, 1000 * (2 ** (attempts - 1)))).toISOString();
-      const entries = current.metadata.restoreSync.entries.map((value) => value.entryId === lease.entry.entryId ? { ...value, state: terminal ? "terminal_failure" : "retry_wait", failureCategory, nextAttemptAt, leaseToken: null, leaseUntil: null } : { ...value });
-      const state = terminal ? "terminal_failure" : "pending";
-      saveRestoreSync(current, syncTransition({ ...current.metadata.restoreSync, entries }, state, at, { failureCategory: terminal ? failureCategory : null }), lease.token);
-      if (error.code === "lease_persistence_failed" || error.code === "persistence_error") throw error;
-    } finally {
-      releaseSyncLease(lease);
+      try {
+        backupRepository.mutateRestoreSyncEntry({
+          backupId,
+          operationId: current.metadata.restoreSync.operationId,
+          entryId: lease.entry.entryId,
+          expectedState: "in_progress",
+          expectedLeaseToken: lease.token,
+          expectedRevision: Number(current.metadata.restoreSync.revision) || 0,
+          mutate: (latestEntry) => ({ entry: { ...latestEntry, state: terminal ? "terminal_failure" : "retry_wait", failureCategory, nextAttemptAt, leaseToken: null, leaseUntil: null }, details: { failureCategory: terminal ? failureCategory : null }, at }),
+        });
+      } catch (mutationError) {
+        if (!["backup_revision_conflict", "backup_state_conflict", "backup_lease_conflict", "backup_mutation_conflict"].includes(mutationError.code)) throw mutationError;
+      }
     }
     latest = backupRepository.getBackup(backupId) || latest;
   }

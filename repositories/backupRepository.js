@@ -1,9 +1,11 @@
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const { getDb, isDbEnabled, jsonStringify, safeJsonParse } = require("../db");
 const { resolveRuntimePath } = require("../src/runtime-paths");
 
 const HISTORY_FILE = resolveRuntimePath("data", "backup-history.json");
+const MUTATION_LOCK_FILE = resolveRuntimePath("data", ".backup-metadata.lock");
 
 function rowToBackup(row) {
   const metadata = safeJsonParse(row.metadata_json, {});
@@ -50,7 +52,101 @@ function loadJsonHistory() {
 
 function saveJsonHistory(entries) {
   fs.mkdirSync(path.dirname(HISTORY_FILE), { recursive: true });
-  fs.writeFileSync(HISTORY_FILE, JSON.stringify(entries.map(normalize), null, 2));
+  const temporary = `${HISTORY_FILE}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  fs.writeFileSync(temporary, JSON.stringify(entries.map(normalize), null, 2));
+  try {
+    fs.renameSync(temporary, HISTORY_FILE);
+  } catch (error) {
+    fs.rmSync(temporary, { force: true });
+    throw error;
+  }
+}
+
+function withJsonMutationLock(callback) {
+  fs.mkdirSync(path.dirname(MUTATION_LOCK_FILE), { recursive: true });
+  let fd;
+  try {
+    fd = fs.openSync(MUTATION_LOCK_FILE, "wx");
+    fs.writeFileSync(fd, String(process.pid), "utf8");
+    return callback();
+  } finally {
+    if (fd !== undefined) {
+      try { fs.closeSync(fd); } catch {}
+      try { fs.rmSync(MUTATION_LOCK_FILE, { force: true }); } catch {}
+    }
+  }
+}
+
+function mutationError(code, message) {
+  return Object.assign(new Error(message), { code });
+}
+
+function applyRestoreSyncMutation(current, options) {
+  const sync = current?.metadata?.restoreSync;
+  if (!sync || sync.operationId !== options.operationId) throw mutationError("backup_mutation_conflict", "Restore operation mismatch");
+  const revision = Number(sync.revision) || 0;
+  if (revision !== options.expectedRevision) throw mutationError("backup_revision_conflict", "Restore metadata revision mismatch");
+  const index = sync.entries?.findIndex((entry) => entry.entryId === options.entryId) ?? -1;
+  if (index < 0) throw mutationError("backup_entry_not_found", "Restore entry not found");
+  const entry = sync.entries[index];
+  const expectedStates = Array.isArray(options.expectedState) ? options.expectedState : [options.expectedState];
+  if (!expectedStates.includes(entry.state)) throw mutationError("backup_state_conflict", "Restore entry state mismatch");
+  if (entry.leaseToken !== options.expectedLeaseToken) throw mutationError("backup_lease_conflict", "Restore entry lease mismatch");
+  const result = options.mutate({ ...entry }, current);
+  if (!result || !result.entry) throw new TypeError("Restore mutation must return an entry");
+  const entries = sync.entries.map((value, currentIndex) => currentIndex === index ? result.entry : { ...value });
+  const aggregateState = entries.some((value) => value.state === "terminal_failure")
+    ? "terminal_failure"
+    : entries.length && entries.every((value) => value.state === "completed")
+      ? "completed"
+      : entries.length && entries.every((value) => value.state === "cancelled")
+        ? "cancelled"
+        : "pending";
+  const at = result.at || new Date().toISOString();
+  const nextSync = {
+    ...sync,
+    ...result.details,
+    entries,
+    state: aggregateState,
+    revision: revision + 1,
+    transitions: aggregateState !== sync.state ? [...(sync.transitions || []), { state: aggregateState, at }] : (sync.transitions || []),
+  };
+  if (aggregateState === "completed") nextSync.completedAt = nextSync.completedAt || at;
+  if (aggregateState !== "completed") nextSync.completedAt = null;
+  return { ...current, metadata: { ...current.metadata, restoreSync: nextSync } };
+}
+
+function mutateRestoreSyncEntry(options = {}) {
+  for (const required of ["backupId", "operationId", "entryId", "expectedState", "expectedLeaseToken", "expectedRevision", "mutate"]) {
+    if (!(required in options)) throw new TypeError(`Missing restore mutation field: ${required}`);
+  }
+  if (isDbEnabled() && hasBackupTable()) {
+    const db = getDb();
+    return db.transaction(() => {
+      const row = db.prepare(`
+        SELECT id, filename, type, status, created_by, created_at, finished_at, size_bytes, checksum, error_message, metadata_json
+        FROM backup_history WHERE id = ?
+      `).get(options.backupId);
+      if (!row) throw mutationError("backup_not_found", "Backup not found");
+      const current = rowToBackup(row);
+      const updated = applyRestoreSyncMutation(current, options);
+      const result = db.prepare("UPDATE backup_history SET metadata_json = ? WHERE id = ? AND metadata_json = ?")
+        .run(jsonStringify(updated.metadata), options.backupId, row.metadata_json);
+      if (result.changes !== 1) throw mutationError("backup_revision_conflict", "Restore metadata compare-and-swap failed");
+      return updated;
+    })();
+  }
+
+  return withJsonMutationLock(() => {
+    const entries = loadJsonHistory();
+    const current = entries.find((entry) => entry.id === options.backupId);
+    if (!current) throw mutationError("backup_not_found", "Backup not found");
+    const updated = applyRestoreSyncMutation(current, options);
+    const index = entries.findIndex((entry) => entry.id === options.backupId);
+    entries[index] = updated;
+    saveJsonHistory(entries);
+    return normalize(updated);
+  });
 }
 
 function hasBackupTable() {
@@ -146,5 +242,6 @@ module.exports = {
   getBackup,
   latestStatus,
   listBackups,
+  mutateRestoreSyncEntry,
   saveBackup,
 };
