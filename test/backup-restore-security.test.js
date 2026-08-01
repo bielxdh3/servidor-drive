@@ -15,12 +15,15 @@ const SERVER = path.join(ROOT, "server.js");
 const PUBLIC = path.join(ROOT, "public");
 const TIMEOUT_MS = 10_000;
 
-function request(port, requestPath, { method = "GET", headers = {}, body } = {}) {
+function request(port, requestPath, { method = "GET", headers = {}, body, binary = false } = {}) {
   return new Promise((resolve, reject) => {
     const req = http.request({ host: "127.0.0.1", port, path: requestPath, method, headers }, (res) => {
-      let responseBody = "";
-      res.on("data", (chunk) => { responseBody += chunk; });
-      res.on("end", () => resolve({ status: res.statusCode, headers: res.headers, body: responseBody }));
+      const chunks = [];
+      res.on("data", (chunk) => { chunks.push(chunk); });
+      res.on("end", () => {
+        const responseBody = Buffer.concat(chunks);
+        resolve({ status: res.statusCode, headers: res.headers, body: binary ? responseBody : responseBody.toString() });
+      });
     });
     req.setTimeout(TIMEOUT_MS, () => req.destroy(new Error("request timed out")));
     req.once("error", reject);
@@ -62,8 +65,16 @@ function write(root, relativePath, bytes) {
   return target;
 }
 
-function state(target) {
-  return fs.existsSync(target) ? fs.readFileSync(target) : null;
+function checkoutState(target) {
+  try {
+    const stat = fs.lstatSync(target);
+    if (stat.isFile()) return { type: "file", size: stat.size, sha256: crypto.createHash("sha256").update(fs.readFileSync(target)).digest("hex") };
+    if (stat.isDirectory()) return { type: "directory" };
+    return { type: "other" };
+  } catch (error) {
+    if (error.code === "ENOENT") return { type: "absent" };
+    throw error;
+  }
 }
 
 function headers(port, session) {
@@ -73,13 +84,13 @@ function headers(port, session) {
 test("backup and restore stay in the child runtime root", { timeout: 45_000 }, async (t) => {
   const password = crypto.randomBytes(24).toString("base64url");
   const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), "rootark-backup-runtime-"));
-  const checkoutJson = path.join(ROOT, "data", `checkout-only-${crypto.randomUUID()}.json`);
-  const checkoutUpload = path.join(ROOT, "uploads", "checkout-only", `${crypto.randomUUID()}.txt`);
-  const checkoutBefore = { backups: state(path.join(ROOT, "data", "backups")), history: state(path.join(ROOT, "data", "backup-history.json")) };
+  const checkoutBefore = {
+    backups: checkoutState(path.join(ROOT, "data", "backups")),
+    history: checkoutState(path.join(ROOT, "data", "backup-history.json")),
+    restoreTemp: checkoutState(path.join(ROOT, "data", "backups", ".restore-tmp")),
+  };
   const runtimeJson = Buffer.from(`runtime-json-${crypto.randomUUID()}`);
   const runtimeUpload = Buffer.from(`runtime-upload-${crypto.randomUUID()}`);
-  write(ROOT, path.relative(ROOT, checkoutJson), Buffer.from("checkout-only-json"));
-  write(ROOT, path.relative(ROOT, checkoutUpload), Buffer.from("checkout-only-upload"));
   write(sandbox, "data/runtime-only.json", runtimeJson);
   write(sandbox, "uploads/runtime-folder/runtime-upload.txt", runtimeUpload);
   fs.cpSync(PUBLIC, path.join(sandbox, "public"), { recursive: true });
@@ -98,8 +109,6 @@ test("backup and restore stay in the child runtime root", { timeout: 45_000 }, a
       child.kill();
     });
     fs.rmSync(sandbox, { recursive: true, force: true });
-    fs.rmSync(checkoutJson, { force: true });
-    fs.rmSync(path.dirname(checkoutUpload), { recursive: true, force: true });
   });
 
   assert.equal((await waitForServer(port)).status, 200);
@@ -120,7 +129,9 @@ test("backup and restore stay in the child runtime root", { timeout: 45_000 }, a
   assert.match(backup.id, /^[a-f0-9-]{36}$/i); assert.equal(backup.type, "manual"); assert.equal(backup.status, "success"); assert.equal(backup.createdBy, "manager"); assert.match(backup.filename, /^rootark-backup-.*\.zip$/); assert.match(backup.checksum, /^[a-f0-9]{64}$/); assert.ok(backup.sizeBytes > 0);
   const archivePath = path.join(sandbox, "data", "backups", backup.filename);
   assert.equal(fs.existsSync(archivePath), true); assert.equal(fs.existsSync(path.join(sandbox, "data", "backup-history.json")), true);
-  assert.deepEqual(state(path.join(ROOT, "data", "backups")), checkoutBefore.backups); assert.deepEqual(state(path.join(ROOT, "data", "backup-history.json")), checkoutBefore.history);
+  assert.deepEqual(checkoutState(path.join(ROOT, "data", "backups")), checkoutBefore.backups);
+  assert.deepEqual(checkoutState(path.join(ROOT, "data", "backup-history.json")), checkoutBefore.history);
+  assert.equal(fs.existsSync(path.join(ROOT, "data", "backups", backup.filename)), false);
   const zip = await unzipper.Open.file(archivePath);
   const entries = zip.files.map((entry) => entry.path);
   assert.ok(entries.includes("data/runtime-only.json")); assert.ok(entries.includes("uploads/runtime-folder/runtime-upload.txt"));
@@ -131,8 +142,10 @@ test("backup and restore stay in the child runtime root", { timeout: 45_000 }, a
   assert.equal((await request(port, "/backups/latest-status", { headers: { cookie: manager.cookie } })).status, 200);
   const manifest = await request(port, `/backups/${backup.id}/manifest`, { headers: { cookie: manager.cookie } });
   assert.equal(manifest.status, 200, manifest.body); assert.equal(JSON.parse(manifest.body).backup_id, backup.id);
-  const download = await request(port, `/backups/${backup.id}/download`, { headers: { cookie: manager.cookie } });
-  assert.equal(download.status, 200); assert.ok(Buffer.byteLength(download.body, "binary") > 0);
+  const download = await request(port, `/backups/${backup.id}/download`, { headers: { cookie: manager.cookie }, binary: true });
+  assert.equal(download.status, 200); assert.ok(download.body.length > 0);
+  assert.equal(crypto.createHash("sha256").update(download.body).digest("hex"), backup.checksum);
+  assert.deepEqual(download.body, fs.readFileSync(archivePath));
 
   write(sandbox, "data/runtime-only.json", Buffer.from("mutated-json")); write(sandbox, "uploads/runtime-folder/runtime-upload.txt", Buffer.from("mutated-upload"));
   const invalidBody = JSON.stringify({ confirmation: "NO" });
@@ -150,5 +163,9 @@ test("backup and restore stay in the child runtime root", { timeout: 45_000 }, a
   assert.equal(fs.existsSync(path.join(sandbox, "data", "backups", ".restore-tmp")), false); assert.equal((await request(port, "/backups", { headers: { cookie: manager.cookie } })).status, 200);
   const removed = await request(port, `/backups/${backup.id}`, { method: "DELETE", headers: headers(port, manager) });
   assert.equal(removed.status, 200, removed.body); assert.equal(fs.existsSync(archivePath), false); assert.equal(fs.existsSync(path.join(sandbox, "data", "backups", restoredBody.preRestoreBackup.filename)), true);
-  assert.deepEqual(state(path.join(ROOT, "data", "backups")), checkoutBefore.backups); assert.deepEqual(state(path.join(ROOT, "data", "backup-history.json")), checkoutBefore.history);
+  assert.deepEqual(checkoutState(path.join(ROOT, "data", "backups")), checkoutBefore.backups);
+  assert.deepEqual(checkoutState(path.join(ROOT, "data", "backup-history.json")), checkoutBefore.history);
+  assert.deepEqual(checkoutState(path.join(ROOT, "data", "backups", ".restore-tmp")), checkoutBefore.restoreTemp);
+  assert.equal(fs.existsSync(path.join(ROOT, "data", "backups", backup.filename)), false);
+  assert.equal(fs.existsSync(path.join(ROOT, "data", "backups", restoredBody.preRestoreBackup.filename)), false);
 });

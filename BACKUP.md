@@ -4,7 +4,7 @@ O sistema de backup protege metadados, banco SQLite local e arquivos enviados se
 
 ## Local
 
-Backups, o lock, o histÃ³rico JSON e os temporÃ¡rios de restore ficam no diretÃ³rio de runtime do processo:
+Backups, o lock, o histórico JSON e os temporários de restore ficam no diretório de runtime do processo:
 
 ```text
 <runtime-root>/data/backups
@@ -34,7 +34,7 @@ BACKUP_COMPRESS=true
 
 ## O que entra
 
-- O banco SQLite configurado por `DATABASE_URL`, com `-wal` e `-shm` quando existirem; ele Ã© restaurado no mesmo caminho configurado.
+- O banco SQLite configurado por `DATABASE_URL`, com `-wal` e `-shm` quando existirem; ele é restaurado no mesmo caminho configurado.
 - JSON antigos em `<runtime-root>/data/*.json`, se existirem.
 - `<runtime-root>/uploads`, se `BACKUP_INCLUDE_UPLOADS=true`.
 - metadados importantes em `<runtime-root>/data`.
@@ -118,7 +118,7 @@ Se necessário:
 
 1. Pare o servidor.
 2. Extraia um backup em uma pasta separada.
-3. Copie `data/rootark.sqlite*` para `./data`.
+3. Se `DATABASE_URL` estiver configurada, copie `data/rootark.sqlite`, `data/rootark.sqlite-wal` e `data/rootark.sqlite-shm` para o caminho configurado e seus arquivos auxiliares. Com o caminho padrão, copie-os para `./data/rootark.sqlite*`.
 4. Copie `uploads` para `./uploads`.
 5. Reinicie o servidor.
 
