@@ -1,6 +1,6 @@
 # Root.ark Product Discovery
 
-Status: discovery open; Round 1 through Round 3 decisions recorded locally; Round 3 publication pending
+Status: discovery open; Round 1 through Round 3 decisions recorded
 
 Related issues: #4 and #10
 
@@ -242,7 +242,7 @@ The product owner approved these records on 2026-08-02. They define policy bound
 
 ## Approved Round 3 decisions
 
-The product owner explicitly approved these records on 2026-08-02. They define product policy only; publication of this checkpoint is still separately gated, and no implementation is authorized by these decisions.
+The product owner explicitly approved these records on 2026-08-02. They define product policy only; no implementation is authorized by these decisions.
 
 ### D-007: Cryptographic architecture and recovery
 
@@ -734,7 +734,7 @@ Round 2 is complete at the policy-decision level. D-004, D-005, and D-006 are ap
 
 ## Round 3 checkpoint
 
-Round 3 is approved at the policy-decision level in D-007, D-008, and D-009. The local documentation checkpoint records the required backup-aware cryptographic-erasure rule and preserves Phases 3.3, 3.4, and 3.5 as historical operational-validation phases; they are not reopened or reclassified. Exact expert architecture, implementation, migration, testing, and detailed operational workflows remain explicitly `[OPEN]`. No implementation issues were created automatically. Issues #4 and #10 remain open. Publication of this checkpoint requires separate authorization.
+Round 3 is complete at the policy-decision level. D-007, D-008, and D-009 are recorded. The backup-aware cryptographic-erasure rule is preserved, and Phases 3.3, 3.4, and 3.5 remain historical operational-validation phases; they are not reopened or reclassified. Exact expert architecture, implementation, migration, testing, and detailed operational workflows remain explicitly `[OPEN]`. No implementation issues were created automatically. Issues #4 and #10 remain open.
 
 ## Current discovery queue
 

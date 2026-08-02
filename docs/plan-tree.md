@@ -345,7 +345,7 @@ This track may proceed conversationally in parallel with stabilization. Runtime 
 
 - `[DONE]` Record approved Round 1 decisions D-001 through D-003 with consequences and follow-up dependencies; keep Issue #4 open.
 - `[DONE]` Record approved Round 2 decisions D-004 through D-006 with consequences and explicitly open deferred details; keep Issues #4 and #10 open.
-- `[DONE]` Record approved Round 3 decisions D-007 through D-009 with consequences and explicitly open expert architecture and implementation details; keep Issues #4 and #10 open. Publication remains separately authorized.
+- `[DONE]` Record approved Round 3 decisions D-007 through D-009 with consequences and explicitly open expert architecture and implementation details; keep Issues #4 and #10 open.
 - `[BLOCKED]` Create architecture documents for high-risk boundaries.
 - `[BLOCKED]` Reconcile this plan tree and feature backlog with the approved direction.
 - `[BLOCKED]` Do not silently reinterpret old implementation as the final product contract.
@@ -415,7 +415,7 @@ All items below are candidates, not commitments.
 6. `[NEXT]` Expand automated tests and CI. Issue #3 remaining scope.
 7. `[NEXT]` Validate existing SQLite, backup, trash, scanning, WebDAV, and sync MVPs with disposable data. Issue #7.
 8. `[LATER]` Modularize high-risk domains after coverage exists. Issue #5.
-9. `[PARALLEL-DISCOVERY]` Continue structured product discovery after the Round 3 checkpoint is published; Rounds 1 through 3 are recorded locally, while Issue #10 remains open pending full relationship reconciliation. Issues #4 and #10.
+9. `[PARALLEL-DISCOVERY]` Continue structured product discovery; Rounds 1 through 3 are recorded, while Issue #10 remains open pending full relationship reconciliation. Issues #4 and #10.
 10. `[BLOCKED]` Approve individual future features only after stabilization and discovery. Issues #6 and #9.
 
 ## 9. Plan-tree update rule
