@@ -1,9 +1,10 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const Database = require("better-sqlite3");
 const { ZipArchive } = require("archiver");
 const backupRepository = require("../repositories/backupRepository");
-const { getDatabasePath, isDbEnabled } = require("../db");
+const { getDatabasePath, getDb, isDbEnabled } = require("../db");
 const { resolveRuntimePath } = require("../src/runtime-paths");
 
 const BACKUPS_DIR = resolveRuntimePath("data", "backups");
@@ -126,12 +127,9 @@ async function collectBackupFiles(options = {}) {
   }
 
   if (isDbEnabled()) {
-    const databasePath = getDatabasePath();
-    for (const suffix of ["", "-wal", "-shm"]) {
-      const absolutePath = `${databasePath}${suffix}`;
-      if (fs.existsSync(absolutePath) && fs.statSync(absolutePath).isFile()) {
-        files.push({ absolutePath, entryPath: `data/rootark.sqlite${suffix}`, size: fs.statSync(absolutePath).size });
-      }
+    const snapshotPath = options.sqliteSnapshotPath;
+    if (snapshotPath && fs.existsSync(snapshotPath)) {
+      files.push({ absolutePath: snapshotPath, entryPath: "data/rootark.sqlite", size: fs.statSync(snapshotPath).size });
     }
   }
 
@@ -186,6 +184,24 @@ async function collectBackupFiles(options = {}) {
   }
   options.cloudComplete = true;
   return [...known.values()].sort((a, b) => a.entryPath.localeCompare(b.entryPath));
+}
+
+async function createSqliteSnapshot() {
+  if (!isDbEnabled() || !fs.existsSync(getDatabasePath())) return null;
+  const stageDir = resolveRuntimePath("data", `.sqlite-backup-${crypto.randomUUID()}`);
+  const snapshotPath = path.join(stageDir, "rootark.sqlite");
+  fs.mkdirSync(stageDir, { recursive: true });
+  try {
+    await getDb().backup(snapshotPath);
+    const snapshot = new Database(snapshotPath, { readonly: true, fileMustExist: true });
+    try {
+      if (snapshot.pragma("integrity_check", { simple: true }) !== "ok") throw new Error("SQLite snapshot integrity check failed");
+    } finally { snapshot.close(); }
+    return { stageDir, snapshotPath };
+  } catch (error) {
+    try { fs.rmSync(stageDir, { recursive: true, force: true }); } catch {}
+    throw error;
+  }
 }
 
 function calculateFileHash(filePath) {
@@ -882,9 +898,13 @@ async function createBackup(options = {}) {
     errorMessage: null,
     metadata: { notes: options.notes || "" },
   };
+  let sqliteSnapshot = null;
+  let saved = null;
+  let outcomeError = null;
 
   try {
-    const collectionOptions = { stageDir };
+    sqliteSnapshot = await createSqliteSnapshot();
+    const collectionOptions = { stageDir, sqliteSnapshotPath: sqliteSnapshot?.snapshotPath };
     const files = await collectBackupFiles(collectionOptions);
     const totalSize = files.reduce((sum, file) => sum + file.size, 0);
     const manifest = {
@@ -926,7 +946,7 @@ async function createBackup(options = {}) {
     const durationMs = Date.now() - startedAt;
     const sizeBytes = fs.statSync(archivePath).size;
 
-    const saved = backupRepository.saveBackup({
+    saved = backupRepository.saveBackup({
       ...baseEntry,
       status: "success",
       finishedAt,
@@ -943,6 +963,7 @@ async function createBackup(options = {}) {
     await cleanupRetention({ lockHeld: true });
     return saved;
   } catch (error) {
+    outcomeError = error;
     let cleanupError = null;
     if (archiveCreated) {
       try { fs.rmSync(archivePath, { force: false }); } catch (cleanupFailure) { cleanupError = cleanupFailure; }
@@ -964,6 +985,18 @@ async function createBackup(options = {}) {
   } finally {
     fs.rmSync(stageDir, { recursive: true, force: true });
     try { fs.rmdirSync(path.dirname(stageDir)); } catch {}
+    if (sqliteSnapshot?.stageDir) {
+      try { fs.rmSync(sqliteSnapshot.stageDir, { recursive: true, force: true }); }
+      catch (error) {
+        const evidence = { code: "SQLITE_STAGE_CLEANUP_FAILED", message: "SQLite staging cleanup failed" };
+        if (outcomeError) outcomeError.sqliteStageCleanupFailure = evidence;
+        if (saved?.status === "success") {
+          saved.metadata = { ...saved.metadata, sqliteStageCleanup: evidence };
+          try { backupRepository.saveBackup(saved); } catch (persistError) { outcomeError = outcomeError || persistError; }
+        }
+        console.error(`[backup] ${evidence.code}`);
+      }
+    }
     release();
   }
 }
