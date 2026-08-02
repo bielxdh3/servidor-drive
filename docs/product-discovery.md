@@ -1,6 +1,6 @@
 # Root.ark Product Discovery
 
-Status: discovery open
+Status: discovery open; Round 1 decisions recorded
 
 Related issues: #4 and #10
 
@@ -34,10 +34,12 @@ Future discovery should work like the AIP planning process: ask a small number o
 
 - `[PROVISIONAL]` A working Node.js/Express file-management product exists in `bielxdh3/root.ark`.
 - `[PROVISIONAL]` The existing application supports users, permissions, folders, uploads, approval, versions, public links, encryption, analytics, audit, SQLite, backups, trash, scanning/quarantine, WebDAV, cloud storage, and a one-way sync MVP.
-- `[CONFLICT]` Root.ark has also been discussed as a future BielOS module with potentially different security and encryption requirements.
-- `[OPEN]` It is not yet decided whether the current repository is the final independent product, a prototype, or a source for a future migration.
+- `[DECIDED]` D-001 keeps Root.ark active in this repository while allowing only a future, explicitly designed and approved migration or selective reuse with BielOS.
+- `[DECIDED]` D-002 defines Root.ark as a private administrator-controlled storage and transfer service with rigorously isolated compartments and no normal public registration.
+- `[DECIDED]` D-003 selects client-side, zero-knowledge encryption; the server and administrator must not normally read plaintext user content.
+- `[CONFLICT]` Existing server-readable, metadata-dependent, preview, scanning, WebDAV, sync, and backup behaviors require reconciliation with D-003; implementation is not itself product approval.
 - `[OPEN]` The final product name and spelling are not confirmed.
-- `[OPEN]` The current feature set does not itself define what the final product should promise.
+- `[OPEN]` Exact integration contracts, administrator authority, key recovery, metadata fields, and client-side encryption behavior remain unresolved.
 
 ## Decision record format
 
@@ -62,6 +64,83 @@ Use this template for every approved decision:
   - #<issue>
 ```
 
+## Approved Round 1 decisions
+
+The product owner approved these records on 2026-08-02. They are durable product decisions; unresolved implementation and architecture details remain open.
+
+### D-001: Root.ark and BielOS relationship
+
+- Status: `[DECIDED]`
+- Date: 2026-08-02
+- Decision: Option D. Root.ark remains actively developed in this repository. The long-term possibility is a controlled migration or selective reuse into BielOS after a dedicated architecture, security, and contract-definition phase. Root.ark runtime, data, and authentication remain isolated until an integration is explicitly designed and approved.
+- Reason: BielOS may centralize accounts in the future, but integration must not happen automatically.
+- Consequences:
+  - Analysis: The current canonical runtime and data boundary remains this repository.
+  - Analysis: Future identity sharing requires an explicit integration contract, threat model, and migration plan.
+  - Analysis: Existing stabilization work remains valid without making this repository a legacy product.
+- Explicitly prohibited automatic actions:
+  - Copying or merging code with BielOS.
+  - Sharing databases, sessions, or authentication.
+  - Migrating user files.
+  - Changing the encryption model.
+  - Reclassifying this repository as legacy.
+- Rejected alternatives:
+  - Options A, B, and C were not selected for the current direction; they are not recorded as permanently impossible future states.
+- Affected plan-tree phases:
+  - Phase 5.0: Product identity and repository relationship.
+  - Phase 5.4: Approved product brief.
+- Required follow-up issues:
+  - #10 remains open until the decision is reconciled in merged documentation and all required consequences are satisfied.
+  - #4 remains open for the rest of product discovery.
+
+### D-002: Intended users and tenancy
+
+- Status: `[DECIDED]`
+- Date: 2026-08-02
+- Decision: Option E with owner-specific bounds. Root.ark is a private storage and transfer service administered by BielOS or an authorized administrator. The administrator creates or approves accounts, compartments, and access. Public requests such as `/apply` may exist as isolated requests but never grant access automatically. Unrelated users may coexist only in rigorously isolated compartments. External recipients may use links or access keys without becoming normal system users.
+- Reason: Unrelated users must not see one another's data, names, metadata, or activity.
+- Consequences:
+  - Analysis: Account, compartment, permission, and activity isolation are tenant-boundary requirements.
+  - Analysis: External links and keys require a separate access principal and revocation model from ordinary accounts.
+  - Analysis: Public registration, abuse handling, and support remain bounded private-service concerns rather than SaaS defaults.
+- Explicitly prohibited automatic actions:
+  - Normal public registration.
+  - Automatic access from a public application request.
+  - Cross-compartment visibility of data, names, metadata, or activity.
+- Rejected alternatives:
+  - Public hosted SaaS registration is not the selected audience model.
+  - Other public sharing surfaces remain possible only when separately designed and approved.
+- Affected plan-tree phases:
+  - Phase 5.1: Users and trust model.
+  - Phase 5.2: File and storage behavior.
+- Required follow-up issues:
+  - #4 remains open for account, invitation, sharing, and scope-boundary discovery.
+
+### D-003: Server, administrator, and metadata visibility
+
+- Status: `[DECIDED]`
+- Date: 2026-08-02
+- Decision: Option B. User content uses client-side, zero-knowledge encryption. The server and administrator must not normally decrypt or read plaintext content. Filenames and folder names should preferably be encrypted; only the minimum operational metadata may remain visible. Previews and search indexes should be client-generated or unavailable for zero-knowledge files. Upload scanning should occur before client encryption when possible. Administrators may back up and restore encrypted blobs and required metadata, manage accounts, compartments, permissions, blocks, backups, and deletion, but may not silently access decrypted content.
+- Reason: The server and administrator must not be able to read user content normally, and lost encryption keys may make files unrecoverable.
+- Consequences:
+  - Analysis: Key generation, storage, rotation, revocation, sharing, and recovery become client-side or user-controlled security boundaries.
+  - Analysis: Server-side previews, full-text search, and decryption-based scanning cannot be assumed for zero-knowledge files.
+  - Analysis: Backup and restore preserve encrypted material without creating an administrator plaintext-recovery path.
+- Explicitly prohibited automatic actions:
+  - Server decryption for ordinary administrator inspection.
+  - Automatic recovery of encrypted files after key loss.
+  - Treating password reset as encryption-key recovery.
+- Rejected alternatives:
+  - Normal server-readable encryption is not the selected final trust model.
+  - A mixed model was not approved in this round, although future compartment-specific exceptions were not permanently ruled out.
+- Affected plan-tree phases:
+  - Phase 5.1: Users and trust model.
+  - Phase 5.2: File and storage behavior.
+  - Phase 5.3: Privacy and operations.
+- Required follow-up issues:
+  - #4 remains open for the exact metadata, key-recovery, sharing, scanning, preview, search, and client requirements.
+  - #10 remains open until the BielOS relationship and its trust-model consequences are reconciled after documentation merge.
+
 ## Discovery sequence
 
 The orchestrator should normally follow this order because later answers depend on earlier trust and user decisions.
@@ -70,7 +149,7 @@ The orchestrator should normally follow this order because later answers depend 
 
 ### Q1. Canonical product
 
-- Status: `[OPEN]`
+- Status: `[DECIDED]` — recorded in D-001.
 - Question: Is this repository the final independent Root.ark product, a legacy prototype, or a code source for a future BielOS module?
 - Why it matters:
   - determines canonical repository and roadmap;
@@ -103,7 +182,7 @@ Concrete answer options:
 
 ### Q3. Intended audience
 
-- Status: `[OPEN]`
+- Status: `[DECIDED]` — recorded in D-002.
 - Question: Who is expected to use the final product?
 
 Concrete models:
@@ -121,7 +200,7 @@ The answer determines registration, invitations, abuse handling, support, tenant
 
 ### Q4. Can the server administrator read files?
 
-- Status: `[OPEN]`
+- Status: `[DECIDED]` — recorded in D-003.
 - Question: Under the intended security model, can the administrator/server decrypt and inspect user files?
 
 Concrete models:
@@ -137,6 +216,8 @@ This decision must be made before redesigning encryption, recovery, previews, sc
 
 - Status: `[OPEN]`
 - Question: Which actions may an administrator perform?
+
+D-003 establishes that account, compartment, permission, block, backup, and deletion management does not grant plaintext content access. The complete authority matrix remains open.
 
 Decide separately:
 
@@ -172,7 +253,7 @@ Possible policies:
 
 ### Q7. Account creation
 
-- Status: `[OPEN]`
+- Status: `[DECIDED]` — D-002 requires administrator creation or approval; exact invitation and request workflow remains open.
 - Question: Who may create accounts?
 
 Models:
@@ -220,7 +301,7 @@ Clarify whether changing providers is migration, replication, or live multi-back
 
 ### Q11. Encryption levels
 
-- Status: `[OPEN]`
+- Status: `[DECIDED]` — D-003 selects client-side zero-knowledge content protection; exact protocol and compatibility design remain open.
 - Decide whether the current multiple encryption modes remain product behavior or are simplified.
 - Required consequences:
   - preview/search support;
@@ -234,7 +315,7 @@ Clarify whether changing providers is migration, replication, or live multi-back
 
 ### Q12. Metadata privacy
 
-- Status: `[OPEN]`
+- Status: `[DECIDED]` at the principle level in D-003; the exact minimum metadata inventory remains open.
 - Decide whether the server may see:
   - filenames;
   - folder names;
@@ -421,12 +502,16 @@ After a discovery answer:
 7. keep implementation blocked until dependencies and acceptance criteria are explicit;
 8. give Codex one coherent issue step, not the entire product brief.
 
+## Round 1 checkpoint
+
+Round 1 is complete. D-001, D-002, and D-003 are approved and recorded. Issue #4 remains open. Issue #10 remains open and must not be closed until its required relationship consequences are documented, merged, and reconciled.
+
 ## Current discovery queue
 
-Recommended first conversation round:
+Recommended Round 2 questions:
 
-1. Is this repository independent, legacy, or intended to migrate into/alongside BielOS?
-2. Who are the intended users?
-3. Can the administrator/server read user files?
+1. Define the administrator authority and exact metadata-visibility matrix, including audit and activity visibility.
+2. Define account creation, invitations, password recovery, encryption-key recovery, revocation, and deletion.
+3. Define the client-side key lifecycle and the boundaries for scanning, previews, search, sharing, WebDAV, synchronization, and encrypted backups.
 
-These three answers determine most later architecture. Do not ask all remaining questions at once. Humans respond poorly to 26-question forms, despite repeatedly inventing them for everyone else.
+Do not ask all remaining questions at once. Each round must preserve explicit decisions, inferred consequences, and unresolved details separately.
