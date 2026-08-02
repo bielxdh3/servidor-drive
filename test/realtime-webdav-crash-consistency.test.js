@@ -132,6 +132,12 @@ function journalPaths(dir) {
   return journal ? path.join(incoming, journal) : null;
 }
 
+function readJournal(dir) {
+  const journalPath = journalPaths(dir);
+  if (!journalPath) return null;
+  try { return JSON.parse(fs.readFileSync(journalPath, "utf8")); } catch { return null; }
+}
+
 function calls(dir) { return JSON.parse(fs.readFileSync(path.join(dir, "provider-calls.json"), "utf8")); }
 
 test("WebDAV MOVE persists remote intent before provider effects", { timeout: 90_000 }, async (t) => {
@@ -142,7 +148,8 @@ test("WebDAV MOVE persists remote intent before provider effects", { timeout: 90
     try {
       first = await startServer(f.dir, { FAKE_PROVIDER_MODE: "crash-after-upload" });
       try { await move(f.dir, first.port); } catch {}
-      await waitFor(() => first.child.exitCode !== null);
+      await waitFor(() => readJournal(f.dir)?.cloud?.state === "destination_upload_uncertain");
+      await stop(first.child);
       const journalPath = journalPaths(f.dir);
       assert.ok(journalPath);
       const journal = JSON.parse(fs.readFileSync(journalPath, "utf8"));
@@ -170,8 +177,9 @@ test("WebDAV MOVE persists remote intent before provider effects", { timeout: 90
     try {
       first = await startServer(f.dir, { FAKE_PROVIDER_MODE: "crash-after-delete" });
       try { await move(f.dir, first.port); } catch {}
-      await waitFor(() => first.child.exitCode !== null);
-      const journal = JSON.parse(fs.readFileSync(journalPaths(f.dir), "utf8"));
+      await waitFor(() => readJournal(f.dir)?.cloud?.state === "source_delete_uncertain");
+      await stop(first.child);
+      const journal = readJournal(f.dir);
       assert.equal(journal.cloud.state, "source_delete_uncertain");
       second = await startServer(f.dir);
       await waitFor(() => !journalPaths(f.dir)).catch((error) => { throw new Error(`${error.message}; stderr=${second.stderr()}`); });
@@ -216,7 +224,8 @@ test("WebDAV MOVE persists remote intent before provider effects", { timeout: 90
     try {
       first = await startServer(f.dir, { CLOUD_STORAGE_PROVIDER: "local", LOCAL_CRASH_FROM: stage, LOCAL_CRASH_TO: f.target }, true);
       try { await move(f.dir, first.port); } catch {}
-      await waitFor(() => first.child.exitCode !== null);
+      await waitFor(() => Boolean(journalPaths(f.dir)) && fs.existsSync(f.target) && !fs.existsSync(f.source));
+      await stop(first.child);
       assert.equal(fs.readFileSync(f.target, "utf8"), "source bytes");
       assert.equal(fs.existsSync(f.source), false);
       second = await startServer(f.dir, { CLOUD_STORAGE_PROVIDER: "local" });
@@ -239,7 +248,8 @@ test("WebDAV MOVE persists remote intent before provider effects", { timeout: 90
     try {
       crashed = await startServer(f.dir, { FAKE_PROVIDER_MODE: "crash-after-upload" });
       try { await move(f.dir, crashed.port); } catch {}
-      await waitFor(() => crashed.child.exitCode !== null);
+      await waitFor(() => readJournal(f.dir)?.cloud?.state === "destination_upload_uncertain");
+      await stop(crashed.child);
       first = await startServer(f.dir, { FAKE_PROVIDER_MODE: "wait-upload", FAKE_PROVIDER_RELEASE: release });
       second = await startServer(f.dir, { FAKE_PROVIDER_MODE: "wait-upload", FAKE_PROVIDER_RELEASE: release });
       await waitFor(() => calls(f.dir).filter((entry) => entry.operation === "upload").length >= 2);

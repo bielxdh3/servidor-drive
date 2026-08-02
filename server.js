@@ -6488,6 +6488,10 @@ function claimWebDavMoveJournal(journal, now = Date.now(), workerId = crypto.ran
       const existing = fs.readFileSync(lockPath, "utf8");
       const existingToken = webDavMoveClaimToken(existing);
       const existingRecord = (() => { try { return JSON.parse(existing); } catch { return null; } })();
+      const ownerPid = Number(existingRecord?.pid);
+      if (Number.isInteger(ownerPid) && ownerPid > 0) {
+        try { process.kill(ownerPid, 0); return null; } catch (error) { if (error.code === "EPERM") return null; }
+      }
       const leaseExpired = existingRecord?.claimedAt ? Date.parse(existingRecord.claimedAt) + WEBDAV_MOVE_RECONCILIATION_LEASE_MS <= now : fs.statSync(lockPath).mtimeMs + WEBDAV_MOVE_RECONCILIATION_LEASE_MS <= now;
       if (!leaseExpired) return null;
       const takeover = takeoverWebDavMoveClaim(lockPath, journal.transactionId, existingToken, now);
