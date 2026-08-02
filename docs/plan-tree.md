@@ -321,18 +321,22 @@ This track may proceed conversationally in parallel with stabilization. Runtime 
 
 - `[DECIDED]` Backups may preserve encrypted blobs and required metadata, but must not create an administrator plaintext-recovery path.
 - `[DECIDED]` D-006 requires client-side key generation, compartment-isolated key sets, rotation for new content after access loss, and protected offline material on authorized devices.
-- `[PARALLEL-DISCOVERY]` Define the consequences for previews, search, scanning, sharing, WebDAV, synchronization, versions, and restore under the approved key model.
+- `[DECIDED]` D-007 requires per-file keys, isolated compartment hierarchies, mandatory recovery-package verification, explicit historical re-encryption, and future-authorization rotation after package compromise; expert cryptographic architecture remains `[OPEN]`.
+- `[DECIDED]` D-008 sets 30-day normal deletion and backup retention, immediate access revocation, and backup-aware cryptographic erasure that cannot be declared complete while service-controlled decryption material remains usable.
+- `[DECIDED]` D-009 requires encrypted client-generated previews and indexes, server-blind sharing, local-bridge-only zero-knowledge WebDAV, and eventual mandatory bidirectional synchronization; implementation architecture remains `[OPEN]`.
 - `[PARALLEL-DISCOVERY]` Local, S3, Google Drive, or hybrid canonical storage.
 - `[PARALLEL-DISCOVERY]` Approval workflow and intended purpose.
-- `[PARALLEL-DISCOVERY]` Sharing, recipient identity, public links, expiration, and limits.
-- `[PARALLEL-DISCOVERY]` Versions, retention, trash, backup, restore, and permanent deletion.
-- `[PARALLEL-DISCOVERY]` Synchronization direction, conflict policy, offline behavior, WebDAV, desktop, mobile, and PWA expectations.
+- `[PARALLEL-DISCOVERY]` Define the remaining sharing recipient, public-link, expiration, and limit details under D-009.
+- `[PARALLEL-DISCOVERY]` Define the remaining version, restore, backup-key invalidation, and permanent-deletion mechanics under D-008.
+- `[PARALLEL-DISCOVERY]` Define the remaining synchronization, conflict, offline, local-bridge, desktop, mobile, and PWA architecture under D-009.
 
 ### Phase 5.3: Privacy and operations
 
 - `[DECIDED]` D-004 permits auditable security and operational logs with actor, IP, device, time, and action, without content, keys, decrypted names, or unnecessary sensitive data.
 - `[DECIDED]` D-005 separates immediate access revocation from retained permanent deletion and requires reinforced confirmation for immediate destruction.
-- `[PARALLEL-DISCOVERY]` Define audit retention, access, export, deletion, and privacy rules.
+- `[DECIDED]` D-008 sets 30-day operational logs, 180-day security/audit logs, immediate access revocation, and truthful pending/completed states for backup-aware cryptographic erasure; detailed access, export, deletion, and privacy rules remain `[OPEN]`.
+- `[DECIDED]` D-009 requires quarantine for unverified external uploads and preserves the zero-knowledge boundary for scanning, derived data, sharing, WebDAV, synchronization, and restore.
+- `[PARALLEL-DISCOVERY]` Define the remaining audit access, export, deletion, privacy, investigation-extension, quarantine, and operational ownership details.
 - `[PARALLEL-DISCOVERY]` Data export and portability.
 - `[PARALLEL-DISCOVERY]` Operational ownership, deployment, updates, and recovery.
 - `[PARALLEL-DISCOVERY]` Features explicitly rejected or deferred.
@@ -341,6 +345,7 @@ This track may proceed conversationally in parallel with stabilization. Runtime 
 
 - `[DONE]` Record approved Round 1 decisions D-001 through D-003 with consequences and follow-up dependencies; keep Issue #4 open.
 - `[DONE]` Record approved Round 2 decisions D-004 through D-006 with consequences and explicitly open deferred details; keep Issues #4 and #10 open.
+- `[DONE]` Record approved Round 3 decisions D-007 through D-009 with consequences and explicitly open expert architecture and implementation details; keep Issues #4 and #10 open. Publication remains separately authorized.
 - `[BLOCKED]` Create architecture documents for high-risk boundaries.
 - `[BLOCKED]` Reconcile this plan tree and feature backlog with the approved direction.
 - `[BLOCKED]` Do not silently reinterpret old implementation as the final product contract.
@@ -410,7 +415,7 @@ All items below are candidates, not commitments.
 6. `[NEXT]` Expand automated tests and CI. Issue #3 remaining scope.
 7. `[NEXT]` Validate existing SQLite, backup, trash, scanning, WebDAV, and sync MVPs with disposable data. Issue #7.
 8. `[LATER]` Modularize high-risk domains after coverage exists. Issue #5.
-9. `[PARALLEL-DISCOVERY]` Continue structured product discovery; Rounds 1 and 2 are recorded, while Issue #10 remains open pending full relationship reconciliation. Issues #4 and #10.
+9. `[PARALLEL-DISCOVERY]` Continue structured product discovery after the Round 3 checkpoint is published; Rounds 1 through 3 are recorded locally, while Issue #10 remains open pending full relationship reconciliation. Issues #4 and #10.
 10. `[BLOCKED]` Approve individual future features only after stabilization and discovery. Issues #6 and #9.
 
 ## 9. Plan-tree update rule
