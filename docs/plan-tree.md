@@ -311,15 +311,17 @@ This track may proceed conversationally in parallel with stabilization. Runtime 
 
 - `[DECIDED]` Private administrator-controlled storage and transfer service; accounts, compartments, and access are created or approved by an administrator, with no normal public registration.
 - `[DECIDED]` Unrelated users may coexist only in rigorously isolated compartments; external links or keys do not create normal users.
-- `[PARALLEL-DISCOVERY]` Administrator powers and visibility.
+- `[DECIDED]` D-004 defines bounded administrator powers, explicit time-limited audited support impersonation, and minimum metadata visibility without plaintext access.
 - `[DECIDED]` D-003 selects client-side zero-knowledge protection for user content; the server and administrator do not normally receive plaintext.
-- `[PARALLEL-DISCOVERY]` Account recovery, key recovery, revocation, and deletion consequences.
+- `[DECIDED]` D-005 defines direct administrator account creation, revocable expiring invitations, user-controlled recovery, default retention, and audited permanent deletion.
+- `[DECIDED]` D-006 defines trusted-device and recovery-package authorization, compartment-isolated keys, future-content rotation, and authorized offline access.
 - `[DECIDED]` Public account registration is not part of the approved model; isolated request or sharing surfaces require separate design and approval.
 
 ### Phase 5.2: File and storage behavior
 
 - `[DECIDED]` Backups may preserve encrypted blobs and required metadata, but must not create an administrator plaintext-recovery path.
-- `[PARALLEL-DISCOVERY]` Client-side key lifecycle and the consequences for previews, search, scanning, sharing, WebDAV, synchronization, versions, and restore.
+- `[DECIDED]` D-006 requires client-side key generation, compartment-isolated key sets, rotation for new content after access loss, and protected offline material on authorized devices.
+- `[PARALLEL-DISCOVERY]` Define the consequences for previews, search, scanning, sharing, WebDAV, synchronization, versions, and restore under the approved key model.
 - `[PARALLEL-DISCOVERY]` Local, S3, Google Drive, or hybrid canonical storage.
 - `[PARALLEL-DISCOVERY]` Approval workflow and intended purpose.
 - `[PARALLEL-DISCOVERY]` Sharing, recipient identity, public links, expiration, and limits.
@@ -328,8 +330,9 @@ This track may proceed conversationally in parallel with stabilization. Runtime 
 
 ### Phase 5.3: Privacy and operations
 
-- `[DECIDED]` Administrators may manage accounts, compartments, permissions, blocks, backups, and deletion without silent access to decrypted content.
-- `[PARALLEL-DISCOVERY]` Audit and analytics visibility.
+- `[DECIDED]` D-004 permits auditable security and operational logs with actor, IP, device, time, and action, without content, keys, decrypted names, or unnecessary sensitive data.
+- `[DECIDED]` D-005 separates immediate access revocation from retained permanent deletion and requires reinforced confirmation for immediate destruction.
+- `[PARALLEL-DISCOVERY]` Define audit retention, access, export, deletion, and privacy rules.
 - `[PARALLEL-DISCOVERY]` Data export and portability.
 - `[PARALLEL-DISCOVERY]` Operational ownership, deployment, updates, and recovery.
 - `[PARALLEL-DISCOVERY]` Features explicitly rejected or deferred.
@@ -337,6 +340,7 @@ This track may proceed conversationally in parallel with stabilization. Runtime 
 ### Phase 5.4: Approved product brief
 
 - `[DONE]` Record approved Round 1 decisions D-001 through D-003 with consequences and follow-up dependencies; keep Issue #4 open.
+- `[DONE]` Record approved Round 2 decisions D-004 through D-006 with consequences and explicitly open deferred details; keep Issues #4 and #10 open.
 - `[BLOCKED]` Create architecture documents for high-risk boundaries.
 - `[BLOCKED]` Reconcile this plan tree and feature backlog with the approved direction.
 - `[BLOCKED]` Do not silently reinterpret old implementation as the final product contract.
@@ -406,7 +410,7 @@ All items below are candidates, not commitments.
 6. `[NEXT]` Expand automated tests and CI. Issue #3 remaining scope.
 7. `[NEXT]` Validate existing SQLite, backup, trash, scanning, WebDAV, and sync MVPs with disposable data. Issue #7.
 8. `[LATER]` Modularize high-risk domains after coverage exists. Issue #5.
-9. `[PARALLEL-DISCOVERY]` Continue structured product discovery; Round 1 is recorded, while Issue #10 remains open pending merged documentation and full relationship reconciliation. Issues #4 and #10.
+9. `[PARALLEL-DISCOVERY]` Continue structured product discovery; Rounds 1 and 2 are recorded, while Issue #10 remains open pending full relationship reconciliation. Issues #4 and #10.
 10. `[BLOCKED]` Approve individual future features only after stabilization and discovery. Issues #6 and #9.
 
 ## 9. Plan-tree update rule
