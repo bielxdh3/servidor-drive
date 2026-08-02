@@ -6403,7 +6403,116 @@ function webDavMoveClaimToken(contents) {
 }
 
 function webDavMoveClaimRecord(token, transactionId, now) {
-  return { version: 1, token, transactionId, pid: process.pid, claimedAt: new Date(now).toISOString() };
+  return { version: 1, token, transactionId, pid: process.pid, processStartIdentity: webDavMoveProcessStartIdentity(process.pid), claimedAt: new Date(now).toISOString() };
+}
+
+function webDavMoveProcessStartIdentity(pid) {
+  if (process.platform !== "linux") return null;
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
+    return stat.slice(stat.lastIndexOf(")") + 1).trim().split(/\s+/)[19] || null;
+  } catch {
+    return null;
+  }
+}
+
+function webDavMoveOwnerIsLive(record) {
+  if (!Number.isInteger(Number(record?.pid)) || Number(record.pid) <= 0) return false;
+  try { process.kill(Number(record.pid), 0); } catch (error) { return error.code === "EPERM"; }
+  if (record.processStartIdentity && webDavMoveProcessStartIdentity(Number(record.pid))) return record.processStartIdentity === webDavMoveProcessStartIdentity(Number(record.pid));
+  return true;
+}
+
+function validWebDavMoveClaimRecord(record, transactionId) {
+  return record && record.version === 1 && typeof record.token === "string" && record.token && record.transactionId === transactionId && Number.isInteger(Number(record.pid)) && Number(record.pid) > 0 && typeof record.claimedAt === "string" && Number.isFinite(Date.parse(record.claimedAt));
+}
+
+function webDavMoveFileStatIdentity(stat) {
+  return stat ? { dev: stat.dev, ino: stat.ino, size: stat.size, mtimeMs: stat.mtimeMs, ctimeMs: stat.ctimeMs, birthtimeMs: stat.birthtimeMs } : null;
+}
+
+function webDavMoveSameStatIdentity(left, right) {
+  return Boolean(left && right && ["dev", "ino", "size", "mtimeMs", "ctimeMs", "birthtimeMs"].every((key) => left[key] === right[key]));
+}
+
+function webDavMoveSameRenamedIdentity(left, right) {
+  return Boolean(left && right && ["dev", "ino", "size", "mtimeMs", "birthtimeMs"].every((key) => left[key] === right[key]));
+}
+
+function webDavMoveClaimObservation(contents, stat) {
+  return { contents, stat };
+}
+
+function webDavMoveTakeoverDir(lockPath) {
+  return `${lockPath}.takeover`;
+}
+
+function webDavMoveTakeoverMeta(lockPath) {
+  return path.join(webDavMoveTakeoverDir(lockPath), "authority.json");
+}
+
+function webDavMoveTakeoverEvidence(lockPath) {
+  return path.join(webDavMoveTakeoverDir(lockPath), "evidence");
+}
+
+function webDavMoveTakeoverObservation(observed) {
+  return { sha256: sha256Buffer(Buffer.from(observed.contents)), size: Buffer.byteLength(observed.contents), stat: webDavMoveFileStatIdentity(observed.stat) };
+}
+
+function webDavMoveReadTakeoverAuthority(lockPath, transactionId) {
+  const takeoverDir = webDavMoveTakeoverDir(lockPath);
+  let stat;
+  try {
+    const link = fs.lstatSync(takeoverDir);
+    if (!link.isDirectory() || link.isSymbolicLink() || !isSafeChildPath(WEBDAV_MOVE_JOURNAL_DIR, takeoverDir)) return { kind: "ambiguous" };
+    stat = link;
+  } catch (error) {
+    if (error.code === "ENOENT") return { kind: "missing" };
+    throw error;
+  }
+  let record;
+  try { record = JSON.parse(fs.readFileSync(webDavMoveTakeoverMeta(lockPath), "utf8")); } catch { return { kind: "malformed", mtimeMs: stat.mtimeMs }; }
+  const expectedLock = webDavMoveLockPath(transactionId);
+  if (record?.version !== 1 || typeof record.token !== "string" || !record.token || record.transactionId !== transactionId || path.resolve(record.lockPath || "") !== path.resolve(expectedLock) || path.resolve(record.evidencePath || "") !== path.resolve(webDavMoveTakeoverEvidence(lockPath)) || !Number.isInteger(Number(record.pid)) || Number(record.pid) <= 0 || !Number.isFinite(Date.parse(record.claimedAt || "")) || !record.observed?.sha256 || !Number.isInteger(record.observed.size) || !record.observed.stat) return { kind: "mismatch", record };
+  return { kind: "valid", record, live: webDavMoveOwnerIsLive(record), mtimeMs: stat.mtimeMs };
+}
+
+function webDavMoveEvidenceMatchesAuthority(lockPath, authority) {
+  let stat;
+  let contents;
+  try {
+    const link = fs.lstatSync(webDavMoveTakeoverEvidence(lockPath));
+    if (!link.isFile() || link.isSymbolicLink()) return false;
+    stat = link;
+    contents = fs.readFileSync(webDavMoveTakeoverEvidence(lockPath));
+  } catch (error) {
+    return error.code === "ENOENT";
+  }
+  return sha256Buffer(contents) === authority.observed.sha256 && contents.length === authority.observed.size && webDavMoveSameRenamedIdentity(webDavMoveFileStatIdentity(stat), authority.observed.stat) && webDavMoveClaimToken(contents.toString()) === authority.previousToken;
+}
+
+function webDavMoveRemoveTakeoverAuthority(lockPath, transactionId, token) {
+  const state = webDavMoveReadTakeoverAuthority(lockPath, transactionId);
+  if (state.kind === "missing") return;
+  if (state.kind !== "valid" || state.record.token !== token) throw Object.assign(new Error("WebDAV claim takeover evidence is ambiguous"), { code: "WEBDAV_MOVE_CLAIM_BUSY" });
+  if (!webDavMoveEvidenceMatchesAuthority(lockPath, state.record)) throw Object.assign(new Error("WebDAV claim takeover evidence is ambiguous"), { code: "WEBDAV_MOVE_CLAIM_BUSY" });
+  try { fs.rmSync(webDavMoveTakeoverEvidence(lockPath), { force: false }); } catch (error) { if (error.code !== "ENOENT") throw error; }
+  try { fs.rmSync(webDavMoveTakeoverMeta(lockPath), { force: false }); } catch (error) { if (error.code !== "ENOENT") throw error; }
+  try { fs.rmdirSync(webDavMoveTakeoverDir(lockPath)); } catch (error) { if (error.code !== "ENOENT") throw error; }
+}
+
+function webDavMoveRecoverTakeoverAuthority(lockPath, transactionId) {
+  const state = webDavMoveReadTakeoverAuthority(lockPath, transactionId);
+  if (state.kind === "missing") return;
+  if (state.kind === "valid" && state.live) throw Object.assign(new Error("WebDAV MOVE claim takeover is still owned"), { code: "WEBDAV_MOVE_CLAIM_BUSY" });
+  if (state.kind === "malformed") {
+    if (Date.now() - state.mtimeMs <= WEBDAV_MOVE_RECONCILIATION_LEASE_MS) throw Object.assign(new Error("WebDAV claim takeover evidence is malformed"), { code: "WEBDAV_MOVE_CLAIM_BUSY" });
+    if (fs.readdirSync(webDavMoveTakeoverDir(lockPath)).length) throw Object.assign(new Error("WebDAV claim takeover evidence is ambiguous"), { code: "WEBDAV_MOVE_CLAIM_BUSY" });
+    fs.rmdirSync(webDavMoveTakeoverDir(lockPath));
+    return;
+  }
+  if (state.kind !== "valid") throw Object.assign(new Error("WebDAV claim takeover evidence is ambiguous"), { code: "WEBDAV_MOVE_CLAIM_BUSY" });
+  webDavMoveRemoveTakeoverAuthority(lockPath, transactionId, state.record.token);
 }
 
 function writeWebDavMoveClaimLock(lockPath, record) {
@@ -6423,43 +6532,36 @@ function writeWebDavMoveClaimLock(lockPath, record) {
 
 function recoverWebDavMoveClaimTakeovers() {
   if (!fs.existsSync(WEBDAV_MOVE_JOURNAL_DIR)) return;
-  const names = fs.readdirSync(WEBDAV_MOVE_JOURNAL_DIR).filter((entry) => /^rootark-webdav-move-[a-f0-9-]{36}\.lock\.takeover-[a-f0-9-]{36}$/i.test(entry));
+  const names = fs.readdirSync(WEBDAV_MOVE_JOURNAL_DIR).filter((entry) => /^rootark-webdav-move-[a-f0-9-]{36}\.lock\.takeover$/i.test(entry));
   for (const name of names) {
-    const authorityPath = path.join(WEBDAV_MOVE_JOURNAL_DIR, name);
-    let authority;
-    try { authority = JSON.parse(fs.readFileSync(authorityPath, "utf8")); } catch { throw new Error("WebDAV claim takeover evidence is malformed"); }
-    if (authority.pid === process.pid) continue;
-    if (typeof authority.lockPath !== "string" || path.dirname(path.resolve(authority.lockPath)) !== path.resolve(WEBDAV_MOVE_JOURNAL_DIR) || !/^rootark-webdav-move-[a-f0-9-]{36}\.lock$/i.test(path.basename(authority.lockPath))) throw new Error("WebDAV claim takeover path is invalid");
-    let live = false;
-    try { process.kill(Number(authority.pid), 0); live = true; } catch (error) { live = error.code === "EPERM"; }
-    if (live) throw Object.assign(new Error("WebDAV MOVE claim is still owned"), { code: "WEBDAV_MOVE_CLAIM_BUSY" });
-    fs.rmSync(authorityPath, { force: true });
-    fs.rmSync(`${authorityPath}.evidence`, { force: true });
+    const match = name.match(/^rootark-webdav-move-([a-f0-9-]{36})\.lock\.takeover$/i);
+    if (!match) continue;
+    const lockPath = webDavMoveLockPath(match[1]);
+    webDavMoveRecoverTakeoverAuthority(lockPath, match[1]);
   }
 }
 
-function takeoverWebDavMoveClaim(lockPath, transactionId, previousToken, now) {
+function takeoverWebDavMoveClaim(lockPath, transactionId, previousToken, observed, now) {
   const ownerToken = `${crypto.randomUUID()}:${crypto.randomUUID()}`;
-  const authorityPath = `${lockPath}.takeover-${crypto.randomUUID()}`;
-  const authority = { version: 1, transactionId, lockPath, ownerToken, previousToken, pid: process.pid, claimedAt: new Date(now).toISOString() };
-  let fd;
+  const takeoverDir = webDavMoveTakeoverDir(lockPath);
+  const authority = { version: 1, transactionId, lockPath, evidencePath: webDavMoveTakeoverEvidence(lockPath), token: ownerToken, previousToken, pid: process.pid, processStartIdentity: webDavMoveProcessStartIdentity(process.pid), claimedAt: new Date(now).toISOString(), observed: webDavMoveTakeoverObservation(observed) };
   try {
-    fd = fs.openSync(authorityPath, "wx");
-    const contents = Buffer.from(JSON.stringify(authority));
-    fs.writeSync(fd, contents, 0, contents.length);
-    fs.fsyncSync(fd);
-    fs.closeSync(fd);
-    fd = undefined;
-    fs.renameSync(lockPath, `${authorityPath}.evidence`);
+    webDavMoveRecoverTakeoverAuthority(lockPath, transactionId);
+    fs.mkdirSync(takeoverDir, { recursive: false });
+    writeWebDavMoveFileAtomically(webDavMoveTakeoverMeta(lockPath), JSON.stringify(authority));
+    let currentStat;
+    let currentContents;
+    try { currentStat = fs.statSync(lockPath); currentContents = fs.readFileSync(lockPath, "utf8"); } catch (error) { if (error.code === "ENOENT") return null; throw error; }
+    if (currentContents !== observed.contents || !webDavMoveSameStatIdentity(webDavMoveFileStatIdentity(currentStat), webDavMoveFileStatIdentity(observed.stat)) || webDavMoveClaimToken(currentContents) !== previousToken) { webDavMoveRemoveTakeoverAuthority(lockPath, transactionId, ownerToken); return null; }
+    fs.renameSync(lockPath, webDavMoveTakeoverEvidence(lockPath));
+    if (!webDavMoveEvidenceMatchesAuthority(lockPath, authority)) throw new Error("WebDAV claim evidence changed during takeover");
     writeWebDavMoveClaimLock(lockPath, webDavMoveClaimRecord(ownerToken, transactionId, now));
-    fs.rmSync(authorityPath, { force: true });
-    fs.rmSync(`${authorityPath}.evidence`, { force: true });
+    if (webDavMoveClaimToken(fs.readFileSync(lockPath, "utf8")) !== ownerToken) throw new Error("WebDAV replacement claim was not confirmed");
+    webDavMoveRemoveTakeoverAuthority(lockPath, transactionId, ownerToken);
     return ownerToken;
   } catch (error) {
-    try { if (fd !== undefined) fs.closeSync(fd); } catch {}
+    try { webDavMoveRemoveTakeoverAuthority(lockPath, transactionId, ownerToken); } catch {}
     if (error.code === "ENOENT") {
-      fs.rmSync(authorityPath, { force: true });
-      fs.rmSync(`${authorityPath}.evidence`, { force: true });
       return null;
     }
     throw error;
@@ -6485,16 +6587,13 @@ function claimWebDavMoveJournal(journal, now = Date.now(), workerId = crypto.ran
   } catch (error) {
     if (error.code !== "EEXIST") throw error;
     try {
+      const existingStat = fs.statSync(lockPath);
       const existing = fs.readFileSync(lockPath, "utf8");
-      const existingToken = webDavMoveClaimToken(existing);
       const existingRecord = (() => { try { return JSON.parse(existing); } catch { return null; } })();
-      const ownerPid = Number(existingRecord?.pid);
-      if (Number.isInteger(ownerPid) && ownerPid > 0) {
-        try { process.kill(ownerPid, 0); return null; } catch (error) { if (error.code === "EPERM") return null; }
-      }
+      if (!validWebDavMoveClaimRecord(existingRecord, journal.transactionId) || webDavMoveOwnerIsLive(existingRecord)) return null;
       const leaseExpired = existingRecord?.claimedAt ? Date.parse(existingRecord.claimedAt) + WEBDAV_MOVE_RECONCILIATION_LEASE_MS <= now : fs.statSync(lockPath).mtimeMs + WEBDAV_MOVE_RECONCILIATION_LEASE_MS <= now;
       if (!leaseExpired) return null;
-      const takeover = takeoverWebDavMoveClaim(lockPath, journal.transactionId, existingToken, now);
+      const takeover = takeoverWebDavMoveClaim(lockPath, journal.transactionId, existingRecord.token, webDavMoveClaimObservation(existing, existingStat), now);
       if (!takeover) return null;
       return finalizeWebDavMoveClaim(journal, lockPath, takeover, workerId, now);
     } catch { return null; }
