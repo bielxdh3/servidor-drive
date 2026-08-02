@@ -1,6 +1,6 @@
 # Root.ark Product Discovery
 
-Status: discovery open; Round 1 and Round 2 decisions recorded
+Status: discovery open; Round 1 through Round 3 decisions recorded
 
 Related issues: #4 and #10
 
@@ -40,9 +40,12 @@ Future discovery should work like the AIP planning process: ask a small number o
 - `[DECIDED]` D-004 permits bounded, least-privilege administrator operations and auditable support access while keeping content and unnecessary metadata hidden.
 - `[DECIDED]` D-005 defines administrator-controlled accounts, revocable invitations, user-controlled recovery, and audited deletion with default retention.
 - `[DECIDED]` D-006 defines client-side key lifecycle, compartment-isolated keys, trusted-device recovery, rotation for future content, and authorized offline access.
+- `[DECIDED]` D-007 defines versioned client-side cryptography, per-file keys, compartment-isolated hierarchies, mandatory recovery-package verification, explicit historical re-encryption, and forced future-authorization rotation after package compromise.
+- `[DECIDED]` D-008 defines 30-day normal deletion and backup retention, 30-day operational logs, 180-day security logs, immediate access revocation, and cryptographic erasure that cannot be declared complete while service-controlled backup key material remains usable.
+- `[DECIDED]` D-009 defines quarantined unverified external uploads, encrypted client-generated previews and indexes, server-blind public links, local-bridge-only zero-knowledge WebDAV, and eventual mandatory bidirectional synchronization.
 - `[CONFLICT]` Existing server-readable, metadata-dependent, preview, scanning, WebDAV, sync, and backup behaviors require reconciliation with D-003; implementation is not itself product approval.
 - `[OPEN]` The final product name and spelling are not confirmed.
-- `[OPEN]` Exact integration contracts, cryptographic protocols, key envelopes, recovery-package format, retention periods, and client behavior remain unresolved.
+- `[OPEN]` Exact cryptographic algorithms, audited libraries, KDFs, nonces, envelope formats, recovery and rotation protocols, backup key invalidation mechanics, quarantine workflow, sync protocol, WebDAV bridge, and detailed client behavior remain unresolved.
 
 ## Decision record format
 
@@ -237,6 +240,128 @@ The product owner approved these records on 2026-08-02. They define policy bound
   - #4 remains open for the client-side architecture and key lifecycle details.
   - #10 remains open; D-006 does not authorize BielOS key sharing or migration.
 
+## Approved Round 3 decisions
+
+The product owner explicitly approved these records on 2026-08-02. They define product policy only; no implementation is authorized by these decisions.
+
+### D-007: Cryptographic architecture and recovery
+
+- Status: `[DECIDED]`
+- Date: 2026-08-02
+- Decision: Use a versioned, standards-based, independently reviewable client-side encryption design with no custom primitives or improvised algorithms. Each file receives a unique random key. Each compartment has an isolated key hierarchy, and file keys are wrapped by keys from that compartment. The server stores ciphertext, authenticated metadata required for decryption, versions, and key envelopes that it cannot independently open. Encryption must provide confidentiality, integrity, and tamper detection. Recovery packages are generated client-side, contain only protected recovery material, are exportable and versioned, and must be tested by the user before encryption setup is considered complete. Removing a user or device rotates material used for future content and authorizations. A user may explicitly request historical re-encryption; it must be presented as potentially expensive and time-consuming and must never run silently. A suspected recovery-package leak revokes the old package and forces rotation of material used for future authorizations. Historical re-encryption after a leak may be offered separately and is never automatic. Recovery must not grant plaintext access to the server or administrator.
+- Reason: Compartment isolation limits the impact of compromise. Mandatory package verification proves that recovery works. Historical re-encryption is costly and requires explicit authorization. A leaked package must not authorize future operations.
+- Consequences:
+  - The setup flow must block completion until package verification succeeds.
+  - Key rotation must distinguish future authorization from historical content.
+  - Historical re-encryption requires an explicit, auditable, resumable operation with integrity checks.
+  - Package replacement must invalidate the old package for future authorization.
+  - Login recovery and content-key recovery remain separate operations.
+- Explicitly prohibited automatic actions:
+  - Custom cryptographic primitives or a universal administrator key.
+  - Reusing keys across files or compartments.
+  - Completing setup without verified recovery material.
+  - Automatically re-encrypting historical content.
+  - Allowing a compromised recovery package to authorize future operations.
+  - Claiming retroactive erasure of ciphertext or plaintext already copied outside managed storage.
+- Rejected alternatives:
+  - A shared hierarchy across compartments.
+  - Optional recovery-package verification.
+  - Silent historical re-encryption.
+  - Silent handling of a leaked recovery package.
+  - Selecting algorithms, libraries, KDFs, nonces, or formats during product discovery.
+- Deferred details that remain `[OPEN]`:
+  - Algorithms, audited libraries, KDFs, nonce construction, envelope serialization, and recovery-package format.
+  - Threat model, versioned test vectors, interoperability fixtures, and migration tests.
+  - Device authorization, rotation, rollback, failure recovery, and concurrent-operation rules.
+  - Historical re-encryption scope, progress, cancellation, and restore behavior.
+- Affected plan-tree phases:
+  - Phase 5.1: Users, trust, recovery, and devices.
+  - Phase 5.2: Storage, keys, versions, and lifecycle.
+  - Phase 5.3: Privacy, audit, and operations.
+  - Phase 5.4: Approved product brief.
+- Required follow-up issues:
+  - #4 remains open for the client-side architecture and key lifecycle details.
+  - #10 remains open; D-007 does not authorize shared BielOS identity, keys, or recovery.
+
+### D-008: Retention, deletion, audit, backups, and offline copies
+
+- Status: `[DECIDED]`
+- Date: 2026-08-02
+- Decision: Normal trash and deletion retention is 30 days. Access revocation is immediate regardless of retention. Operational logs are retained for 30 days, security and audit logs for 180 days, and backups use a rolling 30-day retention with automatic expiry. Deleted ciphertext may remain physically present in already-created backups until those backups expire. Immediate cryptographic erasure may be explicitly requested and requires reinforced confirmation and audit. It is complete only when every service-controlled key or envelope that could decrypt the content has been destroyed or made unusable, including related backup structures. Ciphertext may remain in backups after completion, but must be cryptographically unrecoverable by the service. If old backup envelopes cannot be invalidated safely, erasure remains pending until those backups expire and must not be reported as complete. Erasure does not remove downloaded, exported, already-decrypted, recipient-held, or externally stored copies. Logs may contain actor, opaque account or compartment identifier, IP, device, timestamp, action, result, and relevant security state, but not plaintext, decrypted names, keys, recovery material, search terms, previews, or unnecessary payloads. Access to audit logs is itself audited.
+- Reason: Access must be revoked immediately even when permanent destruction occurs later. The owner requires truthful reporting of cryptographic erasure and clear warnings about copies outside service control.
+- Consequences:
+  - Revocation, retention, logical deletion, cryptographic erasure, and backup expiry are separate states.
+  - Erasure requires a service-wide inventory of usable key and envelope paths, including backups.
+  - The system needs a pending state when backup key invalidation is not yet proven.
+  - Erasure requests require strong authorization, explicit scope, reinforced confirmation, and audit evidence.
+  - The product cannot promise retroactive deletion of copies outside managed storage.
+- Explicitly prohibited automatic actions:
+  - Keeping access active because content remains within retention.
+  - Declaring erasure complete while service-controlled backup key material remains usable.
+  - Claiming that ciphertext remaining in backups is plaintext-recoverable by the service after completed erasure.
+  - Promising removal of downloaded, exported, decrypted, recipient-held, or external copies.
+  - Logging plaintext, keys, or recovery material.
+  - Silently executing cryptographic erasure.
+- Rejected alternatives:
+  - Retention periods other than the approved 30/30/180-day defaults.
+  - Indefinite backups.
+  - Weak or implicit confirmation for immediate destruction.
+  - Reporting erasure as complete before old backup envelopes are invalidated or expired.
+- Deferred details that remain `[OPEN]`:
+  - Exact backup key topology, invalidation mechanism, proof of destruction, and idempotence.
+  - Who may request or approve erasure and its file/compartment/account scope.
+  - Legal holds, investigation extensions, restore permissions, and export/deletion permissions.
+  - Cache expiry and secure local deletion for offline clients.
+- Affected plan-tree phases:
+  - Phase 5.2: Versions, trash, backups, restore, and permanent deletion.
+  - Phase 5.3: Audit, privacy, and operations.
+  - Phase 5.4: Approved product brief.
+- Required follow-up issues:
+  - #4 remains open for retention, deletion, audit, backup, and recovery details.
+  - #10 remains open; D-008 does not authorize shared BielOS data, databases, or retention policy.
+
+### D-009: Zero-knowledge feature compatibility
+
+- Status: `[DECIDED]`
+- Date: 2026-08-02
+- Decision: External uploads that cannot be scanned client-side enter quarantine by default and are clearly marked unverified. An administrator may reject or release them only under an explicit policy, without server decryption; release does not itself claim malware verification. Scanning, previews, thumbnails, MIME detection, and full-text indexes are generated client-side where supported, and derived data is stored encrypted. Devices without keys cannot access previews or indexes, and server-side plaintext indexing is prohibited. Sharing wraps the required file or compartment keys. Public links are allowed only with a server-blind key design. Revocation blocks future service access but cannot revoke plaintext or keys already obtained by recipients; upload-only and download/share links remain separate capabilities. Bidirectional synchronization is a mandatory final product capability, but belongs to a later dedicated phase covering conflicts, versions, exclusions, renames, offline access, and security. Zero-knowledge WebDAV requires a trusted local bridge or client; server-native WebDAV must not decrypt content. Backups preserve ciphertext, authenticated metadata, encrypted indexes/previews, and key envelopes, and restore must preserve crypto versions, envelope relationships, and integrity metadata. Restore success requires proof that authorized clients can decrypt after restoration.
+- Reason: The approved compatibility rules must preserve the zero-knowledge trust boundary while allowing controlled quarantine, encrypted derived data, server-blind sharing, local WebDAV access, and a future complete synchronization capability.
+- Consequences:
+  - Quarantine, rejection, release, warnings, and audit need their own explicit workflow; released content remains potentially unverified.
+  - Clients without keys must fail closed for previews and indexes without revealing protected content.
+  - Public links and recipients create explicit limits on future revocation.
+  - A local WebDAV bridge is a separate trust boundary requiring its own architecture and security model.
+  - Bidirectional synchronization cannot be treated as a small extension of the existing one-way MVP.
+- Explicitly prohibited automatic actions:
+  - Server decryption for scanning, indexing, previews, WebDAV, or conflict resolution.
+  - Automatic release of unverified external uploads.
+  - Describing quarantined or released content as verified without evidence.
+  - Public links whose decryption secret is independently available to the server.
+  - Claiming retroactive revocation of plaintext or keys already obtained by recipients.
+  - Treating existing server-readable WebDAV behavior as the final zero-knowledge contract.
+  - Implementing bidirectional synchronization before its dedicated architecture phase.
+  - Creating a universal administrator recovery path through backups.
+- Rejected alternatives:
+  - Blocking every unscanned external upload as the only default; quarantine is the approved default.
+  - Plaintext server-side previews, search indexes, or malware scanning.
+  - Server-decryptable public links.
+  - Native server-side WebDAV decryption for protected compartments.
+  - Treating bidirectional synchronization as optional or indefinitely unspecified.
+- Deferred details that remain `[OPEN]`:
+  - Client scanning integration, quarantine policy, release authority, notifications, and audit.
+  - Preview/index formats, key binding, sharing-link expiry, recipient controls, and limits.
+  - Synchronization protocol, conflict authority, version/deletion/rename semantics, offline state, and device security.
+  - Local bridge platforms, isolation, backup/restore tests, and migration behavior.
+- Affected plan-tree phases:
+  - Phase 5.1: Users and trust model.
+  - Phase 5.2: Storage, previews, search, sharing, WebDAV, synchronization, and restore.
+  - Phase 5.3: Privacy, audit, and operations.
+  - Phase 5.4: Approved product brief.
+  - Phases 3.3, 3.4, and 3.5 remain historical operational-validation phases and are not reopened or reclassified by D-009.
+- Required follow-up issues:
+  - #4 remains open for client, scanning, preview, search, sharing, WebDAV, and synchronization requirements.
+  - #10 remains open; D-009 does not authorize shared BielOS identity, keys, sessions, data, or runtime behavior.
+
 ## Discovery sequence
 
 The orchestrator should normally follow this order because later answers depend on earlier trust and user decisions.
@@ -398,7 +523,7 @@ Clarify whether changing providers is migration, replication, or live multi-back
 
 ### Q11. Encryption levels
 
-- Status: `[DECIDED]` — D-003 selects client-side zero-knowledge content protection; exact protocol and compatibility design remain open.
+- Status: `[DECIDED]` at policy level in D-003, D-007, and D-009; exact protocol, implementation, and compatibility design remain `[OPEN]`.
 - Decide whether the current multiple encryption modes remain product behavior or are simplified.
 - Required consequences:
   - preview/search support;
@@ -430,7 +555,7 @@ Zero-knowledge content does not automatically mean zero-knowledge metadata.
 
 ### Q13. Upload approval
 
-- Status: `[OPEN]`
+- Status: `[DECIDED]` at policy level in D-009; exact quarantine, release, notification, and audit workflow remains `[OPEN]`.
 - Question: Why does upload approval exist in the final product?
 
 Possible purposes:
@@ -453,7 +578,7 @@ Possible purposes:
 
 ### Q15. Trash and permanent deletion
 
-- Status: `[DECIDED]` at policy level in D-005; the default retention period, restore window, and backup-deletion semantics remain open.
+- Status: `[DECIDED]` at policy level in D-005 and D-008; exact restore permissions, backup key invalidation, and cryptographic-erasure implementation remain `[OPEN]`.
 - Decide:
   - default retention period;
   - who can restore;
@@ -464,7 +589,7 @@ Possible purposes:
 
 ### Q16. Backup and restore promise
 
-- Status: `[OPEN]`
+- Status: `[DECIDED]` at policy level in D-008 and D-009; exact backup key topology, restore authority, testing, and erasure proof remain `[OPEN]`.
 - Decide:
   - what is backed up;
   - schedule and retention;
@@ -478,7 +603,7 @@ Possible purposes:
 
 ### Q17. Share recipients
 
-- Status: `[OPEN]`
+- Status: `[DECIDED]` at policy level in D-009; exact recipient identity, public-link controls, expiry, and key-envelope design remain `[OPEN]`.
 - Choose supported models:
   - authenticated internal users;
   - public bearer links;
@@ -505,7 +630,7 @@ Possible purposes:
 
 ### Q19. Synchronization
 
-- Status: `[OPEN]`
+- Status: `[DECIDED]` at policy level in D-009: bidirectional synchronization is a required final capability, but implementation remains deferred to a dedicated architecture phase.
 - Decide:
   - upload-only versus bidirectional;
   - deletion synchronization;
@@ -520,7 +645,7 @@ Possible purposes:
 
 ### Q20. WebDAV
 
-- Status: `[OPEN]`
+- Status: `[DECIDED]` at policy level in D-009: zero-knowledge WebDAV requires a trusted local bridge or client; server-native decryption is not approved. Exact bridge architecture remains `[OPEN]`.
 - Decide whether WebDAV is:
   - a supported core interface;
   - an optional advanced feature;
@@ -539,7 +664,7 @@ Clarify MOVE, DELETE, locking, encrypted files, nested folders, and client compa
 
 ### Q22. Audit visibility
 
-- Status: `[DECIDED]` at policy level in D-004; exact retention, access, export, deletion, and privacy rules remain open.
+- Status: `[DECIDED]` at policy level in D-004 and D-008; retention is 30 days for operational logs and 180 days for security/audit logs. Exact access, export, deletion, privacy, and investigation-extension rules remain `[OPEN]`.
 - Decide who sees which events and how long they are retained.
 - Separate security audit from product analytics.
 - Decide export, deletion, IP/user-agent treatment, and privacy limits.
@@ -595,7 +720,7 @@ After a discovery answer:
 3. identify migration/data consequences;
 4. identify security/architecture work;
 5. update only relevant plan-tree sections;
-6. create one or more scoped GitHub issues;
+6. create scoped GitHub issues only after the decision checkpoint is published and separately authorized; Round 3 does not create implementation issues automatically;
 7. keep implementation blocked until dependencies and acceptance criteria are explicit;
 8. give Codex one coherent issue step, not the entire product brief.
 
@@ -607,12 +732,16 @@ Round 1 is complete. D-001, D-002, and D-003 are approved and recorded. Issue #4
 
 Round 2 is complete at the policy-decision level. D-004, D-005, and D-006 are approved and prepared for publication. All deferred architecture, protocol, retention, recovery, and client-behavior details remain explicitly `[OPEN]`. Issues #4 and #10 remain open.
 
+## Round 3 checkpoint
+
+Round 3 is complete at the policy-decision level. D-007, D-008, and D-009 are recorded. The backup-aware cryptographic-erasure rule is preserved, and Phases 3.3, 3.4, and 3.5 remain historical operational-validation phases; they are not reopened or reclassified. Exact expert architecture, implementation, migration, testing, and detailed operational workflows remain explicitly `[OPEN]`. No implementation issues were created automatically. Issues #4 and #10 remain open.
+
 ## Current discovery queue
 
-Recommended Round 3 questions:
+Round 3 questions are resolved locally in D-007 through D-009. The next discovery round is not started by this checkpoint:
 
-1. Define the cryptographic protocol, compartment key hierarchy, key envelopes, rotation, and recovery-package format.
-2. Define audit/log retention, deletion retention, restore windows, and the exact treatment of offline and previously downloaded data.
-3. Define client-side scanning, previews, search, sharing, WebDAV, synchronization, and backup compatibility under the approved key model.
+1. `[DECIDED]` D-007: cryptographic architecture and recovery policy; expert implementation remains `[OPEN]`.
+2. `[DECIDED]` D-008: retention, audit, deletion, backup, and offline-copy limits; detailed mechanics remain `[OPEN]`.
+3. `[DECIDED]` D-009: zero-knowledge compatibility for scanning, previews, search, sharing, WebDAV, synchronization, and restore; architecture remains `[OPEN]`.
 
 Do not ask all remaining questions at once. Each round must preserve explicit decisions, inferred consequences, and unresolved details separately.
