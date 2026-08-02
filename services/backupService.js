@@ -8,10 +8,13 @@ const { resolveRuntimePath } = require("../src/runtime-paths");
 
 const BACKUPS_DIR = resolveRuntimePath("data", "backups");
 const LOCK_FILE = path.join(BACKUPS_DIR, ".backup.lock");
-const LOCK_CLAIM_PREFIX = `${path.basename(LOCK_FILE)}.claim-`;
+const LOCK_TAKEOVER_DIR = `${LOCK_FILE}.takeover`;
+const LOCK_TAKEOVER_META = path.join(LOCK_TAKEOVER_DIR, "authority.json");
+const LOCK_TAKEOVER_EVIDENCE = path.join(LOCK_TAKEOVER_DIR, "evidence");
 const RETENTION_TRANSACTIONS_DIR = path.join(BACKUPS_DIR, ".retention-transactions");
 const OPERATION_LOCK_FORMAT_VERSION = 1;
 const MALFORMED_LOCK_TTL_MS = 60 * 1000;
+const MALFORMED_TAKEOVER_TTL_MS = 60 * 1000;
 const MAX_LOCK_TTL_MS = 24 * 60 * 60 * 1000;
 let operationLock = null;
 let cloudStorage = null;
@@ -239,7 +242,7 @@ function readLockState() {
   try {
     contents = fs.readFileSync(LOCK_FILE, "utf8");
     const record = JSON.parse(contents);
-    if (!validLockRecord(record)) return { kind: "malformed", mtimeMs: stat.mtimeMs, contents };
+    if (!validLockRecord(record)) return { kind: "malformed", mtimeMs: stat.mtimeMs, contents, stat };
     if (record.runtimeRoot && !sameRuntimeRoot(record.runtimeRoot, runtimeRootIdentity())) return { kind: "mismatch", record };
     const createdAtMs = Date.parse(record.startedAt || "");
     const ageMs = Math.max(Date.now() - stat.mtimeMs, Number.isFinite(createdAtMs) ? Date.now() - createdAtMs : 0);
@@ -247,7 +250,146 @@ function readLockState() {
     const staleMs = boundedLockDuration("BACKUP_LOCK_STALE_MS", 6 * 60 * 60 * 1000);
     return { kind: "valid", record, contents, stat, ageMs, live, stale: !live && (record.formatVersion === OPERATION_LOCK_FORMAT_VERSION || ageMs >= staleMs) };
   } catch {
-    return { kind: "malformed", mtimeMs: stat.mtimeMs, contents };
+    return { kind: "malformed", mtimeMs: stat.mtimeMs, contents, stat };
+  }
+}
+
+function statIdentity(stat) {
+  return stat ? {
+    dev: stat.dev,
+    ino: stat.ino,
+    size: stat.size,
+    mtimeMs: stat.mtimeMs,
+    ctimeMs: stat.ctimeMs,
+    birthtimeMs: stat.birthtimeMs,
+  } : null;
+}
+
+function sameStatIdentity(left, right) {
+  if (!left || !right) return false;
+  return ["dev", "ino", "size", "mtimeMs", "ctimeMs", "birthtimeMs"].every((key) => left[key] === right[key]);
+}
+
+function sameRenamedFileIdentity(left, right) {
+  if (!left || !right) return false;
+  return ["dev", "ino", "size", "mtimeMs", "birthtimeMs"].every((key) => left[key] === right[key]);
+}
+
+function lockObservation(state) {
+  return { contents: state.contents, stat: state.stat };
+}
+
+function sameLockObservation(observed, current) {
+  return Boolean(observed && current?.contents !== undefined && observed.contents === current.contents && sameStatIdentity(statIdentity(observed.stat), statIdentity(current.stat)));
+}
+
+function takeoverObservation(observed) {
+  return {
+    sha256: crypto.createHash("sha256").update(observed.contents).digest("hex"),
+    size: Buffer.byteLength(observed.contents),
+    stat: statIdentity(observed.stat),
+  };
+}
+
+function authorityPathIsSafe(target) {
+  return path.dirname(path.resolve(target)) === path.resolve(BACKUPS_DIR) && path.basename(target) === path.basename(LOCK_TAKEOVER_DIR);
+}
+
+function validTakeoverAuthority(record) {
+  return record && record.version === OPERATION_LOCK_FORMAT_VERSION && typeof record.token === "string" && record.token && Number.isInteger(record.pid) && record.pid > 0 && typeof record.claimedAt === "string" && Number.isFinite(Date.parse(record.claimedAt)) && typeof record.runtimeRoot === "string" && sameRuntimeRoot(record.runtimeRoot, runtimeRootIdentity()) && record.lockPath === LOCK_FILE && record.evidencePath === LOCK_TAKEOVER_EVIDENCE && record.observed && typeof record.observed.sha256 === "string" && Number.isInteger(record.observed.size) && record.observed.stat;
+}
+
+function readTakeoverAuthority() {
+  let stat;
+  try {
+    const link = fs.lstatSync(LOCK_TAKEOVER_DIR);
+    if (!link.isDirectory() || link.isSymbolicLink() || !authorityPathIsSafe(LOCK_TAKEOVER_DIR)) return { kind: "ambiguous" };
+    stat = link;
+  } catch (error) {
+    if (error.code === "ENOENT") return { kind: "missing" };
+    throw error;
+  }
+  let record;
+  try { record = JSON.parse(fs.readFileSync(LOCK_TAKEOVER_META, "utf8")); } catch { return { kind: "malformed", mtimeMs: stat.mtimeMs }; }
+  if (!validTakeoverAuthority(record)) return { kind: "mismatch", record };
+  const ageMs = Math.max(Date.now() - stat.mtimeMs, Date.now() - Date.parse(record.claimedAt));
+  return { kind: "valid", record, live: ownerIsLive(record), stale: ageMs > MAX_LOCK_TTL_MS };
+}
+
+function evidenceMatchesAuthority(record) {
+  let stat;
+  let bytes;
+  try {
+    const link = fs.lstatSync(LOCK_TAKEOVER_EVIDENCE);
+    if (!link.isFile() || link.isSymbolicLink()) return false;
+    stat = link;
+    bytes = fs.readFileSync(LOCK_TAKEOVER_EVIDENCE);
+  } catch (error) {
+    return error.code === "ENOENT";
+  }
+  return crypto.createHash("sha256").update(bytes).digest("hex") === record.observed.sha256 && bytes.length === record.observed.size && sameRenamedFileIdentity(statIdentity(stat), record.observed.stat);
+}
+
+function removeTakeoverAuthority(token) {
+  const state = readTakeoverAuthority();
+  if (state.kind === "missing") return;
+  if (state.kind !== "valid" || state.record.token !== token) throw lockError("BACKUP_LOCKED", "Evidence de takeover de lock ambigua");
+  if (!evidenceMatchesAuthority(state.record)) throw lockError("BACKUP_LOCKED", "Evidence de takeover de lock ambigua");
+  try { fs.rmSync(LOCK_TAKEOVER_EVIDENCE, { force: false }); } catch (error) { if (error.code !== "ENOENT") throw error; }
+  try { fs.rmSync(LOCK_TAKEOVER_META, { force: false }); } catch (error) { if (error.code !== "ENOENT") throw error; }
+  try { fs.rmdirSync(LOCK_TAKEOVER_DIR); } catch (error) { if (error.code !== "ENOENT") throw error; }
+}
+
+function recoverTakeoverAuthority() {
+  const state = readTakeoverAuthority();
+  if (state.kind === "missing") return;
+  if (state.kind === "valid" && state.live) throw lockError("BACKUP_LOCKED", "Reivindicacao de takeover de lock de backup em andamento");
+  if (state.kind === "malformed") {
+    if (Date.now() - state.mtimeMs <= boundedLockDuration("BACKUP_LOCK_MALFORMED_TTL_MS", MALFORMED_TAKEOVER_TTL_MS)) throw lockError("BACKUP_LOCKED", "Autoridade de takeover de lock recente e invalida");
+    const entries = fs.readdirSync(LOCK_TAKEOVER_DIR);
+    if (entries.length) throw lockError("BACKUP_LOCKED", "Autoridade de takeover de lock ambigua");
+    fs.rmdirSync(LOCK_TAKEOVER_DIR);
+    return;
+  }
+  if (state.kind !== "valid") throw lockError("BACKUP_LOCKED", "Autoridade de takeover de lock ambigua");
+  removeTakeoverAuthority(state.record.token);
+}
+
+function acquireTakeoverAuthority(observed, operation) {
+  recoverTakeoverAuthority();
+  const token = crypto.randomUUID();
+  const authority = {
+    version: OPERATION_LOCK_FORMAT_VERSION,
+    token,
+    operation,
+    pid: process.pid,
+    processStartIdentity: CURRENT_PROCESS_START_IDENTITY,
+    claimedAt: new Date().toISOString(),
+    runtimeRoot: runtimeRootIdentity(),
+    lockPath: LOCK_FILE,
+    evidencePath: LOCK_TAKEOVER_EVIDENCE,
+    observed: takeoverObservation(observed),
+  };
+  try { fs.mkdirSync(LOCK_TAKEOVER_DIR, { recursive: false }); } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+    recoverTakeoverAuthority();
+    fs.mkdirSync(LOCK_TAKEOVER_DIR, { recursive: false });
+  }
+  try {
+    writeDurableFile(LOCK_TAKEOVER_META, JSON.stringify(authority));
+    const current = readLockState();
+    if (!sameLockObservation(observed, current)) {
+      removeTakeoverAuthority(token);
+      return null;
+    }
+    fs.renameSync(LOCK_FILE, LOCK_TAKEOVER_EVIDENCE);
+    const evidence = fs.readFileSync(LOCK_TAKEOVER_EVIDENCE);
+    if (crypto.createHash("sha256").update(evidence).digest("hex") !== authority.observed.sha256 || evidence.length !== authority.observed.size) throw new Error("Backup lock evidence changed during takeover");
+    return { authorityToken: token, evidencePath: LOCK_TAKEOVER_EVIDENCE };
+  } catch (error) {
+    try { removeTakeoverAuthority(token); } catch {}
+    if (error.code === "ENOENT") return null;
+    throw error;
   }
 }
 
@@ -292,7 +434,7 @@ function cleanupOwnedIncompleteLock(descriptorStat, token) {
     const currentStat = fs.statSync(LOCK_FILE);
     const contents = fs.readFileSync(LOCK_FILE, "utf8");
     const sameFile = descriptorStat && currentStat.dev === descriptorStat.dev && currentStat.ino === descriptorStat.ino && (currentStat.birthtimeMs === descriptorStat.birthtimeMs || currentStat.ctimeMs === descriptorStat.ctimeMs);
-    if (sameFile || contents.includes(`"token":"${token}"`)) fs.rmSync(LOCK_FILE, { force: true });
+    if (sameFile && contents.includes(`"token":"${token}"`)) fs.rmSync(LOCK_FILE, { force: false });
   } catch {}
 }
 
@@ -321,94 +463,18 @@ function writeLock(operation, token = crypto.randomUUID(), claimToken = null) {
   }
 }
 
-function claimPathFor(token) {
-  return path.join(BACKUPS_DIR, `${LOCK_CLAIM_PREFIX}${token}`);
-}
-
-function claimRecord(token, ownerToken, observed) {
-  return {
-    formatVersion: OPERATION_LOCK_FORMAT_VERSION,
-    claimToken: token,
-    ownerToken,
-    pid: process.pid,
-    processStartIdentity: CURRENT_PROCESS_START_IDENTITY,
-    claimedAt: new Date().toISOString(),
-    runtimeRoot: runtimeRootIdentity(),
-    observed: { sha256: crypto.createHash("sha256").update(observed.contents).digest("hex"), size: Buffer.byteLength(observed.contents) },
-  };
-}
-
-function validClaimRecord(record) {
-  return record && record.formatVersion === OPERATION_LOCK_FORMAT_VERSION && typeof record.claimToken === "string" && record.claimToken && typeof record.ownerToken === "string" && record.ownerToken && Number.isInteger(record.pid) && record.pid > 0 && typeof record.claimedAt === "string" && Number.isFinite(Date.parse(record.claimedAt)) && record.observed && typeof record.observed.sha256 === "string";
-}
-
-function readClaimState(claimPath) {
-  let stat;
-  try { stat = fs.statSync(claimPath); } catch (error) {
-    if (error.code === "ENOENT") return { kind: "missing" };
-    throw error;
-  }
+function claimStaleLock(observed, operation) {
+  const authority = acquireTakeoverAuthority(observed, operation);
+  if (!authority) return null;
+  const token = authority.authorityToken;
   try {
-    const record = JSON.parse(fs.readFileSync(path.join(claimPath, "claim.json"), "utf8"));
-    if (!validClaimRecord(record)) return { kind: "malformed", mtimeMs: stat.mtimeMs };
-    if (!sameRuntimeRoot(record.runtimeRoot, runtimeRootIdentity())) return { kind: "mismatch", record };
-    const ageMs = Math.max(Date.now() - stat.mtimeMs, Date.now() - Date.parse(record.claimedAt));
-    return { kind: "valid", record, live: ownerIsLive(record), stale: !ownerIsLive(record), ageMs, evidencePath: path.join(claimPath, "evidence") };
-  } catch {
-    return { kind: "malformed", mtimeMs: stat.mtimeMs };
-  }
-}
-
-function cleanupClaim(claimPath) {
-  try { fs.rmSync(claimPath, { recursive: true, force: true }); } catch {}
-}
-
-function listClaimPaths() {
-  let names;
-  try { names = fs.readdirSync(BACKUPS_DIR); } catch { return []; }
-  return names.filter((name) => name.startsWith(LOCK_CLAIM_PREFIX)).map((name) => path.join(BACKUPS_DIR, name));
-}
-
-function recoverClaims() {
-  for (const claimPath of listClaimPaths()) {
-    const state = readClaimState(claimPath);
-    if (state.kind === "missing") continue;
-    if (state.kind === "mismatch") throw lockError("BACKUP_LOCKED", "Lock de backup pertence a outra raiz de runtime");
-    if (state.kind === "malformed") {
-      const ageMs = Date.now() - state.mtimeMs;
-      if (ageMs <= boundedLockDuration("BACKUP_LOCK_MALFORMED_TTL_MS", MALFORMED_LOCK_TTL_MS)) throw lockError("BACKUP_LOCKED", "Claim de lock de backup recente e invalido");
-      cleanupClaim(claimPath);
-      continue;
-    }
-    if (state.live) throw lockError("BACKUP_LOCKED", "Reivindicacao de lock de backup em andamento");
-    let current;
-    try { current = readLockState(); } catch { current = { kind: "ambiguous" }; }
-    if (current.kind === "valid" && current.record.token === state.record.ownerToken) {
-      cleanupClaim(claimPath);
-    } else if (current.kind === "missing" || current.kind === "valid" || current.kind === "malformed") {
-      cleanupClaim(claimPath);
-    } else {
-      throw lockError("BACKUP_LOCKED", "Evidence de takeover de lock ambigua");
-    }
-  }
-}
-
-function claimStaleLock(observed) {
-  const token = crypto.randomUUID();
-  const ownerToken = crypto.randomUUID();
-  const claimPath = claimPathFor(token);
-  fs.mkdirSync(claimPath, { recursive: false });
-  try {
-    writeDurableFile(path.join(claimPath, "claim.json"), JSON.stringify(claimRecord(token, ownerToken, observed)));
-    fs.renameSync(LOCK_FILE, path.join(claimPath, "evidence"));
-    const evidence = fs.readFileSync(path.join(claimPath, "evidence"));
-    const expected = crypto.createHash("sha256").update(observed.contents).digest("hex");
-    if (crypto.createHash("sha256").update(evidence).digest("hex") !== expected) throw new Error("Backup lock evidence changed during takeover");
-    return { claimPath, claimToken: token, ownerToken };
+    writeLock(operation, token, token);
+    const current = readLockState();
+    if (current.kind !== "valid" || current.record.token !== token) throw lockError("BACKUP_LOCKED", "Lock de backup nao confirmou a posse");
+    removeTakeoverAuthority(token);
+    return token;
   } catch (error) {
-    if (error.code === "ENOENT" && !fs.existsSync(LOCK_FILE)) cleanupClaim(claimPath);
-    else if (error.code !== "EEXIST") cleanupClaim(claimPath);
-    if (error.code === "ENOENT") return null;
+    try { removeTakeoverAuthority(token); } catch {}
     throw error;
   }
 }
@@ -417,7 +483,7 @@ function acquireLock(operation) {
   fs.mkdirSync(BACKUPS_DIR, { recursive: true });
   if (operationLock) throw lockError("BACKUP_LOCKED", `Operacao de ${operationLock.operation} em andamento`);
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    recoverClaims();
+    recoverTakeoverAuthority();
     const state = readLockState();
     if (state.kind === "mismatch") throw lockError("BACKUP_LOCKED", "Lock de backup pertence a outra raiz de runtime");
     if (state.kind === "valid" && !state.stale) throw lockError("BACKUP_LOCKED", "Outra operacao de backup/restauracao esta em andamento");
@@ -434,30 +500,15 @@ function acquireLock(operation) {
       }
     }
 
-    const observed = { contents: state.contents };
+    const observed = lockObservation(state);
     let claim;
-    try { claim = claimStaleLock(observed); } catch (error) {
+    try { claim = claimStaleLock(observed, operation); } catch (error) {
       if (error.code === "ENOENT") continue;
       throw lockError("BACKUP_LOCKED", "Nao foi possivel reivindicar o lock de backup");
     }
     if (!claim) continue;
-    try {
-      if (readLockState().kind !== "missing") throw lockError("BACKUP_LOCKED", "Lock reapareceu durante o takeover");
-      const token = writeLock(operation, claim.ownerToken, claim.claimToken);
-      const current = readLockState();
-      if (current.kind !== "valid" || current.record.token !== token) throw lockError("BACKUP_LOCKED", "Lock de backup nao confirmou a posse");
-      cleanupClaim(claim.claimPath);
-      operationLock = { operation, token };
-      return createLockRelease(operation, token);
-    } catch (error) {
-      if (error.code === "EEXIST") {
-        cleanupClaim(claim.claimPath);
-        continue;
-      }
-      if (readLockState().kind === "missing") cleanupClaim(claim.claimPath);
-      if (error.code === "BACKUP_LOCKED") throw error;
-      throw lockError("BACKUP_LOCK_WRITE_FAILED", "Nao foi possivel gravar o lock de backup");
-    }
+    operationLock = { operation, token: claim };
+    return createLockRelease(operation, claim);
   }
   throw lockError("BACKUP_LOCKED", "Aquisicao concorrente do lock de backup nao foi resolvida");
 }
@@ -952,6 +1003,7 @@ function latestStatus() {
 module.exports = {
   BACKUPS_DIR,
   LOCK_FILE,
+  LOCK_TAKEOVER_DIR,
   RETENTION_TRANSACTIONS_DIR,
   acquireLock,
   calculateFileHash,

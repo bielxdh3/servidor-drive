@@ -146,10 +146,10 @@ test("backup operation lock is exclusive across real child processes", { timeout
     } finally { fs.rmSync(runtime, { recursive: true, force: true }); }
   });
 
-  await t.test("a crash after replacement leaves a recoverable owner claim", async () => {
+  await t.test("a crash after replacement leaves a recoverable takeover authority", async () => {
     const runtime = newRuntime("rootark-lock-owner-crash-");
     try {
-      const action = `const fs=require("fs"); const path=require("path"); const service=require(${JSON.stringify(SERVICE)}); const original=fs.rmSync; fs.rmSync=(target,options)=>{if(options&&options.recursive&&String(target).includes(".backup.lock.claim-")) process.kill(process.pid,"SIGKILL"); return original(target,options);}; const release=service.acquireLock("backup"); release();`;
+      const action = `const fs=require("fs"); const path=require("path"); const service=require(${JSON.stringify(SERVICE)}); const original=fs.rmSync; fs.rmSync=(target,options)=>{if(path.resolve(String(target))===path.resolve(${JSON.stringify(`${path.join(runtime, "data", "backups", ".backup.lock.takeover", "evidence")}`)})) process.kill(process.pid,"SIGKILL"); return original(target,options);}; const release=service.acquireLock("backup"); release();`;
       const lock = path.join(runtime, "data", "backups", ".backup.lock");
       fs.writeFileSync(lock, JSON.stringify({ token: "stale", operation: "backup", pid: 99999999 }));
       fs.utimesSync(lock, new Date(0), new Date(0));
