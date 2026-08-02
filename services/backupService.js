@@ -8,8 +8,31 @@ const { resolveRuntimePath } = require("../src/runtime-paths");
 
 const BACKUPS_DIR = resolveRuntimePath("data", "backups");
 const LOCK_FILE = path.join(BACKUPS_DIR, ".backup.lock");
+const LOCK_CLAIM_PREFIX = `${path.basename(LOCK_FILE)}.claim-`;
+const RETENTION_TRANSACTIONS_DIR = path.join(BACKUPS_DIR, ".retention-transactions");
+const OPERATION_LOCK_FORMAT_VERSION = 1;
+const MALFORMED_LOCK_TTL_MS = 60 * 1000;
+const MAX_LOCK_TTL_MS = 24 * 60 * 60 * 1000;
 let operationLock = null;
 let cloudStorage = null;
+
+function boundedLockDuration(name, fallback) {
+  const value = Number(process.env[name]);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(1000, Math.min(MAX_LOCK_TTL_MS, value));
+}
+
+function processStartIdentity(pid) {
+  if (process.platform !== "linux") return null;
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
+    return stat.slice(stat.lastIndexOf(")") + 1).trim().split(/\s+/)[19] || null;
+  } catch {
+    return null;
+  }
+}
+
+const CURRENT_PROCESS_START_IDENTITY = processStartIdentity(process.pid);
 
 function setCloudStorage(storage) {
   cloudStorage = storage || null;
@@ -172,84 +195,274 @@ function calculateFileHash(filePath) {
   });
 }
 
-function lockRecord(operation, token) {
-  return {
-    token,
-    operation,
-    pid: process.pid,
-    startedAt: new Date().toISOString(),
-    runtimeRoot: path.resolve(resolveRuntimePath(".")),
-  };
+function runtimeRootIdentity() {
+  try { return fs.realpathSync(resolveRuntimePath(".")); } catch { return path.resolve(resolveRuntimePath(".")); }
 }
 
-function writeLock(operation) {
-  const token = crypto.randomUUID();
-  let fd;
-  try {
-    fd = fs.openSync(LOCK_FILE, "wx");
-    fs.writeFileSync(fd, JSON.stringify(lockRecord(operation, token)), "utf8");
-    fs.fsyncSync(fd);
-    fs.closeSync(fd);
-    return token;
-  } catch (error) {
-    if (fd !== undefined) {
-      try { fs.closeSync(fd); } catch {}
-      try { fs.rmSync(LOCK_FILE, { force: true }); } catch {}
-    }
-    throw error;
-  }
+function sameRuntimeRoot(left, right) {
+  const a = path.normalize(String(left || ""));
+  const b = path.normalize(String(right || ""));
+  return process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
 }
 
-function isStaleLock() {
-  const staleMs = Math.max(60_000, envNumber("BACKUP_LOCK_STALE_MS", 6 * 60 * 60 * 1000));
-  let stat;
-  try { stat = fs.statSync(LOCK_FILE); } catch { return false; }
-  const age = Date.now() - stat.mtimeMs;
-  if (age < staleMs) return false;
-  try {
-    const lock = JSON.parse(fs.readFileSync(LOCK_FILE, "utf8"));
-    if (Number.isInteger(lock.pid) && lock.pid > 0) {
-      try { process.kill(lock.pid, 0); return false; } catch (error) { return error.code === "ESRCH"; }
-    }
-  } catch {
-    return true;
+function ownerIsLive(record) {
+  if (!Number.isInteger(record?.pid) || record.pid <= 0) return false;
+  try { process.kill(record.pid, 0); } catch (error) { return error.code === "EPERM"; }
+  if (record.processStartIdentity && processStartIdentity(record.pid)) {
+    return record.processStartIdentity === processStartIdentity(record.pid);
   }
   return true;
 }
 
-function acquireLock(operation) {
-  fs.mkdirSync(BACKUPS_DIR, { recursive: true });
-  if (operationLock) {
-    const error = new Error(`Operacao de ${operationLock.operation} em andamento`);
-    error.code = "BACKUP_LOCKED";
+function validLockRecord(record) {
+  if (!record || typeof record !== "object") return false;
+  if (!Number.isInteger(record.pid) || record.pid <= 0) return false;
+  if (record.formatVersion === OPERATION_LOCK_FORMAT_VERSION) {
+    return typeof record.token === "string" && Boolean(record.token) && typeof record.operation === "string" && Boolean(record.operation) && typeof record.startedAt === "string" && Number.isFinite(Date.parse(record.startedAt)) && typeof record.runtimeRoot === "string" && Boolean(record.runtimeRoot);
+  }
+  return true;
+}
+
+function lockError(code, message) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
+function readLockState() {
+  let stat;
+  try { stat = fs.statSync(LOCK_FILE); } catch (error) {
+    if (error.code === "ENOENT") return { kind: "missing" };
     throw error;
   }
-  let token;
+  let contents = "";
   try {
-    token = writeLock(operation);
+    contents = fs.readFileSync(LOCK_FILE, "utf8");
+    const record = JSON.parse(contents);
+    if (!validLockRecord(record)) return { kind: "malformed", mtimeMs: stat.mtimeMs, contents };
+    if (record.runtimeRoot && !sameRuntimeRoot(record.runtimeRoot, runtimeRootIdentity())) return { kind: "mismatch", record };
+    const createdAtMs = Date.parse(record.startedAt || "");
+    const ageMs = Math.max(Date.now() - stat.mtimeMs, Number.isFinite(createdAtMs) ? Date.now() - createdAtMs : 0);
+    const live = ownerIsLive(record);
+    const staleMs = boundedLockDuration("BACKUP_LOCK_STALE_MS", 6 * 60 * 60 * 1000);
+    return { kind: "valid", record, contents, stat, ageMs, live, stale: !live && (record.formatVersion === OPERATION_LOCK_FORMAT_VERSION || ageMs >= staleMs) };
+  } catch {
+    return { kind: "malformed", mtimeMs: stat.mtimeMs, contents };
+  }
+}
+
+function writeDurableFile(filePath, contents) {
+  const temporary = `${filePath}.${crypto.randomUUID()}.tmp`;
+  let fd;
+  try {
+    fd = fs.openSync(temporary, "wx");
+    const bytes = Buffer.from(contents);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const written = fs.writeSync(fd, bytes, offset, bytes.length - offset);
+      if (!written) throw new Error("Durable file write made no progress");
+      offset += written;
+    }
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = undefined;
+    fs.renameSync(temporary, filePath);
   } catch (error) {
-    if (error.code !== "EEXIST") {
-      const failed = new Error("Falha ao gravar lock de backup");
-      failed.code = "BACKUP_LOCK_WRITE_FAILED";
-      throw failed;
+    try { if (fd !== undefined) fs.closeSync(fd); } catch {}
+    try { fs.rmSync(temporary, { force: true }); } catch {}
+    throw error;
+  }
+}
+
+function lockRecord(operation, token, claimToken = null) {
+  return {
+    formatVersion: OPERATION_LOCK_FORMAT_VERSION,
+    token,
+    operation,
+    pid: process.pid,
+    processStartIdentity: CURRENT_PROCESS_START_IDENTITY,
+    startedAt: new Date().toISOString(),
+    runtimeRoot: runtimeRootIdentity(),
+    takeoverClaimToken: claimToken,
+  };
+}
+
+function cleanupOwnedIncompleteLock(descriptorStat, token) {
+  try {
+    const currentStat = fs.statSync(LOCK_FILE);
+    const contents = fs.readFileSync(LOCK_FILE, "utf8");
+    const sameFile = descriptorStat && currentStat.dev === descriptorStat.dev && currentStat.ino === descriptorStat.ino && (currentStat.birthtimeMs === descriptorStat.birthtimeMs || currentStat.ctimeMs === descriptorStat.ctimeMs);
+    if (sameFile || contents.includes(`"token":"${token}"`)) fs.rmSync(LOCK_FILE, { force: true });
+  } catch {}
+}
+
+function writeLock(operation, token = crypto.randomUUID(), claimToken = null) {
+  const record = lockRecord(operation, token, claimToken);
+  let fd;
+  let descriptorStat;
+  try {
+    fd = fs.openSync(LOCK_FILE, "wx");
+    descriptorStat = fs.fstatSync(fd);
+    const contents = Buffer.from(JSON.stringify(record));
+    let offset = 0;
+    while (offset < contents.length) {
+      const written = fs.writeSync(fd, contents, offset, contents.length - offset);
+      if (!written) throw new Error("Backup lock write made no progress");
+      offset += written;
     }
-    if (!isStaleLock()) {
-      const locked = new Error("Outra operacao de backup/restauracao esta em andamento");
-      locked.code = "BACKUP_LOCKED";
-      throw locked;
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = undefined;
+    return token;
+  } catch (error) {
+    try { if (fd !== undefined) fs.closeSync(fd); } catch {}
+    cleanupOwnedIncompleteLock(descriptorStat, token);
+    throw error;
+  }
+}
+
+function claimPathFor(token) {
+  return path.join(BACKUPS_DIR, `${LOCK_CLAIM_PREFIX}${token}`);
+}
+
+function claimRecord(token, ownerToken, observed) {
+  return {
+    formatVersion: OPERATION_LOCK_FORMAT_VERSION,
+    claimToken: token,
+    ownerToken,
+    pid: process.pid,
+    processStartIdentity: CURRENT_PROCESS_START_IDENTITY,
+    claimedAt: new Date().toISOString(),
+    runtimeRoot: runtimeRootIdentity(),
+    observed: { sha256: crypto.createHash("sha256").update(observed.contents).digest("hex"), size: Buffer.byteLength(observed.contents) },
+  };
+}
+
+function validClaimRecord(record) {
+  return record && record.formatVersion === OPERATION_LOCK_FORMAT_VERSION && typeof record.claimToken === "string" && record.claimToken && typeof record.ownerToken === "string" && record.ownerToken && Number.isInteger(record.pid) && record.pid > 0 && typeof record.claimedAt === "string" && Number.isFinite(Date.parse(record.claimedAt)) && record.observed && typeof record.observed.sha256 === "string";
+}
+
+function readClaimState(claimPath) {
+  let stat;
+  try { stat = fs.statSync(claimPath); } catch (error) {
+    if (error.code === "ENOENT") return { kind: "missing" };
+    throw error;
+  }
+  try {
+    const record = JSON.parse(fs.readFileSync(path.join(claimPath, "claim.json"), "utf8"));
+    if (!validClaimRecord(record)) return { kind: "malformed", mtimeMs: stat.mtimeMs };
+    if (!sameRuntimeRoot(record.runtimeRoot, runtimeRootIdentity())) return { kind: "mismatch", record };
+    const ageMs = Math.max(Date.now() - stat.mtimeMs, Date.now() - Date.parse(record.claimedAt));
+    return { kind: "valid", record, live: ownerIsLive(record), stale: !ownerIsLive(record), ageMs, evidencePath: path.join(claimPath, "evidence") };
+  } catch {
+    return { kind: "malformed", mtimeMs: stat.mtimeMs };
+  }
+}
+
+function cleanupClaim(claimPath) {
+  try { fs.rmSync(claimPath, { recursive: true, force: true }); } catch {}
+}
+
+function listClaimPaths() {
+  let names;
+  try { names = fs.readdirSync(BACKUPS_DIR); } catch { return []; }
+  return names.filter((name) => name.startsWith(LOCK_CLAIM_PREFIX)).map((name) => path.join(BACKUPS_DIR, name));
+}
+
+function recoverClaims() {
+  for (const claimPath of listClaimPaths()) {
+    const state = readClaimState(claimPath);
+    if (state.kind === "missing") continue;
+    if (state.kind === "mismatch") throw lockError("BACKUP_LOCKED", "Lock de backup pertence a outra raiz de runtime");
+    if (state.kind === "malformed") {
+      const ageMs = Date.now() - state.mtimeMs;
+      if (ageMs <= boundedLockDuration("BACKUP_LOCK_MALFORMED_TTL_MS", MALFORMED_LOCK_TTL_MS)) throw lockError("BACKUP_LOCKED", "Claim de lock de backup recente e invalido");
+      cleanupClaim(claimPath);
+      continue;
     }
-    try { fs.rmSync(LOCK_FILE, { force: false }); } catch {
-      const locked = new Error("Nao foi possivel reivindicar o lock de backup");
-      locked.code = "BACKUP_LOCKED";
-      throw locked;
-    }
-    try { token = writeLock(operation); } catch {
-      const locked = new Error("Nao foi possivel gravar o lock de backup");
-      locked.code = "BACKUP_LOCK_WRITE_FAILED";
-      throw locked;
+    if (state.live) throw lockError("BACKUP_LOCKED", "Reivindicacao de lock de backup em andamento");
+    let current;
+    try { current = readLockState(); } catch { current = { kind: "ambiguous" }; }
+    if (current.kind === "valid" && current.record.token === state.record.ownerToken) {
+      cleanupClaim(claimPath);
+    } else if (current.kind === "missing" || current.kind === "valid" || current.kind === "malformed") {
+      cleanupClaim(claimPath);
+    } else {
+      throw lockError("BACKUP_LOCKED", "Evidence de takeover de lock ambigua");
     }
   }
-  operationLock = { operation, token };
+}
+
+function claimStaleLock(observed) {
+  const token = crypto.randomUUID();
+  const ownerToken = crypto.randomUUID();
+  const claimPath = claimPathFor(token);
+  fs.mkdirSync(claimPath, { recursive: false });
+  try {
+    writeDurableFile(path.join(claimPath, "claim.json"), JSON.stringify(claimRecord(token, ownerToken, observed)));
+    fs.renameSync(LOCK_FILE, path.join(claimPath, "evidence"));
+    const evidence = fs.readFileSync(path.join(claimPath, "evidence"));
+    const expected = crypto.createHash("sha256").update(observed.contents).digest("hex");
+    if (crypto.createHash("sha256").update(evidence).digest("hex") !== expected) throw new Error("Backup lock evidence changed during takeover");
+    return { claimPath, claimToken: token, ownerToken };
+  } catch (error) {
+    if (error.code === "ENOENT" && !fs.existsSync(LOCK_FILE)) cleanupClaim(claimPath);
+    else if (error.code !== "EEXIST") cleanupClaim(claimPath);
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+function acquireLock(operation) {
+  fs.mkdirSync(BACKUPS_DIR, { recursive: true });
+  if (operationLock) throw lockError("BACKUP_LOCKED", `Operacao de ${operationLock.operation} em andamento`);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    recoverClaims();
+    const state = readLockState();
+    if (state.kind === "mismatch") throw lockError("BACKUP_LOCKED", "Lock de backup pertence a outra raiz de runtime");
+    if (state.kind === "valid" && !state.stale) throw lockError("BACKUP_LOCKED", "Outra operacao de backup/restauracao esta em andamento");
+    if (state.kind === "malformed" && Date.now() - state.mtimeMs <= boundedLockDuration("BACKUP_LOCK_MALFORMED_TTL_MS", MALFORMED_LOCK_TTL_MS)) throw lockError("BACKUP_LOCKED", "Lock de backup recente e invalido");
+
+    if (state.kind === "missing") {
+      try {
+        const token = writeLock(operation);
+        operationLock = { operation, token };
+        return createLockRelease(operation, token);
+      } catch (error) {
+        if (error.code === "EEXIST") continue;
+        throw lockError("BACKUP_LOCK_WRITE_FAILED", "Falha ao gravar lock de backup");
+      }
+    }
+
+    const observed = { contents: state.contents };
+    let claim;
+    try { claim = claimStaleLock(observed); } catch (error) {
+      if (error.code === "ENOENT") continue;
+      throw lockError("BACKUP_LOCKED", "Nao foi possivel reivindicar o lock de backup");
+    }
+    if (!claim) continue;
+    try {
+      if (readLockState().kind !== "missing") throw lockError("BACKUP_LOCKED", "Lock reapareceu durante o takeover");
+      const token = writeLock(operation, claim.ownerToken, claim.claimToken);
+      const current = readLockState();
+      if (current.kind !== "valid" || current.record.token !== token) throw lockError("BACKUP_LOCKED", "Lock de backup nao confirmou a posse");
+      cleanupClaim(claim.claimPath);
+      operationLock = { operation, token };
+      return createLockRelease(operation, token);
+    } catch (error) {
+      if (error.code === "EEXIST") {
+        cleanupClaim(claim.claimPath);
+        continue;
+      }
+      if (readLockState().kind === "missing") cleanupClaim(claim.claimPath);
+      if (error.code === "BACKUP_LOCKED") throw error;
+      throw lockError("BACKUP_LOCK_WRITE_FAILED", "Nao foi possivel gravar o lock de backup");
+    }
+  }
+  throw lockError("BACKUP_LOCKED", "Aquisicao concorrente do lock de backup nao foi resolvida");
+}
+
+function createLockRelease(operation, token) {
   let released = false;
   return () => {
     if (released) return;
@@ -395,7 +608,110 @@ function writeRetentionMetadata(tombstone, backup) {
   return metadataPath;
 }
 
-function recoverRetentionTombstones() {
+function retentionTransactionPath(transactionId) {
+  const directory = path.resolve(RETENTION_TRANSACTIONS_DIR, `tx-${transactionId}`);
+  const root = path.resolve(RETENTION_TRANSACTIONS_DIR);
+  if (!directory.startsWith(`${root}${path.sep}`)) throw new Error("Retention transaction escaped backup root");
+  return path.join(directory, "transaction.json");
+}
+
+function validRetentionTransaction(transaction) {
+  if (!transaction || transaction.version !== 1 || typeof transaction.transactionId !== "string" || !transaction.transactionId || !["prepared", "archive_moved", "history_removed", "cleanup_committed"].includes(transaction.phase)) return false;
+  if (typeof transaction.backupId !== "string" || !transaction.backupId || typeof transaction.filename !== "string" || !getArchivePath(transaction.filename)) return false;
+  if (typeof transaction.checksum !== "string" || !/^[a-f0-9]{64}$/i.test(transaction.checksum)) return false;
+  return transaction.archivePath === getArchivePath(transaction.filename) && transaction.tombstonePath === retentionTombstone(transaction.archivePath);
+}
+
+function persistRetentionTransaction(transaction) {
+  const transactionPath = retentionTransactionPath(transaction.transactionId);
+  fs.mkdirSync(path.dirname(transactionPath), { recursive: true });
+  writeDurableFile(transactionPath, JSON.stringify(transaction));
+  return transactionPath;
+}
+
+function listRetentionTransactions() {
+  if (!fs.existsSync(RETENTION_TRANSACTIONS_DIR)) return [];
+  const records = [];
+  for (const name of fs.readdirSync(RETENTION_TRANSACTIONS_DIR)) {
+    const directory = path.join(RETENTION_TRANSACTIONS_DIR, name);
+    if (!name.startsWith("tx-") || !fs.statSync(directory).isDirectory()) throw new Error("Malformed retention transaction directory");
+    const transactionPath = path.join(directory, "transaction.json");
+    if (!fs.existsSync(transactionPath)) {
+      if (fs.readdirSync(directory).length === 0) { fs.rmSync(directory, { recursive: true, force: false }); continue; }
+      throw new Error("Retention transaction metadata is missing");
+    }
+    let transaction;
+    try { transaction = JSON.parse(fs.readFileSync(transactionPath, "utf8")); } catch { throw new Error("Malformed retention transaction metadata"); }
+    if (!validRetentionTransaction(transaction)) throw new Error("Invalid retention transaction identity");
+    records.push({ transaction, transactionPath, directory });
+  }
+  const claims = new Set();
+  for (const { transaction } of records) {
+    for (const claim of [String(transaction.backupId), `filename:${transaction.filename}`]) {
+      if (claims.has(claim)) throw new Error("Multiple retention transactions claim one backup");
+      claims.add(claim);
+    }
+  }
+  return records;
+}
+
+function removeRetentionTransaction(record) {
+  fs.rmSync(record.transactionPath, { force: false });
+  fs.rmSync(record.directory, { recursive: true, force: false });
+}
+
+function sameArchiveBytes(left, right) {
+  return fs.existsSync(left) && fs.existsSync(right) && fs.readFileSync(left).equals(fs.readFileSync(right));
+}
+
+function retentionHistoryMatches(transaction) {
+  return backupRepository.listBackups().filter((backup) => backup.id === transaction.backupId || backup.filename === transaction.filename);
+}
+
+function recoverRetentionTransactions() {
+  for (const record of listRetentionTransactions()) {
+    const transaction = record.transaction;
+    const original = transaction.archivePath;
+    const tombstone = transaction.tombstonePath;
+    const originalExists = fs.existsSync(original);
+    const tombstoneExists = fs.existsSync(tombstone);
+    if ((originalExists && !awaitableChecksum(original, transaction.checksum)) || (tombstoneExists && !awaitableChecksum(tombstone, transaction.checksum))) throw new Error("Retention archive checksum mismatch");
+    const history = retentionHistoryMatches(transaction);
+    if (history.length > 1) throw new Error("Ambiguous retention transaction history");
+    if (originalExists && tombstoneExists && !sameArchiveBytes(original, tombstone)) throw new Error("Conflicting retention archive bytes");
+
+    if (transaction.phase === "prepared" || transaction.phase === "archive_moved") {
+      if (history.length === 1) {
+        if (originalExists && tombstoneExists) fs.rmSync(tombstone, { force: false });
+        else if (!originalExists && tombstoneExists) fs.renameSync(tombstone, original);
+        else if (!originalExists) throw new Error("Retention history points to a missing archive");
+        if (awaitableChecksum(original, transaction.checksum) === false) throw new Error("Retention archive checksum mismatch");
+        removeRetentionTransaction(record);
+        continue;
+      }
+      if (transaction.phase === "prepared") throw new Error("Prepared retention transaction lost repository history");
+      if (originalExists && tombstoneExists) { fs.rmSync(original, { force: false }); fs.rmSync(tombstone, { force: false }); }
+      else if (tombstoneExists) fs.rmSync(tombstone, { force: false });
+      else if (originalExists) throw new Error("Retention cleanup found an unowned archive");
+      removeRetentionTransaction(record);
+      continue;
+    }
+
+    if (history.length > 0) throw new Error("Retention history survived repository-delete phase");
+    if (originalExists && tombstoneExists) { fs.rmSync(original, { force: false }); fs.rmSync(tombstone, { force: false }); }
+    else if (tombstoneExists) fs.rmSync(tombstone, { force: false });
+    else if (originalExists) throw new Error("Retention cleanup found an unowned archive");
+    removeRetentionTransaction(record);
+  }
+}
+
+function awaitableChecksum(filePath, expected) {
+  if (!fs.existsSync(filePath)) return false;
+  const hash = crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+  return hash === expected;
+}
+
+function recoverLegacyRetentionTombstones() {
   if (!fs.existsSync(BACKUPS_DIR)) return;
   const names = fs.readdirSync(BACKUPS_DIR);
   const tombstoneNames = names.filter((name) => name.endsWith(RETENTION_TOMBSTONE_SUFFIX));
@@ -417,7 +733,7 @@ function recoverRetentionTombstones() {
       if (claims.has(claim)) throw new Error("Multiple retention tombstones claim one backup");
       claims.set(claim, name);
     }
-    records.push({ name, original, tombstone, metadata, metadataPath });
+    records.push({ original, tombstone, metadata, metadataPath });
   }
   const history = backupRepository.listBackups();
   for (const { original, tombstone, metadata, metadataPath } of records) {
@@ -425,10 +741,8 @@ function recoverRetentionTombstones() {
     if (matches.length > 1) throw new Error("Ambiguous retention tombstone history");
     if (fs.existsSync(original)) {
       if (matches.length === 0 || (matches[0].checksum && matches[0].checksum !== metadata.checksum) || (metadata.checksum && matches[0].checksum !== metadata.checksum)) throw new Error("Conflicting retention archive evidence");
-      if (fs.readFileSync(original).equals(fs.readFileSync(tombstone))) {
-        fs.rmSync(tombstone, { force: false });
-        fs.rmSync(metadataPath, { force: false });
-      } else throw new Error("Conflicting retention archive bytes");
+      if (sameArchiveBytes(original, tombstone)) { fs.rmSync(tombstone, { force: false }); fs.rmSync(metadataPath, { force: false }); }
+      else throw new Error("Conflicting retention archive bytes");
     } else if (matches.length === 1) {
       if (metadata.checksum !== null && metadata.checksum !== undefined && matches[0].checksum !== metadata.checksum) throw new Error("Retention checksum mismatch");
       if (matches[0].checksum && !metadata.checksum) throw new Error("Retention checksum evidence missing");
@@ -441,7 +755,14 @@ function recoverRetentionTombstones() {
   }
 }
 
-async function cleanupRetention() {
+function recoverRetentionTombstones() {
+  recoverRetentionTransactions();
+  recoverLegacyRetentionTombstones();
+}
+
+async function cleanupRetention(options = {}) {
+  const release = options.lockHeld ? null : acquireLock("backup");
+  try {
   const count = Math.max(0, Math.floor(envNumber("BACKUP_RETENTION_COUNT", 10)));
   const days = Math.max(0, Math.floor(envNumber("BACKUP_RETENTION_DAYS", 30)));
   const cutoff = days ? Date.now() - days * 24 * 60 * 60 * 1000 : null;
@@ -454,24 +775,30 @@ async function cleanupRetention() {
   for (const backup of toDelete) {
     const archivePath = getArchivePath(backup.filename);
     if (!archivePath || !fs.existsSync(archivePath)) continue;
+    const transactionId = crypto.randomUUID();
     const tombstone = retentionTombstone(archivePath);
-    const metadataPath = retentionTombstoneMetadata(tombstone);
-    fs.renameSync(archivePath, tombstone);
-    let repositoryDeleted = false;
+    const transaction = { version: 1, transactionId, phase: "prepared", backupId: String(backup.id), filename: path.basename(archivePath), archivePath, tombstonePath: tombstone, checksum: await calculateFileHash(archivePath), createdAt: new Date().toISOString() };
+    const record = { transaction, transactionPath: persistRetentionTransaction(transaction), directory: path.dirname(retentionTransactionPath(transactionId)) };
     try {
-      writeRetentionMetadata(tombstone, backup);
+      fs.renameSync(archivePath, tombstone);
+      transaction.phase = "archive_moved";
+      persistRetentionTransaction(transaction);
       backupRepository.deleteBackup(backup.id);
-      repositoryDeleted = true;
+      transaction.phase = "history_removed";
+      persistRetentionTransaction(transaction);
+      fs.rmSync(tombstone, { force: false });
+      transaction.phase = "cleanup_committed";
+      persistRetentionTransaction(transaction);
+      removeRetentionTransaction(record);
     } catch (error) {
-      try { fs.renameSync(tombstone, archivePath); } catch {}
-      fs.rmSync(metadataPath, { force: true });
-      throw error;
-    } finally {
-      if (repositoryDeleted) {
-        try { fs.rmSync(tombstone, { force: false }); } catch {}
-        try { fs.rmSync(metadataPath, { force: false }); } catch {}
+      if (fs.existsSync(tombstone) && !fs.existsSync(archivePath) && backupRepository.getBackup(backup.id)) {
+        try { fs.renameSync(tombstone, archivePath); transaction.phase = "prepared"; persistRetentionTransaction(transaction); removeRetentionTransaction(record); } catch (rollbackError) { error.rollbackError = rollbackError; }
       }
+      throw error;
     }
+  }
+  } finally {
+    if (release) release();
   }
 }
 
@@ -562,7 +889,7 @@ async function createBackup(options = {}) {
       },
     });
 
-    await cleanupRetention();
+    await cleanupRetention({ lockHeld: true });
     return saved;
   } catch (error) {
     let cleanupError = null;
@@ -625,6 +952,7 @@ function latestStatus() {
 module.exports = {
   BACKUPS_DIR,
   LOCK_FILE,
+  RETENTION_TRANSACTIONS_DIR,
   acquireLock,
   calculateFileHash,
   cleanupRetention,
