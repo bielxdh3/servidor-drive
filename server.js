@@ -14,6 +14,7 @@ const QRCode = require("qrcode");
 const http = require("http");
 const WebSocket = require("ws");
 const cron = require("node-cron");
+const { scheduleAutomaticBackups } = require("./services/backupScheduler");
 const dbConfig = require("./db");
 const { runMigrations } = require("./db/migrations");
 const usersRepository = require("./repositories/usersRepository");
@@ -4102,35 +4103,6 @@ function checkAnomalies(req, username) {
   }
 }
 
-function scheduleAutomaticBackups() {
-  const backupsEnabled = String(process.env.BACKUP_ENABLED || "true").toLowerCase() !== "false";
-  const autoEnabled = String(process.env.BACKUP_AUTO_ENABLED || "true").toLowerCase() !== "false";
-  if (!backupsEnabled || !autoEnabled) return;
-
-  const [hourRaw, minuteRaw] = String(process.env.BACKUP_TIME || "03:00").split(":");
-  const hour = Number(hourRaw);
-  const minute = Number(minuteRaw);
-  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
-    console.error("BACKUP_TIME invalido. Use HH:mm.");
-    return;
-  }
-
-  cron.schedule(`${minute} ${hour} * * *`, async () => {
-    try {
-      const backup = await backupService.createBackup({ type: "automatic", createdBy: "system" });
-      auditLog("backup.created", { username: "system" }, { type: "backup", id: backup.id }, "created", "success", {
-        filename: backup.filename,
-        automatic: true,
-      });
-    } catch (error) {
-      auditLog("backup.failed", { username: "system" }, { type: "backup", id: error.backup?.id || null }, "created", "failure", {
-        error: error.message,
-        automatic: true,
-      });
-    }
-  });
-}
-
 function getTrashLoaders() {
   return {
     loadFolders,
@@ -7062,7 +7034,7 @@ app.put("/move", authenticate, (req, res) => {
 });
 
 initData();
-scheduleAutomaticBackups();
+scheduleAutomaticBackups({ cron, createBackup: backupService.createBackup, auditLog, onInvalid: console.error });
 cleanupExpiredTemporaryItems();
 cleanupExpiredTrashItems();
 void processPendingCloudTrashItems();
