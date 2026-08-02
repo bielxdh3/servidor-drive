@@ -1,6 +1,6 @@
 # Root.ark Product Discovery
 
-Status: discovery open; Round 1 decisions recorded
+Status: discovery open; Round 1 and Round 2 decisions recorded
 
 Related issues: #4 and #10
 
@@ -37,9 +37,12 @@ Future discovery should work like the AIP planning process: ask a small number o
 - `[DECIDED]` D-001 keeps Root.ark active in this repository while allowing only a future, explicitly designed and approved migration or selective reuse with BielOS.
 - `[DECIDED]` D-002 defines Root.ark as a private administrator-controlled storage and transfer service with rigorously isolated compartments and no normal public registration.
 - `[DECIDED]` D-003 selects client-side, zero-knowledge encryption; the server and administrator must not normally read plaintext user content.
+- `[DECIDED]` D-004 permits bounded, least-privilege administrator operations and auditable support access while keeping content and unnecessary metadata hidden.
+- `[DECIDED]` D-005 defines administrator-controlled accounts, revocable invitations, user-controlled recovery, and audited deletion with default retention.
+- `[DECIDED]` D-006 defines client-side key lifecycle, compartment-isolated keys, trusted-device recovery, rotation for future content, and authorized offline access.
 - `[CONFLICT]` Existing server-readable, metadata-dependent, preview, scanning, WebDAV, sync, and backup behaviors require reconciliation with D-003; implementation is not itself product approval.
 - `[OPEN]` The final product name and spelling are not confirmed.
-- `[OPEN]` Exact integration contracts, administrator authority, key recovery, metadata fields, and client-side encryption behavior remain unresolved.
+- `[OPEN]` Exact integration contracts, cryptographic protocols, key envelopes, recovery-package format, retention periods, and client behavior remain unresolved.
 
 ## Decision record format
 
@@ -141,6 +144,99 @@ The product owner approved these records on 2026-08-02. They are durable product
   - #4 remains open for the exact metadata, key-recovery, sharing, scanning, preview, search, and client requirements.
   - #10 remains open until the BielOS relationship and its trust-model consequences are reconciled after documentation merge.
 
+## Approved Round 2 decisions
+
+The product owner approved these records on 2026-08-02. They define policy boundaries only; all deferred architecture and implementation details remain explicitly open.
+
+### D-004: Administrator authority and metadata visibility
+
+- Status: `[DECIDED]`
+- Date: 2026-08-02
+- Decision: Administrators may create, invite, approve, disable, and delete accounts; create and manage isolated compartments; grant and revoke permissions; revoke sessions and access links; manage quotas, operational blocks, quarantine decisions, backup jobs, restores of encrypted material, retention, and permanent deletion; and view security and operational audit events required to administer the service. Support impersonation is never silent: it requires explicit user authorization, limited duration, and complete audit logging. Filenames and folder names remain encrypted and invisible to administrators whenever technically possible. MIME and extensions derived from content remain hidden, except for strictly necessary operational categories. Audit logs may identify the acting user, IP, device, time, and action, but must not contain content, keys, decrypted names, or unnecessary sensitive data.
+- Reason: No separate reason was supplied; the owner approved least-privilege administration, explicit support access, and minimization of content-derived metadata.
+- Consequences:
+  - Analysis: Support impersonation requires a consent, expiry, authorization, and audit workflow.
+  - Analysis: Logs become a protected personal-data surface with separate retention and access requirements.
+  - Analysis: Operational features must use opaque identifiers and minimum metadata where possible.
+- Explicitly prohibited automatic actions:
+  - Silent user impersonation.
+  - Plaintext content access or reconstruction of encryption keys.
+  - Password reset as content-key recovery.
+  - Bypassing compartment boundaries.
+  - Server-generated plaintext previews or search indexes.
+- Rejected alternatives:
+  - Silent support impersonation and indiscriminate administrator visibility of names, MIME details, or content-derived metadata.
+- Deferred details that remain `[OPEN]`:
+  - Consent and maximum duration for support impersonation.
+  - Audit retention, access, export, and deletion rules.
+  - Exact operational MIME categories and metadata inventory.
+- Affected plan-tree phases:
+  - Phase 5.1: Users and trust model.
+  - Phase 5.3: Privacy and operations.
+- Required follow-up issues:
+  - #4 remains open for the exact authority, metadata, and audit requirements.
+  - #10 remains open; D-004 does not resolve the BielOS integration gate.
+
+### D-005: Accounts, invitations, and recovery
+
+- Status: `[DECIDED]`
+- Date: 2026-08-02
+- Decision: Administrators may create accounts directly or issue revocable, expiring invitations. No normal public registration exists, and an `/apply` request never grants access automatically. Username is sufficient; email is optional for notifications and recovery. A user-controlled recovery package is mandatory during encryption setup, with a clear warning that losing all recovery methods may make files unrecoverable. Trusted devices and, optionally, a person or device explicitly chosen by the user may participate in recovery. No universal administrator decryption key exists. Account deletion revokes access immediately, while permanent deletion follows a default retention period; immediate permanent deletion requires explicit administrative action, reinforced confirmation, and audit.
+- Reason: No separate reason was supplied; the owner explicitly requires clear warning of unrecoverability when all recovery methods are lost.
+- Consequences:
+  - Analysis: Login recovery and content-key recovery are separate operations.
+  - Analysis: Invitation and application flows require revocation, expiry, non-automatic access, and audit boundaries.
+  - Analysis: Account deletion must distinguish immediate access revocation from later data destruction.
+- Explicitly prohibited automatic actions:
+  - Public account registration.
+  - Automatic access from an application request.
+  - A universal administrator recovery key.
+  - Password reset that silently decrypts zero-knowledge content.
+  - Immediate permanent deletion without reinforced confirmation and audit.
+- Rejected alternatives:
+  - Mandatory email identity, administrator-only recovery of encrypted content, and unconfirmed immediate deletion.
+- Deferred details that remain `[OPEN]`:
+  - Invitation token format and exact expiry.
+  - Recovery-package structure and storage.
+  - Rules for a trusted recovery person or device.
+  - Default retention duration and restoration during retention.
+- Affected plan-tree phases:
+  - Phase 5.1: Users and trust model.
+  - Phase 5.3: Privacy and operations.
+- Required follow-up issues:
+  - #4 remains open for authentication, invitation, recovery, retention, and deletion details.
+  - #10 remains open; D-005 does not authorize shared BielOS identity or recovery.
+
+### D-006: Client-side key lifecycle and device access
+
+- Status: `[DECIDED]`
+- Date: 2026-08-02
+- Decision: Encryption keys are generated client-side. A trusted device may approve a new device, and a valid recovery package may authorize one without an existing device. Each compartment has its own key or isolated key set. When a user or device loses access, keys rotate for new content; content already downloaded or previously decrypted cannot be revoked retroactively. Authorized devices must support offline access, storing only indispensable cryptographic material protected by the operating system and local authentication.
+- Reason: No separate reason was supplied; the owner explicitly requires compartment isolation and authorized offline access.
+- Consequences:
+  - Analysis: Key hierarchy and authorization must be isolated per compartment.
+  - Analysis: Device authorization, removal, and rotation must be auditable and affect future content without claiming retroactive revocation.
+  - Analysis: Offline clients create a local key-material and device-security boundary.
+- Explicitly prohibited automatic actions:
+  - Reusing one key across compartments.
+  - Storing unnecessary local key material.
+  - Claiming that previously downloaded ciphertext or plaintext can be revoked retroactively.
+  - Creating a universal administrator key.
+- Rejected alternatives:
+  - No-offline-access as the default and a shared key model across compartments.
+- Deferred details that remain `[OPEN]`:
+  - Cryptographic protocol and key-envelope format.
+  - Rotation schedule and membership-change procedure.
+  - Lost-device handling and offline retention.
+  - Interactions with scanning, previews, search, sharing, WebDAV, synchronization, and backups.
+- Affected plan-tree phases:
+  - Phase 5.1: Users and trust model.
+  - Phase 5.2: File and storage behavior.
+  - Phase 5.3: Privacy and operations.
+- Required follow-up issues:
+  - #4 remains open for the client-side architecture and key lifecycle details.
+  - #10 remains open; D-006 does not authorize BielOS key sharing or migration.
+
 ## Discovery sequence
 
 The orchestrator should normally follow this order because later answers depend on earlier trust and user decisions.
@@ -214,7 +310,7 @@ This decision must be made before redesigning encryption, recovery, previews, sc
 
 ### Q5. Administrator authority
 
-- Status: `[OPEN]`
+- Status: `[DECIDED]` — recorded in D-004; exact consent, retention, and operational metadata details remain open.
 - Question: Which actions may an administrator perform?
 
 D-003 establishes that account, compartment, permission, block, backup, and deletion management does not grant plaintext content access. The complete authority matrix remains open.
@@ -237,7 +333,7 @@ Avoid a vague `admin can do everything` rule. Every power has recovery and abuse
 
 ### Q6. Lost password or key
 
-- Status: `[OPEN]`
+- Status: `[DECIDED]` at policy level in D-005 and D-006; exact recovery-package, trusted-recovery, and key-protocol details remain open.
 - Question: What should happen when a user loses a password, second factor, recovery code, or encryption key?
 
 Possible policies:
@@ -253,7 +349,7 @@ Possible policies:
 
 ### Q7. Account creation
 
-- Status: `[DECIDED]` — D-002 requires administrator creation or approval; exact invitation and request workflow remains open.
+- Status: `[DECIDED]` — D-002 and D-005 require administrator creation or approval, direct creation or revocable expiring invitations, and no automatic `/apply` access.
 - Question: Who may create accounts?
 
 Models:
@@ -268,6 +364,7 @@ Models:
 ### Q8. Authentication requirements
 
 - Status: `[OPEN]`
+- D-005 fixes username sufficiency, optional email, and separation of login recovery from content-key recovery. Password policy, 2FA, session duration, device lists, and lockout details remain open.
 - Decide:
   - username versus email;
   - password requirements;
@@ -315,7 +412,7 @@ Clarify whether changing providers is migration, replication, or live multi-back
 
 ### Q12. Metadata privacy
 
-- Status: `[DECIDED]` at the principle level in D-003; the exact minimum metadata inventory remains open.
+- Status: `[DECIDED]` at the policy level in D-003 and D-004; exact operational categories, retention, access, and export rules remain open.
 - Decide whether the server may see:
   - filenames;
   - folder names;
@@ -356,7 +453,7 @@ Possible purposes:
 
 ### Q15. Trash and permanent deletion
 
-- Status: `[OPEN]`
+- Status: `[DECIDED]` at policy level in D-005; the default retention period, restore window, and backup-deletion semantics remain open.
 - Decide:
   - default retention period;
   - who can restore;
@@ -442,7 +539,7 @@ Clarify MOVE, DELETE, locking, encrypted files, nested folders, and client compa
 
 ### Q22. Audit visibility
 
-- Status: `[OPEN]`
+- Status: `[DECIDED]` at policy level in D-004; exact retention, access, export, deletion, and privacy rules remain open.
 - Decide who sees which events and how long they are retained.
 - Separate security audit from product analytics.
 - Decide export, deletion, IP/user-agent treatment, and privacy limits.
@@ -506,12 +603,16 @@ After a discovery answer:
 
 Round 1 is complete. D-001, D-002, and D-003 are approved and recorded. Issue #4 remains open. Issue #10 remains open and must not be closed until its required relationship consequences are documented, merged, and reconciled.
 
+## Round 2 checkpoint
+
+Round 2 is complete at the policy-decision level. D-004, D-005, and D-006 are approved and prepared for publication. All deferred architecture, protocol, retention, recovery, and client-behavior details remain explicitly `[OPEN]`. Issues #4 and #10 remain open.
+
 ## Current discovery queue
 
-Recommended Round 2 questions:
+Recommended Round 3 questions:
 
-1. Define the administrator authority and exact metadata-visibility matrix, including audit and activity visibility.
-2. Define account creation, invitations, password recovery, encryption-key recovery, revocation, and deletion.
-3. Define the client-side key lifecycle and the boundaries for scanning, previews, search, sharing, WebDAV, synchronization, and encrypted backups.
+1. Define the cryptographic protocol, compartment key hierarchy, key envelopes, rotation, and recovery-package format.
+2. Define audit/log retention, deletion retention, restore windows, and the exact treatment of offline and previously downloaded data.
+3. Define client-side scanning, previews, search, sharing, WebDAV, synchronization, and backup compatibility under the approved key model.
 
 Do not ask all remaining questions at once. Each round must preserve explicit decisions, inferred consequences, and unresolved details separately.
