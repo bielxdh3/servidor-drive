@@ -130,7 +130,15 @@ const WEBDAV_MOVE_RECONCILIATION_LEASE_MS = parseBoundedNumber("WEBDAV_MOVE_RECO
 const WEBDAV_MOVE_RECONCILIATION_MAX_BACKOFF_MS = parseBoundedNumber("WEBDAV_MOVE_RECONCILIATION_MAX_BACKOFF_MS", 60 * 60 * 1000, 1000, 24 * 60 * 60 * 1000);
 const WEBDAV_MOVE_REMOTE_INTENT_STATES = new Set([
   "claimed",
+  "destination_upload_intent",
+  "destination_upload_uncertain",
+  "cloud_destination_upload_intent",
+  "cloud_destination_upload_uncertain",
   "destination_uploaded",
+  "source_delete_intent",
+  "source_delete_uncertain",
+  "cloud_source_delete_intent",
+  "cloud_source_delete_uncertain",
   "retry_wait",
   "cloud_reconciliation_claimed",
   "cloud_destination_uploaded",
@@ -6168,6 +6176,24 @@ function sha256Buffer(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
 }
 
+function webDavMoveFileIdentity(filePath) {
+  if (!fs.existsSync(filePath)) return { exists: false, size: 0, checksum: null };
+  const contents = fs.readFileSync(filePath);
+  return { exists: true, size: contents.length, checksum: sha256Buffer(contents) };
+}
+
+function beginWebDavMoveLocalIntent(journal, operation, phase) {
+  journal.pendingOperation = operation;
+  journal.phase = phase;
+  writeWebDavMoveJournal(journal);
+}
+
+function webDavMoveIdentityMatches(filePath, identity) {
+  if (!identity?.exists || !fs.existsSync(filePath)) return false;
+  const current = webDavMoveFileIdentity(filePath);
+  return current.size === identity.size && current.checksum === identity.checksum;
+}
+
 function writeWebDavMoveFileAtomically(filePath, contents) {
   const temporary = `${filePath}.${crypto.randomUUID()}.tmp`;
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -6255,30 +6281,59 @@ function rollbackWebDavMoveJournal(journal) {
   const destinationPath = path.resolve(journal.destinationPath);
   const stagePath = path.resolve(journal.stagePath);
   const destinationBackupPath = path.resolve(journal.destinationBackupPath);
-  if (fs.existsSync(destinationPath) && journal.replacementInstalled) {
+  if (journal.pendingOperation === "source.stage" && fs.existsSync(sourcePath) && fs.existsSync(stagePath)) {
+    throw new Error("Ambiguous MOVE source/stage evidence");
+  }
+  if (journal.pendingOperation === "destination.preserve" && fs.existsSync(destinationPath) && fs.existsSync(destinationBackupPath)) {
+    throw new Error("Ambiguous MOVE destination/backup evidence");
+  }
+  if (journal.pendingOperation === "replacement.install" && !fs.existsSync(stagePath) && webDavMoveIdentityMatches(destinationPath, journal.sourceIdentity)) {
+    journal.replacementInstalled = true;
+  }
+  if (fs.existsSync(destinationPath) && (journal.replacementInstalled || journal.pendingOperation === "replacement.install" || journal.completedOperations.includes("replacement.install"))) {
+    if (journal.sourceIdentity && !webDavMoveIdentityMatches(destinationPath, journal.sourceIdentity)) throw new Error("Conflicting MOVE replacement bytes");
     fs.renameSync(destinationPath, stagePath);
   }
-  if (fs.existsSync(destinationBackupPath)) fs.renameSync(destinationBackupPath, destinationPath);
-  if (fs.existsSync(stagePath)) fs.renameSync(stagePath, sourcePath);
+  if (fs.existsSync(destinationBackupPath)) {
+    if (journal.destinationIdentity && !webDavMoveIdentityMatches(destinationBackupPath, journal.destinationIdentity)) throw new Error("Conflicting MOVE destination backup bytes");
+    fs.renameSync(destinationBackupPath, destinationPath);
+  }
+  if (fs.existsSync(stagePath)) {
+    if (journal.sourceIdentity && !webDavMoveIdentityMatches(stagePath, journal.sourceIdentity)) throw new Error("Conflicting MOVE source stage bytes");
+    fs.renameSync(stagePath, sourcePath);
+  }
   fs.rmSync(journal.journalPath, { force: true });
   fs.rmSync(journal.metadata.directory, { recursive: true, force: true });
   fs.rmSync(path.dirname(journal.metadata.directory), { recursive: true, force: true });
 }
 
 function isDurablyCompletedWebDavMove(journal) {
-  return ["committed", "cloud_complete", "completed"].includes(journal.phase) || journal.cloud?.state === "completed";
+  return ["committed", "cloud_complete", "completed", "cleanup_intent", "cleanup_completed"].includes(journal.phase) || journal.cloud?.state === "completed";
 }
 
 function finalizeWebDavMoveJournal(journal) {
   if (!isSafeWebDavMoveJournal(journal)) throw new Error("Journal WebDAV invalido");
   journal.phase = "committed";
   writeWebDavMoveJournal(journal);
-  fs.rmSync(journal.destinationBackupPath, { force: true });
-  fs.rmSync(journal.stagePath, { force: true });
-  fs.rmSync(journal.metadata.directory, { recursive: true, force: true });
+  const cleanup = (operation, target, options = {}) => {
+    journal.pendingOperation = operation;
+    journal.phase = "cleanup_intent";
+    writeWebDavMoveJournal(journal);
+    fs.rmSync(target, { force: true, ...options });
+    journal.pendingOperation = null;
+    journal.completedOperations.push(operation);
+    journal.phase = "cleanup_completed";
+    writeWebDavMoveJournal(journal);
+  };
+  cleanup("cleanup.destination_backup", journal.destinationBackupPath);
+  cleanup("cleanup.stage", journal.stagePath);
+  cleanup("cleanup.metadata", journal.metadata.directory, { recursive: true });
+  cleanup("cleanup.metadata_parent", path.dirname(journal.metadata.directory), { recursive: true });
+  cleanup("cleanup.claim", webDavMoveLockPath(journal.transactionId));
+  journal.pendingOperation = "cleanup.journal";
+  journal.phase = "cleanup_intent";
+  writeWebDavMoveJournal(journal);
   fs.rmSync(journal.journalPath, { force: true });
-  fs.rmSync(path.dirname(journal.metadata.directory), { recursive: true, force: true });
-  fs.rmSync(webDavMoveLockPath(journal.transactionId), { force: true });
 }
 
 function cleanupOrphanWebDavMoveArtifacts() {
@@ -6302,6 +6357,7 @@ function cleanupOrphanWebDavMoveArtifacts() {
 
 function recoverWebDavMoveJournals() {
   if (!fs.existsSync(WEBDAV_MOVE_JOURNAL_DIR)) return;
+  recoverWebDavMoveClaimTakeovers();
   for (const name of fs.readdirSync(WEBDAV_MOVE_JOURNAL_DIR).filter((entry) => /^rootark-webdav-move-[a-f0-9-]{36}\.json$/i.test(entry))) {
     const journalPath = path.join(WEBDAV_MOVE_JOURNAL_DIR, name);
     let journal;
@@ -6326,7 +6382,7 @@ function webDavCloudTransition(journal, state, at, details = {}) {
     state,
     transitions: [...(Array.isArray(journal.cloud?.transitions) ? journal.cloud.transitions : []), { state, at }],
   };
-  journal.phase = state === "completed" ? "cloud_complete" : state === "terminal_reconciliation_failure" ? "terminal_reconciliation_failure" : state === "retry_wait" ? "cloud_source_removal_pending" : state === "claimed" ? "cloud_reconciliation_claimed" : state === "destination_uploaded" ? "cloud_destination_uploaded" : journal.phase;
+  journal.phase = state === "completed" ? "cloud_complete" : state === "terminal_reconciliation_failure" ? "terminal_reconciliation_failure" : state === "retry_wait" ? "cloud_source_removal_pending" : state === "claimed" ? "cloud_reconciliation_claimed" : state === "destination_upload_intent" ? "cloud_destination_upload_intent" : state === "destination_upload_uncertain" ? "cloud_destination_upload_uncertain" : state === "destination_uploaded" ? "cloud_destination_uploaded" : state === "source_delete_intent" ? "cloud_source_delete_intent" : state === "source_delete_uncertain" ? "cloud_source_delete_uncertain" : journal.phase;
   return journal;
 }
 
@@ -6342,54 +6398,123 @@ function webDavMoveLockPath(transactionId) {
   return path.join(WEBDAV_MOVE_JOURNAL_DIR, `rootark-webdav-move-${transactionId}.lock`);
 }
 
+function webDavMoveClaimToken(contents) {
+  try { return JSON.parse(contents).token || null; } catch { return String(contents || ""); }
+}
+
+function webDavMoveClaimRecord(token, transactionId, now) {
+  return { version: 1, token, transactionId, pid: process.pid, claimedAt: new Date(now).toISOString() };
+}
+
+function writeWebDavMoveClaimLock(lockPath, record) {
+  let fd;
+  try {
+    fd = fs.openSync(lockPath, "wx");
+    const contents = Buffer.from(JSON.stringify(record));
+    fs.writeSync(fd, contents, 0, contents.length);
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = undefined;
+  } catch (error) {
+    try { if (fd !== undefined) fs.closeSync(fd); } catch {}
+    throw error;
+  }
+}
+
+function recoverWebDavMoveClaimTakeovers() {
+  if (!fs.existsSync(WEBDAV_MOVE_JOURNAL_DIR)) return;
+  const names = fs.readdirSync(WEBDAV_MOVE_JOURNAL_DIR).filter((entry) => /^rootark-webdav-move-[a-f0-9-]{36}\.lock\.takeover-[a-f0-9-]{36}$/i.test(entry));
+  for (const name of names) {
+    const authorityPath = path.join(WEBDAV_MOVE_JOURNAL_DIR, name);
+    let authority;
+    try { authority = JSON.parse(fs.readFileSync(authorityPath, "utf8")); } catch { throw new Error("WebDAV claim takeover evidence is malformed"); }
+    if (authority.pid === process.pid) continue;
+    if (typeof authority.lockPath !== "string" || path.dirname(path.resolve(authority.lockPath)) !== path.resolve(WEBDAV_MOVE_JOURNAL_DIR) || !/^rootark-webdav-move-[a-f0-9-]{36}\.lock$/i.test(path.basename(authority.lockPath))) throw new Error("WebDAV claim takeover path is invalid");
+    let live = false;
+    try { process.kill(Number(authority.pid), 0); live = true; } catch (error) { live = error.code === "EPERM"; }
+    if (live) throw Object.assign(new Error("WebDAV MOVE claim is still owned"), { code: "WEBDAV_MOVE_CLAIM_BUSY" });
+    fs.rmSync(authorityPath, { force: true });
+    fs.rmSync(`${authorityPath}.evidence`, { force: true });
+  }
+}
+
+function takeoverWebDavMoveClaim(lockPath, transactionId, previousToken, now) {
+  const ownerToken = `${crypto.randomUUID()}:${crypto.randomUUID()}`;
+  const authorityPath = `${lockPath}.takeover-${crypto.randomUUID()}`;
+  const authority = { version: 1, transactionId, lockPath, ownerToken, previousToken, pid: process.pid, claimedAt: new Date(now).toISOString() };
+  let fd;
+  try {
+    fd = fs.openSync(authorityPath, "wx");
+    const contents = Buffer.from(JSON.stringify(authority));
+    fs.writeSync(fd, contents, 0, contents.length);
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = undefined;
+    fs.renameSync(lockPath, `${authorityPath}.evidence`);
+    writeWebDavMoveClaimLock(lockPath, webDavMoveClaimRecord(ownerToken, transactionId, now));
+    fs.rmSync(authorityPath, { force: true });
+    fs.rmSync(`${authorityPath}.evidence`, { force: true });
+    return ownerToken;
+  } catch (error) {
+    try { if (fd !== undefined) fs.closeSync(fd); } catch {}
+    if (error.code === "ENOENT") {
+      fs.rmSync(authorityPath, { force: true });
+      fs.rmSync(`${authorityPath}.evidence`, { force: true });
+      return null;
+    }
+    throw error;
+  }
+}
+
 function releaseWebDavMoveClaim(claim) {
   if (!claim?.path) return;
-  try {
-    if (fs.readFileSync(claim.path, "utf8") === claim.token) fs.rmSync(claim.path, { force: true });
-  } catch {}
+  try { if (webDavMoveClaimToken(fs.readFileSync(claim.path, "utf8")) === claim.token) fs.rmSync(claim.path, { force: true }); } catch {}
 }
 
 function claimWebDavMoveJournal(journal, now = Date.now(), workerId = crypto.randomUUID()) {
   const cloud = journal.cloud || {};
-  if (!journal || !["retry_wait", "destination_uploaded", "claimed"].includes(cloud.state)) return null;
+  if (!journal || !["queued", "destination_upload_intent", "destination_upload_uncertain", "source_delete_intent", "source_delete_uncertain", "retry_wait", "destination_uploaded", "claimed"].includes(cloud.state)) return null;
   if (cloud.nextAttemptAt && new Date(cloud.nextAttemptAt).getTime() > now) return null;
   if (cloud.leaseToken && new Date(cloud.leaseUntil || 0).getTime() > now) return null;
+  recoverWebDavMoveClaimTakeovers();
   const token = `${workerId}:${crypto.randomUUID()}`;
   const lockPath = webDavMoveLockPath(journal.transactionId);
   fs.mkdirSync(WEBDAV_MOVE_JOURNAL_DIR, { recursive: true });
-  let fd;
   try {
-    fd = fs.openSync(lockPath, "wx");
-    fs.writeFileSync(fd, token, "utf8");
-    fs.closeSync(fd);
+    writeWebDavMoveClaimLock(lockPath, webDavMoveClaimRecord(token, journal.transactionId, now));
   } catch (error) {
-    if (fd !== undefined) { try { fs.closeSync(fd); } catch {} }
     if (error.code !== "EEXIST") throw error;
     try {
-      if (fs.statSync(lockPath).mtimeMs + WEBDAV_MOVE_RECONCILIATION_LEASE_MS <= now) fs.rmSync(lockPath, { force: true });
-    } catch { return null; }
-    try {
-      fd = fs.openSync(lockPath, "wx");
-      fs.writeFileSync(fd, token, "utf8");
-      fs.closeSync(fd);
+      const existing = fs.readFileSync(lockPath, "utf8");
+      const existingToken = webDavMoveClaimToken(existing);
+      const existingRecord = (() => { try { return JSON.parse(existing); } catch { return null; } })();
+      const leaseExpired = existingRecord?.claimedAt ? Date.parse(existingRecord.claimedAt) + WEBDAV_MOVE_RECONCILIATION_LEASE_MS <= now : fs.statSync(lockPath).mtimeMs + WEBDAV_MOVE_RECONCILIATION_LEASE_MS <= now;
+      if (!leaseExpired) return null;
+      const takeover = takeoverWebDavMoveClaim(lockPath, journal.transactionId, existingToken, now);
+      if (!takeover) return null;
+      return finalizeWebDavMoveClaim(journal, lockPath, takeover, workerId, now);
     } catch { return null; }
   }
+  return finalizeWebDavMoveClaim(journal, lockPath, token, workerId, now);
+}
+
+function finalizeWebDavMoveClaim(journal, lockPath, ownerToken, workerId, now) {
   try {
     const current = JSON.parse(fs.readFileSync(journal.journalPath, "utf8"));
-    if (current.cloud?.leaseToken && new Date(current.cloud.leaseUntil || 0).getTime() > now) { releaseWebDavMoveClaim({ path: lockPath, token }); return null; }
+    if (current.cloud?.leaseToken && new Date(current.cloud.leaseUntil || 0).getTime() > now) { releaseWebDavMoveClaim({ path: lockPath, token: ownerToken }); return null; }
     const at = new Date(now).toISOString();
     const claimed = webDavCloudTransition(current, "claimed", at, {
       attempts: Math.min(Number(current.cloud.maxAttempts) || WEBDAV_MOVE_RECONCILIATION_MAX_ATTEMPTS, (Number(current.cloud.attempts) || 0) + 1),
       lastAttemptAt: at,
       nextAttemptAt: null,
-      leaseToken: token,
+      leaseToken: ownerToken,
       leaseUntil: new Date(now + WEBDAV_MOVE_RECONCILIATION_LEASE_MS).toISOString(),
       workerId,
     });
     writeWebDavMoveJournal(claimed);
-    return { journal: claimed, token, path: lockPath };
+    return { journal: claimed, token: ownerToken, path: lockPath };
   } catch (error) {
-    releaseWebDavMoveClaim({ path: lockPath, token });
+    releaseWebDavMoveClaim({ path: lockPath, token: ownerToken });
     throw error;
   }
 }
@@ -6421,14 +6546,16 @@ async function reconcileWebDavMoveCloud(journal, { claimToken = null, now = Date
   if (claimToken && journal.cloud.leaseToken !== claimToken) throw Object.assign(new Error("MOVE claim mismatch"), { code: "WEBDAV_MOVE_CLAIM_MISMATCH" });
   const { folderId, sourceName, destinationName } = journal.cloud;
   if (!journal.cloud.destinationUploaded) {
+    webDavCloudTransition(journal, "destination_upload_intent", new Date(now).toISOString(), { failureCategory: null });
+    writeWebDavMoveJournal(journal);
+    webDavCloudTransition(journal, "destination_upload_uncertain", new Date(now).toISOString());
+    writeWebDavMoveJournal(journal);
     try {
       await uploadFileToCloud(journal.destinationPath, folderId, destinationName, "uploads");
     } catch (error) {
       if (!['already_exists', 'PreconditionFailed', 'duplicate'].includes(String(error?.code || ""))) {
-        journal.phase = "rolling_back";
-        journal.cloud.failureCategory = "destination_upload_failed";
-        writeWebDavMoveJournal(journal);
-        throw error;
+        const terminal = markWebDavMoveRetry(journal, error, now);
+        return { pending: !terminal, terminal, error };
       }
     }
     journal.cloud.destinationUploaded = true;
@@ -6442,6 +6569,10 @@ async function reconcileWebDavMoveCloud(journal, { claimToken = null, now = Date
     writeWebDavMoveJournal(journal);
   }
   if (!journal.cloud.sourceRemoved) {
+    webDavCloudTransition(journal, "source_delete_intent", new Date(now).toISOString(), { failureCategory: null });
+    writeWebDavMoveJournal(journal);
+    webDavCloudTransition(journal, "source_delete_uncertain", new Date(now).toISOString());
+    writeWebDavMoveJournal(journal);
     try {
       await deleteFileFromCloud(folderId, sourceName, "uploads");
     } catch (error) {
@@ -6508,7 +6639,7 @@ async function handleWebDavMove(req, res, segments) {
   const destinationExists = isExistingFile(destinationPath);
   if (destinationExists && !overwrite) return res.status(412).send("Destination exists");
   const transactionId = crypto.randomUUID();
-  const journal = {
+  let journal = {
     version: 1,
     transactionId,
     phase: "prepared",
@@ -6519,6 +6650,9 @@ async function handleWebDavMove(req, res, segments) {
     destinationBackupPath: path.resolve(source.folder.uploadDir, `.rootark-move-${transactionId}.destination`),
     destinationExisted: destinationExists,
     replacementInstalled: false,
+    pendingOperation: null,
+    sourceIdentity: webDavMoveFileIdentity(source.filePath),
+    destinationIdentity: webDavMoveFileIdentity(destinationPath),
     completedOperations: [],
     startedAt: new Date().toISOString(),
   };
@@ -6549,6 +6683,7 @@ async function handleWebDavMove(req, res, segments) {
   let stepNumber = 0;
   const step = (name, phase) => {
     stepNumber += 1;
+    journal.pendingOperation = null;
     journal.phase = phase;
     journal.completedOperations.push(name);
     writeWebDavMoveJournal(journal);
@@ -6561,29 +6696,45 @@ async function handleWebDavMove(req, res, segments) {
 
   try {
     writeWebDavMoveJournal(journal);
+    beginWebDavMoveLocalIntent(journal, "source.stage", "source_stage_intent");
     fs.renameSync(source.filePath, journal.stagePath);
     step("source.stage", "source_staged");
     if (destinationExists) {
+      beginWebDavMoveLocalIntent(journal, "destination.preserve", "destination_preserve_intent");
       fs.renameSync(destinationPath, journal.destinationBackupPath);
       step("destination.preserve", "destination_preserved");
     }
+    beginWebDavMoveLocalIntent(journal, "replacement.install", "replacement_install_intent");
     fs.renameSync(journal.stagePath, destinationPath);
     journal.replacementInstalled = true;
     step("replacement.install", "replacement_installed");
+    beginWebDavMoveLocalIntent(journal, "metadata.public_links", "metadata_public_links_intent");
     renamePublicLinksForFile(source.name, destination.fileName, source.folder.id);
     step("metadata.public_links", "metadata_updating");
+    beginWebDavMoveLocalIntent(journal, "metadata.permissions", "metadata_permissions_intent");
     renameFilePermission(source.folder.id, source.name, destination.fileName);
     step("metadata.permissions", "metadata_updating");
+    beginWebDavMoveLocalIntent(journal, "metadata.expirations", "metadata_expirations_intent");
     renameFileExpiration(source.folder.id, source.name, destination.fileName);
     step("metadata.expirations", "metadata_updating");
+    beginWebDavMoveLocalIntent(journal, "metadata.versions", "metadata_versions_intent");
     renameFileVersions(source.folder.id, source.name, destination.fileName);
     step("metadata.versions", "metadata_updating");
+    beginWebDavMoveLocalIntent(journal, "metadata.encrypted", "metadata_encrypted_intent");
     renameEncryptedMetadata(source.folder.id, source.name, destination.fileName);
     step("metadata.encrypted", "metadata_updating");
     journal.phase = "metadata_installed";
     journal.completedOperations.push("metadata.commit");
     writeWebDavMoveJournal(journal);
-    const cloudResult = await reconcileWebDavMoveCloud(journal);
+    const cloudClaim = claimWebDavMoveJournal(journal, Date.now(), `initial:${transactionId}`);
+    if (!cloudClaim) throw Object.assign(new Error("MOVE cloud reconciliation is already claimed"), { code: "WEBDAV_MOVE_CLAIM_BUSY" });
+    journal = cloudClaim.journal;
+    let cloudResult;
+    try {
+      cloudResult = await reconcileWebDavMoveCloud(journal, { claimToken: cloudClaim.token });
+    } finally {
+      releaseWebDavMoveClaim(cloudClaim);
+    }
     if (cloudResult.pending) {
       auditLog("webdav.move.reconciliation.queued", getAuditActor(req), { type: "file", id: destination.fileName }, "move", "pending", { folderId: source.folder.id, overwrite, transactionId });
       return res.status(202).json({ status: "pending", transactionId, fileName: destination.fileName });
@@ -6598,7 +6749,7 @@ async function handleWebDavMove(req, res, segments) {
     auditLog("webdav.move", getAuditActor(req), { type: "file", id: destination.fileName }, "move", "success", { folderId: source.folder.id, overwrite });
     return res.status(destinationExists ? 204 : 201).end();
   } catch (error) {
-    const cloudReconciliationPending = Boolean(journal.cloud?.destinationUploaded && !journal.cloud?.sourceRemoved);
+    const cloudReconciliationPending = Boolean(journal.cloud?.destinationUploaded && !journal.cloud?.sourceRemoved) || WEBDAV_MOVE_REMOTE_INTENT_STATES.has(journal.phase) || WEBDAV_MOVE_REMOTE_INTENT_STATES.has(journal.cloud?.state);
     if (!cloudReconciliationPending && !["committed", "cloud_source_removal_pending", "cloud_complete", "terminal_reconciliation_failure"].includes(journal.phase)) {
       try { journal.phase = "rolling_back"; writeWebDavMoveJournal(journal); } catch {}
       try { restoreWebDavMoveMetadata(metadataSnapshot); } catch {}
