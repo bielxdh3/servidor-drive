@@ -142,6 +142,7 @@ After evidence capture, the disposable runtime and sync data were removed only a
 
 - Operational harness wall time: 16.2 seconds as reported by the command runner.
 - Baseline aggregate validation wall time: 46.1 seconds as reported by the command runner.
-- Codex token count: not exposed by the validation harness; the final task handoff reports runtime usage when available.
+- Codex task elapsed time at report finalization: 1,402 seconds, as exposed by the Codex runtime goal meter.
+- Codex tokens used at report finalization: 350,181, as exposed by the Codex runtime goal meter.
 - Global memory: unavailable; the requirement was enforced for this task and recorded here.
 - Recommendation: no new session is required for human review of this documentation-only validation PR; start a new session only if a future remediation task is separately authorized.
