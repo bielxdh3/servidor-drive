@@ -198,7 +198,7 @@ Realtime has the smallest state surface and the strongest direct security regres
 
 ## 11. Unresolved evidence gaps
 
-- The configured workspace drive was unavailable to the terminal; this map was prepared in a fresh exact-HEAD checkout and must be transplanted only after the intended workspace is available.
+- The configured workspace drive was unavailable during the original analysis. The map was prepared, validated, and published from a fresh checkout of the exact required base; no additional transplant remains pending.
 - Live ClamAV detection and actual OS WebDAV mounting remain environmental blockers recorded by the operational report.
 - S3/Google Drive runtime behavior, cloud backup/trash, and production proxy/HTTPS/Origin behavior are not proven by the local validation record.
 - JSON/SQLite behavior is not fully equivalent; quarantine has no SQLite representation; final persistence convergence is Phase 4.2.
