@@ -262,14 +262,14 @@ Prerequisites: phases 2.1 through 2.3 complete and relevant tests covering each 
 
 ### Phase 4.0: Responsibility map
 
-- `[BLOCKED]` Map routes, repositories, services, persistence paths, and shared helpers.
-- `[BLOCKED]` Identify duplicated authorization, path, JSON/SQLite, audit, and storage logic.
-- `[BLOCKED]` Define extraction order based on risk and test coverage.
-- `[BLOCKED]` Do not move code during the mapping task.
+- `[DONE]` Map routes, repositories, services, persistence paths, and shared helpers in `docs/architecture/current-server-responsibility-map.md` at the current default SHA.
+- `[DONE]` Identify concrete duplicated authorization, path, JSON/SQLite, audit, and storage logic with classifications and locations.
+- `[DONE]` Define an evidence-backed extraction order and select realtime authentication/notifications as the first bounded candidate.
+- `[DONE]` Complete the mapping task without moving runtime code.
 
 ### Phase 4.1: Bounded extractions
 
-- `[BLOCKED]` Extract one domain at a time.
+- `[BLOCKED]` Extract one domain at a time; the next candidate is realtime authentication and notifications, not completed work.
 - `[BLOCKED]` Prefer existing partial boundaries rather than inventing a new framework.
 - `[BLOCKED]` Preserve CommonJS, route names, response shapes, storage behavior, and UI contracts.
 - `[BLOCKED]` Use one coherent commit per extraction.
@@ -407,16 +407,11 @@ All items below are candidates, not commitments.
 
 ## 8. Immediate execution order
 
-1. `[CURRENT]` Finish and review the governance documentation PR. Issues #8 and #12.
-2. `[NEXT]` Run the bounded security inventory. Issue #11.
-3. `[NEXT]` Execute critical JWT configuration and XSS fixes. Issue #1.
-4. `[NEXT]` Establish the first automated security regression slice and dependency-safe baseline. Issue #3, limited initial scope.
-5. `[NEXT]` Harden sessions, authorization freshness, and WebSocket token transport. Issue #2.
-6. `[NEXT]` Expand automated tests and CI. Issue #3 remaining scope.
-7. `[NEXT]` Validate existing SQLite, backup, trash, scanning, WebDAV, and sync MVPs with disposable data. Issue #7.
-8. `[LATER]` Modularize high-risk domains after coverage exists. Issue #5.
-9. `[PARALLEL-DISCOVERY]` Continue structured product discovery; Rounds 1 through 3 are recorded, while Issue #10 remains open pending full relationship reconciliation. Issues #4 and #10.
-10. `[BLOCKED]` Approve individual future features only after stabilization and discovery. Issues #6 and #9.
+Historical completed checkpoints, retained as evidence rather than future work: Issues #11, #1, #2, #3, and #7 are closed/completed in the live repository state.
+
+1. `[NEXT]` Prepare the first bounded Issue #5 extraction: realtime authentication and notifications, after the missing transport-contract tests and exact-head validation described in `docs/architecture/current-server-responsibility-map.md`.
+2. `[PARALLEL-DISCOVERY]` Continue structured product discovery; Rounds 1 through 3 are recorded, while Issues #4 and #10 remain open.
+3. `[BLOCKED]` Approve individual future features only after stabilization and discovery. Issues #6 and #9 remain gated.
 
 ## 9. Plan-tree update rule
 
