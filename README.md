@@ -1,59 +1,202 @@
+<div align="center">
+
 # Root.ark
 
-Root.ark is a private, administrator-controlled storage and file-transfer service under active development.
+**Private storage, file transfer, and synchronization under administrator control.**
 
-The repository currently contains a working Node.js application with authentication, permissions, uploads, file versions, public links, trash, quarantine, backup and restore, WebDAV, cloud-storage adapters, and a local synchronization client. The approved long-term direction includes client-side zero-knowledge encryption, but the current implementation predates that architecture and must not be treated as the final security model.
+[![Status](https://img.shields.io/badge/status-active%20development-orange)](#project-status)
+[![Runtime](https://img.shields.io/badge/Node.js-22%2B-339933)](#requirements)
+[![Database](https://img.shields.io/badge/database-SQLite-003B57)](#architecture)
+[![Network](https://img.shields.io/badge/deployment-private%20network-blueviolet)](#security-boundary)
 
-> **Status:** active development. Root.ark is not ready for unreviewed public deployment or production use.
+Root.ark is a self-hosted Node.js service for managing files, permissions, versions, public links, backups, synchronization, and storage integrations from one controlled environment.
 
-## Main capabilities
+</div>
 
-- user, role, and permission management;
-- file and folder upload, download, versioning, and sharing;
-- trash, quarantine, and suspicious-file handling;
-- SQLite persistence with backup and restore tooling;
-- WebDAV and cloud-storage integration boundaries;
-- local synchronization client;
-- automated syntax, test, dependency, and artifact validation.
+> [!CAUTION]
+> Root.ark is **not ready for unreviewed public deployment or production use**. Keep it on a trusted private network unless the exact deployment has been reviewed, hardened, and monitored.
+
+## How it fits together
+
+```text
+          ┌──────────────────────┐   ┌──────────────────────┐
+          │ Browser interface    │   │ Local sync client    │
+          │ files · users · links│   │ watched local files  │
+          └──────────┬───────────┘   └──────────┬───────────┘
+                     │                          │
+                     └────────────┬─────────────┘
+                                  │
+                       ┌──────────▼───────────┐
+                       │   Root.ark server    │
+                       │ auth · permissions   │
+                       │ uploads · WebDAV     │
+                       └──────┬────────┬──────┘
+                              │        │
+                metadata      │        │ files and versions
+                              │        │
+                    ┌─────────▼───┐ ┌──▼──────────────────┐
+                    │   SQLite    │ │ Managed storage     │
+                    │ users · ACL │ │ uploads · trash     │
+                    │ links · jobs│ │ quarantine · backup │
+                    └─────────────┘ └──┬──────────────────┘
+                                      │ optional adapters
+                         ┌────────────▼────────────┐
+                         │ S3 · Google APIs ·      │
+                         │ external storage bounds │
+                         └─────────────────────────┘
+```
+
+Root.ark combines a browser-facing service, a local synchronization client, and optional integration boundaries. Authentication and authorization decisions stay in the server rather than being delegated to the browser.
+
+## Project status
+
+The repository currently contains working foundations for:
+
+- [x] user, role, and permission management;
+- [x] file and folder upload and download;
+- [x] file versioning and sharing;
+- [x] public-link handling;
+- [x] trash and quarantine workflows;
+- [x] suspicious-file handling boundaries;
+- [x] SQLite persistence;
+- [x] backup and restore tooling;
+- [x] WebDAV integration;
+- [x] cloud-storage adapter boundaries;
+- [x] local synchronization client;
+- [x] automated syntax, test, dependency, and artifact validation.
+
+> [!IMPORTANT]
+> The approved long-term direction includes client-side zero-knowledge encryption. The current implementation predates that architecture and must not be described as zero-knowledge or treated as the final security model.
 
 ## Requirements
 
 - Node.js 22 or newer;
 - npm;
 - a private, randomly generated `JWT_SECRET`;
-- optional external services only for the integrations you enable.
+- SQLite-compatible local storage;
+- optional external credentials only for integrations you intentionally enable.
 
-## Local development
+## Quick start
+
+### 1. Clone and install
 
 ```bash
+git clone https://github.com/bielxdh3/root.ark.git
+cd root.ark
 npm ci
 ```
 
-Copy `.env.example` to a private `.env` file and replace every placeholder. Never commit the resulting file.
+### 2. Create a private environment file
+
+Copy `.env.example` to `.env`, then replace every placeholder with private values.
+
+> [!WARNING]
+> Never commit `.env`, JWT secrets, API credentials, database files, uploads, backups, or generated runtime data.
+
+### 3. Prepare the database
 
 ```bash
 npm run db:migrate
+```
+
+### 4. Start the development server
+
+```bash
 npm start
 ```
 
-The development server uses port `3000` unless `PORT` is configured.
+The server uses port `3000` unless `PORT` is configured.
+
+## Architecture
+
+| Area | Responsibility | Current implementation |
+|---|---|---|
+| HTTP application | Routes, authentication, authorization, uploads | Express 5 |
+| Identity | Password validation, tokens, permissions | `bcryptjs` + JSON Web Tokens |
+| Persistence | Users, metadata, versions, operational state | SQLite + `better-sqlite3` |
+| File handling | Uploads, archives, extraction, document processing | Multer, Archiver, Unzipper, Mammoth |
+| Scheduling | Recurring maintenance and background tasks | `node-cron` |
+| Real-time boundary | Live communication where enabled | WebSocket |
+| Integrations | S3-compatible storage and Google APIs | AWS SDK + Google APIs |
+| Synchronization | Local initialization and continuous sync | Root.ark sync client |
+
+## Main workflows
+
+### File lifecycle
+
+```text
+upload
+  └─► permission check
+       └─► validation and storage
+            ├─► active file
+            ├─► version history
+            ├─► quarantine
+            └─► trash
+```
+
+### Backup lifecycle
+
+```text
+SQLite metadata + managed files
+              │
+              ▼
+       backup operation
+              │
+              ▼
+     isolated backup output
+              │
+              ▼
+       restore validation
+```
+
+Backups are not useful until restore behavior is tested. Read [BACKUP.md](BACKUP.md) before relying on the tooling.
+
+## Commands
+
+| Command | Purpose |
+|---|---|
+| `npm start` | Start the development server with file watching |
+| `npm test` | Run Node.js tests |
+| `npm run validate` | Run syntax, tests, and dependency validation |
+| `npm run validate:artifacts` | Detect runtime artifacts contaminating the repository |
+| `npm run db:migrate` | Apply database migrations |
+| `npm run db:migrate-json` | Migrate supported JSON data to SQLite |
+| `npm run db:backup` | Run the database backup tool |
+| `npm run sync:init` | Initialize the local sync client |
+| `npm run sync:start` | Start the local sync client |
 
 ## Validation
+
+Run the full repository validation before trusting a change:
 
 ```bash
 npm run validate
 npm run validate:artifacts
 ```
 
-The validation suite checks JavaScript syntax, automated tests, the lockfile-backed dependency audit, and repository contamination by runtime artifacts.
+The checks cover:
 
-## Security
+- JavaScript syntax;
+- automated tests;
+- lockfile-backed dependency auditing at high severity;
+- accidental repository contamination by generated runtime data.
 
-Keep Root.ark on a trusted private network unless the deployment has been explicitly reviewed and hardened. Do not expose local data directories, credentials, database files, backups, uploads, or environment files.
+## Security boundary
 
-See [SECURITY.md](SECURITY.md) for responsible vulnerability reporting. Historical engineering records may describe past security work, but they are not deployment instructions or a guarantee that every environment is safe.
+Root.ark should currently be treated as a private administrative service, not a public SaaS product.
 
-## Documentation
+- bind and expose it only where explicitly intended;
+- keep secrets and runtime data outside Git;
+- use a strong, unique `JWT_SECRET`;
+- do not assume a public link is equivalent to a complete security review;
+- quarantine and suspicious-file handling reduce risk but do not replace malware scanning or sandboxing;
+- external storage adapters expand the trust boundary and require separate credential review;
+- historical security notes are engineering records, not proof that every deployment is safe;
+- current server-side storage is not the future zero-knowledge design.
+
+See [SECURITY.md](SECURITY.md) for responsible vulnerability reporting.
+
+## Repository documentation
 
 - [Development setup](docs/development-setup.md)
 - [Product discovery](docs/product-discovery.md)
@@ -61,6 +204,20 @@ See [SECURITY.md](SECURITY.md) for responsible vulnerability reporting. Historic
 - [Backup and restore](BACKUP.md)
 - [Synchronization](SYNC.md)
 
+## Roadmap
+
+- [ ] Define and implement the approved client-side zero-knowledge architecture
+- [ ] Separate cryptographic, storage, and sharing trust boundaries
+- [ ] Harden deployment defaults and document a reviewed production profile
+- [ ] Expand restore testing and disaster-recovery evidence
+- [ ] Strengthen suspicious-file isolation and scanning integrations
+- [ ] Review every external adapter independently
+- [ ] Define any BielOS integration as a separate approved architecture
+
 ## Project direction
 
-Root.ark remains an independent project. Any future integration or selective reuse with BielOS requires a separate approved architecture, security review, migration plan, and explicit authorization.
+Root.ark remains an independent project. Future integration or selective reuse with BielOS requires an explicit architecture, security review, migration plan, and authorization. Similar goals do not make the two systems interchangeable.
+
+## Disclaimer
+
+Root.ark is experimental self-hosted software. It is provided without a guarantee that a particular deployment, network, configuration, integration, backup, or stored file is secure.
