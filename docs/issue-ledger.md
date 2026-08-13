@@ -32,7 +32,7 @@ The worktree retains implementation/test/documentation changes from the bounded 
 
 ## PUBLICATION_RECONCILIATION
 
-The following five authorized commits were published on separate branches as draft PRs, all based on `Root/main` baseline SHA `28747c6ebdac873650e2d5a3c6193824e7cc9985`. The `Refs #N` wording is preserved for each PR reference.
+The following six authorized commits were published across five separate branches as draft PRs, all based on `Root/main` baseline SHA `28747c6ebdac873650e2d5a3c6193824e7cc9985`. The `Refs #N` wording is preserved for each PR reference.
 
 | Commit | Branch | Draft PR | Reference |
 |---|---|---|---|
@@ -41,8 +41,13 @@ The following five authorized commits were published on separate branches as dra
 | `05226828f8d13f8013770a44bb2663f5848ead91` | `cdx/rootark-cloud-inventory-contracts` | [PR #52](https://github.com/bielxdh3/root.ark/pull/52) | `Refs #52` |
 | `66a0133cbe39722950c2f34a9639a6e7e54adc7c` | `cdx/rootark-ci-default-branch` | [PR #53](https://github.com/bielxdh3/root.ark/pull/53) | `Refs #53` |
 | `185cf2b2c148aa574bc84d9aa52c4efd8cdc62f0` | `cdx/rootark-roadmap-evidence` | [PR #54](https://github.com/bielxdh3/root.ark/pull/54) | `Refs #54` |
+| `326708eef4b060d6a31ca5860e028cc52feb2acf` | `cdx/rootark-roadmap-evidence` | [PR #54](https://github.com/bielxdh3/root.ark/pull/54) | `Refs #54` — records publication and CI evidence |
 
-All five PRs are draft. PR #50 is the separate brace-expansion 5.0.9 lockfile hardening; its branch audit is clean. The unmerged source baseline remains affected by the brace-expansion advisory. Remote CI, provider, browser, production, and cryptographic validation remain unconfirmed or blocked. No merge, release, tag, deploy, force-push, destructive remote action, issue-state mutation, or repository-setting mutation occurred.
+All five PRs are draft. PR #50 is the separate brace-expansion 5.0.9 lockfile hardening; its branch audit is clean. The unmerged source baseline remains affected by the brace-expansion advisory. Remote CI is `CONFIRMED_PARTIAL_CI_BLOCKED_ADVISORY` as recorded in `REMOTE_CI_ADDENDUM`; provider, browser, production, and cryptographic validation remain unconfirmed or blocked. No merge, release, tag, deploy, force-push, destructive remote action, issue-state mutation, or repository-setting mutation occurred.
+
+## REMOTE_CI_ADDENDUM — 2026-08-13
+
+PR #53 run [31749509029](https://github.com/bielxdh3/root.ark/actions/runs/31749509029) on commit `66a0133cbe39722950c2f34a9639a6e7e54adc7c` provides `CONFIRMED_PARTIAL_CI_BLOCKED_ADVISORY` evidence. Windows Node 22 [succeeded](https://github.com/bielxdh3/root.ark/actions/runs/31749509029/job/94611829759) through install, syntax, automated tests, artifacts, and clean checkout. Ubuntu Node 22 [succeeded through install, syntax, automated tests, and artifacts](https://github.com/bielxdh3/root.ark/actions/runs/31749509029/job/94611829806), then full validation failed only at Audit locked dependencies because `npm run validate:dependencies` reported one high `GHSA-rgw5-rvv9-x895` brace-expansion 5.0.8 advisory. This confirms partial remote CI only; it does not establish release readiness. Provider, browser, production, and cryptographic validation remain unconfirmed or blocked.
 
 ## Master phase ledger (original Phase 0-16 numbering)
 
@@ -67,7 +72,7 @@ Primary Phase 0-16 statuses use only `ACCEPTED`, `PARTIAL`, `BLOCKED_OWNER_DECIS
 | 12 | Bidirectional sync/WebDAV bridge | `NOT_STARTED` | Current evidence covers one-way sync MVP and direct server WebDAV only; D-009 requires client/local-bridge boundaries | Bridge, conflict authority, bidirectional protocol, metadata, recovery, and acceptance remain open | Design as a separate D-009 project; do not infer it from current MVPs |
 | 13 | Search/previews/PWA/clients/groups/admin UX | `NOT_STARTED` | Existing search/preview/admin surfaces are current implementation; plan backlog marks PWA, clients, groups, FTS, and redesign as not-yet-approved | Product scope, trust model, client architecture, and UX decisions remain open | Keep backlog deferred |
 | 14 | Deployment/adapters/resilience | `BLOCKED_ENVIRONMENT` | Fresh artifact and syntax checks passed, but dependency, native-binding, provider, and production gates remain unavailable; no deployment acceptance is claimed | Provider, deployment, TLS, production, native dependency, and resilience evidence remain open; remote Issue #14 was not mutated | Recover dependencies, then repeat environment-specific validation |
-| 15 | Documentation/release gate | `BLOCKED_ENVIRONMENT` | The local release gate is blocked by incomplete dependency/network, native-binding, provider, and CI evidence; documentation and secret-scan checks passed locally | Exact-SHA CI, deployment exposure, product approval, and publication authorization remain separate open boundaries | Recover the environment and complete release evidence; seek publication authorization separately |
+| 15 | Documentation/release gate | `BLOCKED_ENVIRONMENT` | The local release gate is blocked by incomplete dependency/network, native-binding, provider, and production evidence; remote CI is confirmed partial and advisory-blocked, while documentation and secret-scan checks passed locally | Deployment exposure, product approval, and publication authorization remain separate open boundaries | Recover the environment and complete release evidence; seek publication authorization separately |
 | 16 | Independent security/quality review | `BLOCKED_ENVIRONMENT` | Architect review found no concrete source defect; residual runtime/provider/production risks remain unvalidated because the fresh dependency gate is blocked | Independent final review, complete validation, and quality gate evidence remain outstanding | Repeat final security/quality review after dependency recovery |
 
 ## Phase 8 technical status addendum (2026-08-13)
@@ -83,7 +88,7 @@ These are independent local execution classifications. None is a publication aut
 | Linked-worktree Git metadata | `BLOCKED_ENVIRONMENT_LOCAL_GIT_ACL` | `E:\servidor-roadmap\.git` points to `E:\servidor\.git\worktrees\servidor-roadmap`; the common object store is `E:\servidor\.git`. `git worktree list --porcelain` shows no live lock files; `git cat-file -e HEAD` succeeds. Read-only ACL inspection found no deny entry for the active `codexsandboxoffline` account, but metadata/object write behavior remains unsafe to change. | No safe ACL repair was applied because no active-account deny was proven and broad ownership/permission changes are prohibited. Preserve the worktree and classify the write boundary as environment-blocked. |
 | npm install/toolchain | `BLOCKED_TOOLCHAIN_DEPENDENCY_INSTALL` | Node `v24.14.1`, npm `11.11.0`, lockfile version 3 with 378 locked packages, absent `node_modules`, and missing `bcryptjs`, `@aws-sdk/client-s3`, and `better-sqlite3`. DNS resolves `registry.npmjs.org`, but TCP/HTTPS 443 connectivity fails. A disposable cache/install was attempted; `npm.cmd ci` timed out after 120 seconds and did not produce usable dependencies. | The dependency tree is incomplete. This is an environment/network boundary, not a source regression; retry only with a functioning disposable install path. |
 | Native SQLite dependency | `BLOCKED_NATIVE_DEPENDENCY` | The existing continuation evidence records `npm.cmd rebuild better-sqlite3` exiting 0 while package contents remained incomplete and `require()` still failed. | A successful rebuild exit code is insufficient evidence of a usable native binding; do not claim SQLite runtime validation. |
-| npm audit and lockfile repair | `SECURITY_DEPENDENCY_ADVISORY` plus `BLOCKED_ENVIRONMENT_TOOLCHAIN_REPAIR` | The unmerged source baseline audit returned exit 1 with one high GHSA-rgw5-rvv9-x895 advisory in brace-expansion 5.0.8 via archiver -> readdir-glob -> minimatch 10.2.6; PR #50 separately hardens the lockfile to 5.0.9 and its branch audit is clean. | The unmerged source baseline remains advisory-affected; remote CI and independent validation remain unconfirmed or blocked. |
+| npm audit and lockfile repair | `SECURITY_DEPENDENCY_ADVISORY` plus `BLOCKED_ENVIRONMENT_TOOLCHAIN_REPAIR` | The unmerged source baseline audit returned exit 1 with one high GHSA-rgw5-rvv9-x895 advisory in brace-expansion 5.0.8 via archiver -> readdir-glob -> minimatch 10.2.6; PR #50 separately hardens the lockfile to 5.0.9 and its branch audit is clean. | The unmerged source baseline remains advisory-affected; remote CI is confirmed partial and advisory-blocked, while independent provider/browser/production/cryptographic validation remains unconfirmed or blocked. |
 | Product/architecture decisions | `BLOCKED_OWNER_DECISION` | D-003/D-006/D-007/D-009 and the zero-knowledge contract leave product policy, migration scope, recovery authority, sharing UX, and sync conflict authority open. | Owner-visible decisions remain separate from technical primitive selection and local tool failures. |
 | Publication and remote mutation | `NOT_A_PUBLICATION_BLOCKER` | Authorized commits, branches, and draft PRs are recorded in `PUBLICATION_RECONCILIATION`. No merge, release, tag, deploy, force-push, destructive remote action, issue-state mutation, or repository-setting mutation occurred. | Publication is separate from the remaining environment and validation blockers. |
 
@@ -97,11 +102,11 @@ Phase 8 remains `PARTIAL`, Phase 9 `NOT_STARTED`, and Phase 15 `RELEASE_GATE_BLO
 
 ## ARCHITECT DIFF REVIEW
 
-Independent review of the current dirty diff found no concrete source defect requiring a correction packet. The bounded realtime/upload changes retain their documented adapters and security boundaries; documentation and architecture changes preserve the independent Root.ark/BielOS and zero-knowledge limitations. Residual risks are limited to unproven dependency-backed runtime behavior, native SQLite, providers, browser/CI/production behavior, full parity, and zero-knowledge implementation/migration acceptance.
+Independent review of the current dirty diff found no concrete source defect requiring a correction packet. The bounded realtime/upload changes retain their documented adapters and security boundaries; documentation and architecture changes preserve the independent Root.ark/BielOS and zero-knowledge limitations. Remote CI is confirmed partial but advisory-blocked in `REMOTE_CI_ADDENDUM`; residual risks include unproven native SQLite, providers, browser/production behavior, full parity, and zero-knowledge implementation/migration acceptance.
 
 ## LOCAL COMMITS
 
-The five authorized commits and draft PRs are recorded in `PUBLICATION_RECONCILIATION`. HEAD remains anchored to baseline `28747c6ebdac873650e2d5a3c6193824e7cc9985`; no commit was amended or rewritten.
+The six authorized commits across five draft PRs are recorded in `PUBLICATION_RECONCILIATION`. HEAD remains anchored to baseline `28747c6ebdac873650e2d5a3c6193824e7cc9985`; no commit was amended or rewritten.
 
 ## FRESH VALIDATION MATRIX
 
@@ -120,7 +125,7 @@ No concrete source defect was identified in the fresh failures.
 
 ## RELEASE GATE
 
-`RELEASE_GATE_BLOCKED_ENVIRONMENT`: syntax, artifacts, secret scan, and whitespace checks pass, but dependency installation, native SQLite, focused/runtime acceptance, audit, CI, provider, production, and exact release authorization are incomplete. The five commits and draft PRs are recorded above; no merge, release, tag, deploy, force-push, destructive remote action, issue-state mutation, or repository-setting mutation occurred.
+`RELEASE_GATE_BLOCKED_ENVIRONMENT`: syntax, artifacts, secret scan, and whitespace checks pass, but dependency installation, native SQLite, focused/runtime acceptance, audit, CI, provider, production, and exact release authorization are incomplete. Six authorized commits across five draft PRs are recorded above; no merge, release, tag, deploy, force-push, destructive remote action, issue-state mutation, or repository-setting mutation occurred.
 
 ## FINAL SECURITY/QUALITY REVIEW
 

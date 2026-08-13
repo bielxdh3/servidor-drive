@@ -18,7 +18,7 @@ The baseline SHA and branch above remain unchanged. Existing dirty implementatio
 
 ## PHASE_ACCOUNTING
 
-Phase 8 is `PARTIAL`: the architecture is technically specified, but independent cryptographic review, implementation, migration, and acceptance remain open. Phase 9 is `NOT_STARTED`: no cryptographic implementation or migration scaffolding was added. Phase 15 is `RELEASE_GATE_BLOCKED_ENVIRONMENT`: local dependency, network, native-binding, provider, CI, and production evidence remain incomplete. The release-gate classification is independent of publication authorization.
+Phase 8 is `PARTIAL`: the architecture is technically specified, but independent cryptographic review, implementation, migration, and acceptance remain open. Phase 9 is `NOT_STARTED`: no cryptographic implementation or migration scaffolding was added. Phase 15 is `RELEASE_GATE_BLOCKED_ENVIRONMENT`: local dependency, network, native-binding, provider, and production evidence remain incomplete; remote CI is confirmed partial and advisory-blocked. The release-gate classification is independent of publication authorization.
 
 ## ZK_RESERVATIONS
 
@@ -32,7 +32,7 @@ These reservations are separate from residual environment-dependent validation b
 
 ## CHANGES
 
-No runtime or product behavior changed in this documentation reconciliation. The semantic commit families are now represented by the five authorized commits and draft PRs listed in `PUBLICATION_RECONCILIATION`; this record does not advance Phase 8 or Phase 9.
+No runtime or product behavior changed in this documentation reconciliation. The semantic commit families are now represented by six authorized commits across five draft PRs listed in `PUBLICATION_RECONCILIATION`; this record does not advance Phase 8 or Phase 9.
 
 ## EXISTING_DIRTY_WORK_RECONCILIATION
 
@@ -40,7 +40,7 @@ The existing dirty worktree was preserved as user work. The continuation does no
 
 ## COMMITS
 
-The five authorized commits are recorded in `PUBLICATION_RECONCILIATION`. They are based on the `Root/main` baseline SHA `28747c6ebdac873650e2d5a3c6193824e7cc9985`; no commit was amended or rewritten.
+The six authorized commits across five draft PRs are recorded in `PUBLICATION_RECONCILIATION`. They are based on the `Root/main` baseline SHA `28747c6ebdac873650e2d5a3c6193824e7cc9985`; no commit was amended or rewritten.
 
 ## BRANCHES_AND_PRS
 
@@ -48,7 +48,7 @@ The publication branches and draft PRs are recorded in `PUBLICATION_RECONCILIATI
 
 ## PUBLICATION_RECONCILIATION
 
-The following five authorized commits were published on separate branches as draft PRs, all based on `Root/main` baseline SHA `28747c6ebdac873650e2d5a3c6193824e7cc9985`. The `Refs #N` wording is preserved for each PR reference.
+The following six authorized commits were published across five separate branches as draft PRs, all based on `Root/main` baseline SHA `28747c6ebdac873650e2d5a3c6193824e7cc9985`. The `Refs #N` wording is preserved for each PR reference.
 
 | Commit | Branch | Draft PR | Reference |
 |---|---|---|---|
@@ -57,8 +57,13 @@ The following five authorized commits were published on separate branches as dra
 | `05226828f8d13f8013770a44bb2663f5848ead91` | `cdx/rootark-cloud-inventory-contracts` | [PR #52](https://github.com/bielxdh3/root.ark/pull/52) | `Refs #52` |
 | `66a0133cbe39722950c2f34a9639a6e7e54adc7c` | `cdx/rootark-ci-default-branch` | [PR #53](https://github.com/bielxdh3/root.ark/pull/53) | `Refs #53` |
 | `185cf2b2c148aa574bc84d9aa52c4efd8cdc62f0` | `cdx/rootark-roadmap-evidence` | [PR #54](https://github.com/bielxdh3/root.ark/pull/54) | `Refs #54` |
+| `326708eef4b060d6a31ca5860e028cc52feb2acf` | `cdx/rootark-roadmap-evidence` | [PR #54](https://github.com/bielxdh3/root.ark/pull/54) | `Refs #54` — records publication and CI evidence |
 
-All five PRs are draft. PR #50 is the separate brace-expansion 5.0.9 lockfile hardening; its branch audit is clean. The unmerged source baseline remains affected by the brace-expansion advisory. Remote CI, provider, browser, production, and cryptographic validation remain unconfirmed or blocked. No merge, release, tag, deploy, force-push, destructive remote action, issue-state mutation, or repository-setting mutation occurred.
+All five PRs are draft. PR #50 is the separate brace-expansion 5.0.9 lockfile hardening; its branch audit is clean. The unmerged source baseline remains affected by the brace-expansion advisory. Remote CI is `CONFIRMED_PARTIAL_CI_BLOCKED_ADVISORY` as recorded in `REMOTE_CI_ADDENDUM`; provider, browser, production, and cryptographic validation remain unconfirmed or blocked. No merge, release, tag, deploy, force-push, destructive remote action, issue-state mutation, or repository-setting mutation occurred.
+
+## REMOTE_CI_ADDENDUM — 2026-08-13
+
+PR #53 run [31749509029](https://github.com/bielxdh3/root.ark/actions/runs/31749509029) on commit `66a0133cbe39722950c2f34a9639a6e7e54adc7c` provides `CONFIRMED_PARTIAL_CI_BLOCKED_ADVISORY` evidence. Windows Node 22 [succeeded](https://github.com/bielxdh3/root.ark/actions/runs/31749509029/job/94611829759) through install, syntax, automated tests, artifacts, and clean checkout. Ubuntu Node 22 [succeeded through install, syntax, automated tests, and artifacts](https://github.com/bielxdh3/root.ark/actions/runs/31749509029/job/94611829806), then full validation failed only at Audit locked dependencies because `npm run validate:dependencies` reported one high `GHSA-rgw5-rvv9-x895` brace-expansion 5.0.8 advisory. This confirms partial remote CI only; it does not establish release readiness. Provider, browser, production, and cryptographic validation remain unconfirmed or blocked.
 
 ## TESTS
 
@@ -82,11 +87,11 @@ Formal rootark-zk-1 verdict: **Approved with reservations**. The recommendation 
 
 ## ENVIRONMENT_BLOCKERS
 
-Fresh evidence classifies dependency installation, registry/TCP/HTTPS access, npm advisory access, native better-sqlite3/compiler availability, provider-backed behavior, browser behavior, CI, production deployment, OS WebDAV mounting, live ClamAV, and complete JSON/SQLite parity as environment or validation blockers. No external S3, Google Drive, ClamAV, OS WebDAV, browser, CI, provider, production, or cryptographic implementation validation is claimed.
+Fresh evidence classifies dependency installation, registry/TCP/HTTPS access, npm advisory access, native better-sqlite3/compiler availability, provider-backed behavior, browser behavior, production deployment, OS WebDAV mounting, live ClamAV, and complete JSON/SQLite parity as environment or validation blockers. Remote CI is confirmed partial but blocked by the advisory as recorded in `REMOTE_CI_ADDENDUM`; no provider, browser, production, or cryptographic implementation validation is claimed.
 
 ## RELEASE_GATE
 
-`RELEASE_GATE_BLOCKED_ENVIRONMENT` remains active independently of publication authorization. Passing static checks does not establish a full runtime gate. The five draft PRs and their commits are recorded in `PUBLICATION_RECONCILIATION`; remote CI, provider, browser, production, and cryptographic validation remain unconfirmed or blocked. No merge, release, tag, deploy, force-push, destructive remote action, issue-state mutation, or repository-setting mutation occurred.
+`RELEASE_GATE_BLOCKED_ENVIRONMENT` remains active independently of publication authorization. Passing static checks and partial CI does not establish a full runtime gate. The five draft PRs and six authorized commits are recorded in `PUBLICATION_RECONCILIATION`; remote CI is `CONFIRMED_PARTIAL_CI_BLOCKED_ADVISORY`, while provider, browser, production, and cryptographic validation remain unconfirmed or blocked. No merge, release, tag, deploy, force-push, destructive remote action, issue-state mutation, or repository-setting mutation occurred.
 
 ## FINAL_REVIEW
 
