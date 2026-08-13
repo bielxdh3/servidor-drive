@@ -28,11 +28,11 @@ Reconciled locally on 2026-08-13 against the verified canonical baseline `Root/m
 
 ## Current local gate
 
-The worktree retains implementation/test/documentation changes from the bounded phases that are represented by the publication records below. Fresh Phase A-C recovery preserved branch `cdx/rootark-roadmap` and the `Root/main` baseline SHA `28747c6ebdac873650e2d5a3c6193824e7cc9985`. No merge, release, tag, deploy, force-push, destructive remote action, issue-state mutation, or repository-setting mutation occurred. Remaining work is gated by dependency/network recovery, zero-knowledge implementation and owner decisions, WebDAV and full persistence parity, native/provider/production evidence, and draft-PR review.
+The previously dirty scoped implementation/test/documentation work is now organized into the authorized commit set across five published branches and their draft PRs. The source branch `cdx/rootark-roadmap` is clean and exactly at the `Root/main` baseline SHA `28747c6ebdac873650e2d5a3c6193824e7cc9985`; this was achieved by branch organization and commits, not reset, clean, discard, or destructive cleanup. No merge, release, tag, deploy, force-push, destructive remote action, issue-state mutation, or repository-setting mutation occurred. Remaining work is gated by dependency/network recovery, zero-knowledge implementation and owner decisions, WebDAV and full persistence parity, native/provider/production evidence, and draft-PR review.
 
 ## PUBLICATION_RECONCILIATION
 
-The following six authorized commits were published across five separate branches as draft PRs, all based on `Root/main` baseline SHA `28747c6ebdac873650e2d5a3c6193824e7cc9985`. The `Refs #N` wording is preserved for each PR reference.
+The authorized commit set was published across five separate branches as draft PRs, all based on `Root/main` baseline SHA `28747c6ebdac873650e2d5a3c6193824e7cc9985`. The `Refs #N` wording is preserved for each PR reference.
 
 | Commit | Branch | Draft PR | Reference |
 |---|---|---|---|
@@ -42,6 +42,7 @@ The following six authorized commits were published across five separate branche
 | `66a0133cbe39722950c2f34a9639a6e7e54adc7c` | `cdx/rootark-ci-default-branch` | [PR #53](https://github.com/bielxdh3/root.ark/pull/53) | `Refs #53` |
 | `185cf2b2c148aa574bc84d9aa52c4efd8cdc62f0` | `cdx/rootark-roadmap-evidence` | [PR #54](https://github.com/bielxdh3/root.ark/pull/54) | `Refs #54` |
 | `326708eef4b060d6a31ca5860e028cc52feb2acf` | `cdx/rootark-roadmap-evidence` | [PR #54](https://github.com/bielxdh3/root.ark/pull/54) | `Refs #54` — records publication and CI evidence |
+| `eb1d6cb601ac66c679814937a4baeb7dd36da2ba` | `cdx/rootark-roadmap-evidence` | [PR #54](https://github.com/bielxdh3/root.ark/pull/54) | `Refs #54` — records remote CI evidence |
 
 All five PRs are draft. PR #50 is the separate brace-expansion 5.0.9 lockfile hardening; its branch audit is clean. The unmerged source baseline remains affected by the brace-expansion advisory. Remote CI is `CONFIRMED_PARTIAL_CI_BLOCKED_ADVISORY` as recorded in `REMOTE_CI_ADDENDUM`; provider, browser, production, and cryptographic validation remain unconfirmed or blocked. No merge, release, tag, deploy, force-push, destructive remote action, issue-state mutation, or repository-setting mutation occurred.
 
@@ -57,7 +58,7 @@ Primary Phase 0-16 statuses use only `ACCEPTED`, `PARTIAL`, `BLOCKED_OWNER_DECIS
 
 | Phase | Original meaning | Status | Evidence | Remaining dependency | Next action |
 |---:|---|---|---|---|---|
-| 0 | Orientation/baseline | `ACCEPTED` | Starting SHA `28747c6ebdac873650e2d5a3c6193824e7cc9985`, verified `Root/main`, current dirty worktree preserved | No reset/clean or baseline rewrite; provenance must remain explicit | Keep every continuation report anchored to the verified SHA and dirty-state map |
+| 0 | Orientation/baseline | `ACCEPTED` | Starting SHA `28747c6ebdac873650e2d5a3c6193824e7cc9985`, verified `Root/main`, source branch clean after scoped work was organized into published branches and commits | No reset, clean, discard, destructive cleanup, or baseline rewrite; provenance must remain explicit | Keep every continuation report anchored to the verified SHA and publication-state map |
 | 1 | Historical evidence | `PARTIAL` | Issue #7 report records 21 `PASS`, 0 `FAIL`, 2 environmental `BLOCKED`; Issue #7 ledger state is historical-complete | Fresh rerun, live ClamAV, OS mount, providers, production behavior remain unclaimed | Preserve historical evidence and rerun only with disposable capabilities |
 | 2 | Issue #14 | `ACCEPTED` | `Root/main`, `origin/HEAD`, and canonical SHA are locally verified; stale branch references were corrected | Remote issue state was not mutated and is not inferred | Leave remote Issue #14 untouched; report technical closure separately |
 | 3 | Realtime contract tests | `BLOCKED_ENVIRONMENT` | Fresh focused run reached 33 tests: 19 passed and 14 failed on dependency-loading `MODULE_NOT_FOUND` errors; prior 7/7 evidence remains historical/local only | Complete disposable dependency install; buffered-client closure remains unverified | Re-run the focused suite after registry and dependency recovery |
@@ -102,11 +103,11 @@ Phase 8 remains `PARTIAL`, Phase 9 `NOT_STARTED`, and Phase 15 `RELEASE_GATE_BLO
 
 ## ARCHITECT DIFF REVIEW
 
-Independent review of the current dirty diff found no concrete source defect requiring a correction packet. The bounded realtime/upload changes retain their documented adapters and security boundaries; documentation and architecture changes preserve the independent Root.ark/BielOS and zero-knowledge limitations. Remote CI is confirmed partial but advisory-blocked in `REMOTE_CI_ADDENDUM`; residual risks include unproven native SQLite, providers, browser/production behavior, full parity, and zero-knowledge implementation/migration acceptance.
+Independent review of the reconciled scoped changes found no concrete source defect requiring a correction packet. The bounded realtime/upload changes retain their documented adapters and security boundaries; documentation and architecture changes preserve the independent Root.ark/BielOS and zero-knowledge limitations. Remote CI is confirmed partial but advisory-blocked in `REMOTE_CI_ADDENDUM`; residual risks include unproven native SQLite, providers, browser/production behavior, full parity, and zero-knowledge implementation/migration acceptance.
 
 ## LOCAL COMMITS
 
-The six authorized commits across five draft PRs are recorded in `PUBLICATION_RECONCILIATION`. HEAD remains anchored to baseline `28747c6ebdac873650e2d5a3c6193824e7cc9985`; no commit was amended or rewritten.
+The authorized commit set across five draft PRs is recorded in `PUBLICATION_RECONCILIATION`. HEAD remains anchored to baseline `28747c6ebdac873650e2d5a3c6193824e7cc9985`; no commit was amended or rewritten.
 
 ## FRESH VALIDATION MATRIX
 

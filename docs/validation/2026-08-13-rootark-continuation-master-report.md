@@ -14,7 +14,7 @@ The applicable skill instructions are: `C:\CodexGlobal\skills\ponytail\SKILL.md`
 
 ## BASELINE
 
-The baseline SHA and branch above remain unchanged. Existing dirty implementation, test, workflow, architecture, validation, and extraction changes are preserved. No runtime, test, workflow, package, data, upload, or temporary-user-data change has occurred in this documentation reconciliation. The authorized commits, branches, pushes, and draft PRs are listed below; no merge or release action occurred.
+The source branch `cdx/rootark-roadmap` is clean and exactly at the `Root/main` baseline SHA `28747c6ebdac873650e2d5a3c6193824e7cc9985`. All previously dirty scoped implementation, test, workflow, architecture, validation, and extraction files were preserved in the authorized commit set across five published branches and their draft PRs. This was achieved by branch organization and commits, not reset, clean, discard, or destructive cleanup. No runtime, test, workflow, package, data, upload, or temporary-user-data change has occurred in this documentation reconciliation; no merge or release action occurred.
 
 ## PHASE_ACCOUNTING
 
@@ -32,15 +32,15 @@ These reservations are separate from residual environment-dependent validation b
 
 ## CHANGES
 
-No runtime or product behavior changed in this documentation reconciliation. The semantic commit families are now represented by six authorized commits across five draft PRs listed in `PUBLICATION_RECONCILIATION`; this record does not advance Phase 8 or Phase 9.
+No runtime or product behavior changed in this documentation reconciliation. The semantic commit families are now represented by the authorized commit set across five draft PRs listed in `PUBLICATION_RECONCILIATION`; this record does not advance Phase 8 or Phase 9.
 
 ## EXISTING_DIRTY_WORK_RECONCILIATION
 
-The existing dirty worktree was preserved as user work. The continuation does not rewrite, revert, stage, clean, or reinterpret those changes. The fresh-control evidence remains the source for dependency-backed test failures and rootark-zk-1 reservations.
+The previously dirty scoped work was preserved as user work through branch organization and the authorized commit set across five published branches and their draft PRs. The source branch `cdx/rootark-roadmap` is now clean and exactly at the `Root/main` baseline SHA `28747c6ebdac873650e2d5a3c6193824e7cc9985`; this was not achieved by reset, clean, discard, or destructive cleanup. The fresh-control evidence remains the source for dependency-backed test failures and rootark-zk-1 reservations.
 
 ## COMMITS
 
-The six authorized commits across five draft PRs are recorded in `PUBLICATION_RECONCILIATION`. They are based on the `Root/main` baseline SHA `28747c6ebdac873650e2d5a3c6193824e7cc9985`; no commit was amended or rewritten.
+The authorized commit set across five draft PRs is recorded in `PUBLICATION_RECONCILIATION`. It is based on the `Root/main` baseline SHA `28747c6ebdac873650e2d5a3c6193824e7cc9985`. The source branch `cdx/rootark-roadmap` is clean at that exact SHA after branch organization and commits; no commit was amended or rewritten, and no reset, clean, discard, or destructive cleanup was used.
 
 ## BRANCHES_AND_PRS
 
@@ -48,7 +48,7 @@ The publication branches and draft PRs are recorded in `PUBLICATION_RECONCILIATI
 
 ## PUBLICATION_RECONCILIATION
 
-The following six authorized commits were published across five separate branches as draft PRs, all based on `Root/main` baseline SHA `28747c6ebdac873650e2d5a3c6193824e7cc9985`. The `Refs #N` wording is preserved for each PR reference.
+The authorized commit set was published across five separate branches as draft PRs, all based on `Root/main` baseline SHA `28747c6ebdac873650e2d5a3c6193824e7cc9985`. The `Refs #N` wording is preserved for each PR reference.
 
 | Commit | Branch | Draft PR | Reference |
 |---|---|---|---|
@@ -58,6 +58,7 @@ The following six authorized commits were published across five separate branche
 | `66a0133cbe39722950c2f34a9639a6e7e54adc7c` | `cdx/rootark-ci-default-branch` | [PR #53](https://github.com/bielxdh3/root.ark/pull/53) | `Refs #53` |
 | `185cf2b2c148aa574bc84d9aa52c4efd8cdc62f0` | `cdx/rootark-roadmap-evidence` | [PR #54](https://github.com/bielxdh3/root.ark/pull/54) | `Refs #54` |
 | `326708eef4b060d6a31ca5860e028cc52feb2acf` | `cdx/rootark-roadmap-evidence` | [PR #54](https://github.com/bielxdh3/root.ark/pull/54) | `Refs #54` — records publication and CI evidence |
+| `eb1d6cb601ac66c679814937a4baeb7dd36da2ba` | `cdx/rootark-roadmap-evidence` | [PR #54](https://github.com/bielxdh3/root.ark/pull/54) | `Refs #54` — records remote CI evidence |
 
 All five PRs are draft. PR #50 is the separate brace-expansion 5.0.9 lockfile hardening; its branch audit is clean. The unmerged source baseline remains affected by the brace-expansion advisory. Remote CI is `CONFIRMED_PARTIAL_CI_BLOCKED_ADVISORY` as recorded in `REMOTE_CI_ADDENDUM`; provider, browser, production, and cryptographic validation remain unconfirmed or blocked. No merge, release, tag, deploy, force-push, destructive remote action, issue-state mutation, or repository-setting mutation occurred.
 
@@ -91,7 +92,7 @@ Fresh evidence classifies dependency installation, registry/TCP/HTTPS access, np
 
 ## RELEASE_GATE
 
-`RELEASE_GATE_BLOCKED_ENVIRONMENT` remains active independently of publication authorization. Passing static checks and partial CI does not establish a full runtime gate. The five draft PRs and six authorized commits are recorded in `PUBLICATION_RECONCILIATION`; remote CI is `CONFIRMED_PARTIAL_CI_BLOCKED_ADVISORY`, while provider, browser, production, and cryptographic validation remain unconfirmed or blocked. No merge, release, tag, deploy, force-push, destructive remote action, issue-state mutation, or repository-setting mutation occurred.
+`RELEASE_GATE_BLOCKED_ENVIRONMENT` remains active independently of publication authorization. Passing static checks and partial CI does not establish a full runtime gate. The five draft PRs and the authorized commit set are recorded in `PUBLICATION_RECONCILIATION`; remote CI is `CONFIRMED_PARTIAL_CI_BLOCKED_ADVISORY`, while provider, browser, production, and cryptographic validation remain unconfirmed or blocked. No merge, release, tag, deploy, force-push, destructive remote action, issue-state mutation, or repository-setting mutation occurred.
 
 ## FINAL_REVIEW
 
@@ -99,7 +100,7 @@ The current documentation and architecture evidence supports `Approved with rese
 
 ## REMOTE_ACTIONS
 
-The authorized commits, branches, and draft PRs are recorded in `PUBLICATION_RECONCILIATION`. No merge, release, tag, deploy, force-push, destructive remote action, issue-state mutation, or repository-setting mutation occurred.
+The authorized commits, branches, and draft PRs are recorded in `PUBLICATION_RECONCILIATION`. The source branch `cdx/rootark-roadmap` is clean at the exact `Root/main` baseline SHA after the scoped work was organized into those branches and commits. No reset, clean, discard, or destructive cleanup was used. No merge, release, tag, deploy, force-push, destructive remote action, issue-state mutation, or repository-setting mutation occurred.
 
 ## REMAINING_OWNER_DECISIONS
 
