@@ -4,7 +4,6 @@ const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
 const zlib = require("zlib");
-const net = require("net");
 const { pipeline } = require("stream/promises");
 const mammoth = require("mammoth");
 const { previewText } = require("./services/documentPreviewService");
@@ -12,7 +11,6 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const QRCode = require("qrcode");
 const http = require("http");
-const WebSocket = require("ws");
 const cron = require("node-cron");
 const { Transform } = require("node:stream");
 const { scheduleAutomaticBackups } = require("./services/backupScheduler");
@@ -41,6 +39,8 @@ const registerBackupRoutes = require("./src/routes/backups");
 const registerTrashRoutes = require("./src/routes/trash");
 const { createAuthenticate, createRealtimeAuthenticator, getExpectedOrigin, parseCookies } = require("./src/middlewares/auth");
 const { createRequirePermission } = require("./src/middlewares/permissions");
+const { createRealtimeServer } = require("./src/realtime/server");
+const { createUploadScanning } = require("./src/upload-scanning");
 
 const app = express();
 const server = http.createServer(app);
@@ -49,20 +49,19 @@ function parseBoundedNumber(name, fallback, minimum, maximum) {
   return Number.isFinite(value) && Number.isInteger(value) && value >= minimum && value <= maximum ? value : fallback;
 }
 
-const REALTIME_MAX_PAYLOAD_BYTES = parseBoundedNumber("REALTIME_MAX_PAYLOAD_BYTES", 16 * 1024, 1024, 1024 * 1024);
-const REALTIME_MAX_BUFFERED_BYTES = parseBoundedNumber("REALTIME_MAX_BUFFERED_BYTES", 64 * 1024, 1024, 16 * 1024 * 1024);
-const REALTIME_MAX_MESSAGES_PER_WINDOW = parseBoundedNumber("REALTIME_MAX_MESSAGES_PER_WINDOW", 30, 1, 10_000);
-const REALTIME_RATE_WINDOW_MS = parseBoundedNumber("REALTIME_RATE_WINDOW_MS", 10 * 1000, 1000, 10 * 60 * 1000);
-const REALTIME_HEARTBEAT_MS = parseBoundedNumber("REALTIME_HEARTBEAT_MS", 30 * 1000, 1000, 10 * 60 * 1000);
-const REALTIME_IDLE_TIMEOUT_MS = parseBoundedNumber("REALTIME_IDLE_TIMEOUT_MS", 2 * REALTIME_HEARTBEAT_MS, REALTIME_HEARTBEAT_MS, 60 * 60 * 1000);
-const wss = new WebSocket.Server({ server, path: "/ws", maxPayload: REALTIME_MAX_PAYLOAD_BYTES, perMessageDeflate: false });
-const realtimeHeartbeat = setInterval(() => {
-  for (const socket of wss.clients) {
-    if (socket.isAlive === false || Date.now() - socket.lastActivityAt > REALTIME_IDLE_TIMEOUT_MS) socket.terminate();
-    else { socket.isAlive = false; socket.ping(); }
-  }
-}, REALTIME_HEARTBEAT_MS);
-server.once("close", () => clearInterval(realtimeHeartbeat));
+const realtime = createRealtimeServer({
+  server,
+  getExpectedOrigin,
+  parseCookies,
+  authenticateRealtimeToken: (token) => authenticateRealtimeToken(token),
+  loadCurrentUser: (username) => loadCurrentUser(username),
+});
+function broadcastRealtime(event, payload = {}) {
+  realtime.broadcastRealtime(event, payload);
+}
+function broadcastDataChanged(source, payload = {}) {
+  broadcastRealtime("data:changed", { source, ...payload });
+}
 const JWT_SECRET = String(process.env.JWT_SECRET || "");
 if (JWT_SECRET.length < 32 || JWT_SECRET === "rootark_secret_change_in_production") {
   throw new Error("JWT_SECRET deve ser definido explicitamente com pelo menos 32 caracteres seguros.");
@@ -258,33 +257,6 @@ async function ensureCloudFileCached(folderId, fileName, localPath, area = "uplo
     console.error(`[cloud-storage] restore cache ${area}/${folderId}/${fileName}:`, error.message);
     return false;
   }
-}
-
-function refreshRealtimeUser(socket) {
-  if (!Number.isFinite(socket.user?.expiresAt) || Date.now() >= socket.user.expiresAt) {
-    socket.close(1008, "Sessao expirada");
-    return false;
-  }
-  const user = loadCurrentUser(socket.user?.username);
-  if (user && !user.disabled && (user.sessionVersion || 0) === socket.user?.sessionVersion) return true;
-  socket.close(1008, "Sessao revogada");
-  return false;
-}
-
-function sendRealtime(socket, event, payload = {}) {
-  if (socket.readyState !== WebSocket.OPEN || !refreshRealtimeUser(socket)) return;
-  if (socket.bufferedAmount > REALTIME_MAX_BUFFERED_BYTES) return socket.close(1013, "Cliente lento");
-  socket.send(JSON.stringify({ event, payload, timestamp: new Date().toISOString() }));
-}
-
-function broadcastRealtime(event, payload = {}) {
-  for (const socket of wss.clients) {
-    sendRealtime(socket, event, payload);
-  }
-}
-
-function broadcastDataChanged(source, payload = {}) {
-  broadcastRealtime("data:changed", { source, ...payload });
 }
 
 function loadUsers() {
@@ -3261,201 +3233,25 @@ function isSafeChildPath(baseDir, targetPath) {
   return resolvedTarget === basePath || resolvedTarget.startsWith(`${basePath}${path.sep}`);
 }
 
-function sanitizeQuarantineFilename(name) {
-  const base = path.basename(String(name || "upload.bin")).replace(/[<>:"/\\|?*\x00-\x1F]/g, "_").trim();
-  return (base || "upload.bin").slice(0, 120);
-}
-
-function getClamAvPort() {
-  return Number.isInteger(CLAMAV_PORT) && CLAMAV_PORT > 0 ? CLAMAV_PORT : 3310;
-}
-
-function scanFileWithClamAv(filePath) {
-  return new Promise((resolve, reject) => {
-    const socket = net.createConnection({ host: CLAMAV_HOST, port: getClamAvPort() });
-    const chunks = [];
-    let settled = false;
-
-    function finish(error, result) {
-      if (settled) return;
-      settled = true;
-      socket.destroy();
-      if (error) reject(error);
-      else resolve(result);
-    }
-
-    socket.setTimeout(5000, () => finish(new Error("ClamAV indisponivel: timeout")));
-    socket.on("error", (error) => finish(error));
-    socket.on("data", (chunk) => chunks.push(chunk));
-    socket.on("end", () => {
-      const response = Buffer.concat(chunks).toString("utf-8").trim();
-      if (/FOUND$/i.test(response)) {
-        const virus = response.replace(/^stream:\s*/i, "").replace(/\s+FOUND$/i, "");
-        return finish(null, { status: "infected", provider: "clamav", virus, raw: response.slice(0, 300) });
-      }
-      if (/OK$/i.test(response)) {
-        return finish(null, { status: "clean", provider: "clamav", raw: response.slice(0, 300) });
-      }
-      return finish(new Error(response || "Resposta invalida do ClamAV"));
-    });
-
-    socket.on("connect", () => {
-      socket.write(Buffer.from("zINSTREAM\0"));
-      const input = fs.createReadStream(filePath);
-      input.on("data", (chunk) => {
-        const size = Buffer.alloc(4);
-        size.writeUInt32BE(chunk.length, 0);
-        socket.write(size);
-        socket.write(chunk);
-      });
-      input.on("end", () => socket.write(Buffer.alloc(4)));
-      input.on("error", (error) => finish(error));
-    });
-  });
-}
-
-function quarantineUploadedFile(req, options) {
-  const folderId = options.folderId || ROOT_FOLDER_ID;
-  const originalFilename = path.basename(options.originalName || options.fileName || "upload.bin");
-  const storedQuarantineFilename = `${Date.now()}-${crypto.randomBytes(8).toString("hex")}-${sanitizeQuarantineFilename(originalFilename)}`;
-  const destinationPath = path.join(UPLOAD_QUARANTINE_DIR, storedQuarantineFilename);
-
-  fs.mkdirSync(UPLOAD_QUARANTINE_DIR, { recursive: true });
-  if (!isSafeChildPath(UPLOAD_QUARANTINE_DIR, destinationPath)) {
-    throw new Error("Caminho de quarentena invalido");
-  }
-
-  try {
-    fs.renameSync(options.filePath, destinationPath);
-  } catch (error) {
-    fs.copyFileSync(options.filePath, destinationPath);
-    fs.rmSync(options.filePath, { force: true });
-  }
-
-  const entries = loadQuarantine();
-  const item = {
-    id: crypto.randomUUID(),
-    originalFilename,
-    storedQuarantineFilename,
-    uploader: req.user?.username || "anonymous",
-    folderId,
-    size: Number(options.size) || fs.statSync(destinationPath).size,
-    reason: options.reason || "blocked",
-    scanResult: options.scanResult || {},
-    timestamp: new Date().toISOString(),
-  };
-  entries.items.unshift(item);
-  saveQuarantine(entries);
-
-  auditLog("upload.quarantined", getAuditActor(req), { type: "quarantine", id: item.id }, "quarantined", "success", {
-    filename: originalFilename,
-    folderId,
-    reason: item.reason,
-    result: item.scanResult?.status || "blocked",
-  });
-
-  return item;
-}
+const uploadScanning = createUploadScanning({
+  rootFolderId: ROOT_FOLDER_ID,
+  quarantineDirectory: UPLOAD_QUARANTINE_DIR,
+  uploadScanEnabled: UPLOAD_SCAN_ENABLED,
+  uploadScanProvider: UPLOAD_SCAN_PROVIDER,
+  clamAvHost: CLAMAV_HOST,
+  clamAvPort: CLAMAV_PORT,
+  uploadBlockExecutables: UPLOAD_BLOCK_EXECUTABLES,
+  uploadFailClosed: UPLOAD_FAIL_CLOSED,
+  suspiciousExtensions: UPLOAD_SUSPICIOUS_EXTENSIONS,
+  loadQuarantine,
+  saveQuarantine,
+  getAuditActor,
+  auditLog,
+  isSafeChildPath,
+});
 
 async function scanUploadBeforePending(req, options) {
-  if (!UPLOAD_SCAN_ENABLED) {
-    return { allowed: true, scanResult: { status: "skipped", provider: "disabled" } };
-  }
-
-  const fileName = path.basename(options.fileName || options.originalName || "");
-  const folderId = options.folderId || ROOT_FOLDER_ID;
-  const extension = path.extname(fileName).toLowerCase();
-  const auditTarget = { type: "file", id: fileName };
-
-  if (UPLOAD_BLOCK_EXECUTABLES && UPLOAD_SUSPICIOUS_EXTENSIONS.has(extension)) {
-    const scanResult = { status: "suspicious", provider: "extension-block", extension };
-    auditLog("upload.scan.suspicious", getAuditActor(req), auditTarget, "scan", "failure", {
-      filename: fileName,
-      folderId,
-      reason: "suspicious_extension",
-      extension,
-    });
-    const quarantine = quarantineUploadedFile(req, {
-      ...options,
-      reason: "suspicious_extension",
-      scanResult,
-    });
-    return {
-      allowed: false,
-      status: 415,
-      error: "Upload bloqueado por politica de seguranca.",
-      quarantine,
-      scanResult,
-    };
-  }
-
-  if (UPLOAD_SCAN_PROVIDER !== "clamav") {
-    auditLog("upload.scan.clean", getAuditActor(req), auditTarget, "scan", "success", {
-      filename: fileName,
-      folderId,
-      provider: UPLOAD_SCAN_PROVIDER,
-      result: "skipped",
-    });
-    return { allowed: true, scanResult: { status: "skipped", provider: UPLOAD_SCAN_PROVIDER } };
-  }
-
-  try {
-    const scanResult = await scanFileWithClamAv(options.filePath);
-    if (scanResult.status === "infected") {
-      auditLog("upload.scan.infected", getAuditActor(req), auditTarget, "scan", "failure", {
-        filename: fileName,
-        folderId,
-        provider: "clamav",
-        virus: scanResult.virus,
-      });
-      const quarantine = quarantineUploadedFile(req, {
-        ...options,
-        reason: "clamav_infected",
-        scanResult,
-      });
-      return {
-        allowed: false,
-        status: 422,
-        error: "Upload bloqueado pela verificacao de seguranca.",
-        quarantine,
-        scanResult,
-      };
-    }
-
-    auditLog("upload.scan.clean", getAuditActor(req), auditTarget, "scan", "success", {
-      filename: fileName,
-      folderId,
-      provider: "clamav",
-      result: scanResult.status,
-    });
-    return { allowed: true, scanResult };
-  } catch (error) {
-    const scanResult = { status: "failed", provider: "clamav", error: error.message };
-    auditLog("upload.scan.failed", getAuditActor(req), auditTarget, "scan", "failure", {
-      filename: fileName,
-      folderId,
-      provider: "clamav",
-      failClosed: UPLOAD_FAIL_CLOSED,
-      error: error.message,
-    });
-
-    if (UPLOAD_FAIL_CLOSED) {
-      const quarantine = quarantineUploadedFile(req, {
-        ...options,
-        reason: "scan_failed_fail_closed",
-        scanResult,
-      });
-      return {
-        allowed: false,
-        status: 503,
-        error: "Upload bloqueado: scanner indisponivel.",
-        quarantine,
-        scanResult,
-      };
-    }
-
-    return { allowed: true, scanResult };
-  }
+  return uploadScanning.scanUploadBeforePending(req, options);
 }
 
 function removePendingEntriesForFolder(folderId) {
@@ -4396,45 +4192,6 @@ app.get("/auth/session.js", authenticate, (req, res) => {
   res.type("application/javascript").set("Cache-Control", "no-store");
   const identity = JSON.stringify({ username: req.user.username, role: req.user.role, permissions: req.user.permissions }).replace(/</g, "\\u003c");
   res.send(`window.ROOTARK_AUTH=${identity};`);
-});
-
-wss.on("connection", (socket, req) => {
-  const origin = req.headers.origin;
-  const expectedOrigin = getExpectedOrigin(req);
-  const user = origin === expectedOrigin && authenticateRealtimeToken(parseCookies(req.headers.cookie).rootark_session);
-
-  if (!user) {
-    socket.close(1008, "Token invalido");
-    return;
-  }
-
-  socket.user = user;
-  socket.isAlive = true;
-  socket.lastActivityAt = Date.now();
-  socket.on("error", () => {});
-  socket.on("pong", () => { socket.isAlive = true; socket.lastActivityAt = Date.now(); });
-  socket.realtimeRate = { startedAt: Date.now(), count: 0 };
-  sendRealtime(socket, "connected", { username: user.username });
-
-  socket.on("message", (rawMessage, isBinary) => {
-    socket.lastActivityAt = Date.now();
-    if (!refreshRealtimeUser(socket)) return;
-    if (isBinary) return socket.close(1003, "Quadro binario nao suportado");
-    const now = Date.now();
-    if (now - socket.realtimeRate.startedAt >= REALTIME_RATE_WINDOW_MS) socket.realtimeRate = { startedAt: now, count: 0 };
-    socket.realtimeRate.count += 1;
-    if (socket.realtimeRate.count > REALTIME_MAX_MESSAGES_PER_WINDOW) return socket.close(1008, "Limite de mensagens excedido");
-    let message = {};
-    try {
-      message = JSON.parse(rawMessage.toString());
-    } catch {
-      return;
-    }
-
-    if (message.event === "ping") {
-      sendRealtime(socket, "pong", {});
-    }
-  });
 });
 
 const requirePermission = createRequirePermission();

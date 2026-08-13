@@ -11,6 +11,7 @@ const bcrypt = require("bcryptjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const SERVER = fs.readFileSync(path.join(ROOT, "server.js"), "utf8");
+const REALTIME = fs.readFileSync(path.join(ROOT, "src/realtime/server.js"), "utf8");
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -41,26 +42,26 @@ async function waitForServer(port) {
 
 test("realtime and WebDAV meta-remediation matrix", async (t) => {
   const cases = [
-    ["01 payload limit is configured", () => assert.match(SERVER, /maxPayload: REALTIME_MAX_PAYLOAD_BYTES/)],
-    ["02 compression is disabled", () => assert.match(SERVER, /perMessageDeflate: false/)],
-    ["03 heartbeat interval is configured", () => assert.match(SERVER, /REALTIME_HEARTBEAT_MS/)],
-    ["04 heartbeat sends ping", () => assert.match(SERVER, /socket\.ping\(\)/)],
-    ["05 dead sockets terminate", () => assert.match(SERVER, /socket\.terminate\(\)/)],
-    ["06 heartbeat interval is cleared", () => assert.match(SERVER, /clearInterval\(realtimeHeartbeat\)/)],
-    ["07 binary frames close with 1003", () => assert.match(SERVER, /socket\.close\(1003/)],
-    ["08 slow clients close with 1013", () => assert.match(SERVER, /socket\.close\(1013/)],
-    ["09 buffered amount is bounded", () => assert.match(SERVER, /REALTIME_MAX_BUFFERED_BYTES/)],
-    ["10 realtime burst is bounded", () => assert.match(SERVER, /REALTIME_MAX_MESSAGES_PER_WINDOW/)],
-    ["11 burst violation closes with 1008", () => assert.match(SERVER, /Limite de mensagens excedido/)],
-    ["12 realtime authentication uses cookie", () => assert.match(SERVER, /parseCookies\(req\.headers\.cookie\)/)],
-    ["13 realtime authentication checks origin", () => assert.match(SERVER, /origin === expectedOrigin/)],
-    ["14 stale realtime identity is refreshed", () => assert.match(SERVER, /refreshRealtimeUser\(socket\)/)],
-    ["15 invalid realtime identity closes", () => assert.match(SERVER, /Token invalido/)],
-    ["16 malformed realtime JSON is contained", () => assert.match(SERVER, /JSON\.parse\(rawMessage\.toString\(\)\)/)],
-    ["17 pong event is accepted", () => assert.match(SERVER, /message\.event === "ping"/)],
-    ["18 realtime sends structured events", () => assert.match(SERVER, /JSON\.stringify\(\{ event, payload/)],
-    ["19 realtime server path is explicit", () => assert.match(SERVER, /path: "\/ws"/)],
-    ["20 realtime server closes on shutdown", () => assert.match(SERVER, /server\.once\("close"/)],
+    ["01 payload limit is configured", () => assert.match(REALTIME, /maxPayload: REALTIME_MAX_PAYLOAD_BYTES/)],
+    ["02 compression is disabled", () => assert.match(REALTIME, /perMessageDeflate: false/)],
+    ["03 heartbeat interval is configured", () => assert.match(REALTIME, /REALTIME_HEARTBEAT_MS/)],
+    ["04 heartbeat sends ping", () => assert.match(REALTIME, /socket\.ping\(\)/)],
+    ["05 dead sockets terminate", () => assert.match(REALTIME, /socket\.terminate\(\)/)],
+    ["06 heartbeat interval is cleared", () => assert.match(REALTIME, /clearInterval\(realtimeHeartbeat\)/)],
+    ["07 binary frames close with 1003", () => assert.match(REALTIME, /socket\.close\(1003/)],
+    ["08 slow clients close with 1013", () => assert.match(REALTIME, /socket\.close\(1013/)],
+    ["09 buffered amount is bounded", () => assert.match(REALTIME, /REALTIME_MAX_BUFFERED_BYTES/)],
+    ["10 realtime burst is bounded", () => assert.match(REALTIME, /REALTIME_MAX_MESSAGES_PER_WINDOW/)],
+    ["11 burst violation closes with 1008", () => assert.match(REALTIME, /Limite de mensagens excedido/)],
+    ["12 realtime authentication uses cookie", () => assert.match(REALTIME, /parseCookies\(req\.headers\.cookie\)/)],
+    ["13 realtime authentication checks origin", () => assert.match(REALTIME, /origin === expectedOrigin/)],
+    ["14 stale realtime identity is refreshed", () => assert.match(REALTIME, /refreshRealtimeUser\(socket\)/)],
+    ["15 invalid realtime identity closes", () => assert.match(REALTIME, /Token invalido/)],
+    ["16 malformed realtime JSON is contained", () => assert.match(REALTIME, /JSON\.parse\(rawMessage\.toString\(\)\)/)],
+    ["17 pong event is accepted", () => assert.match(REALTIME, /message\.event === "ping"/)],
+    ["18 realtime sends structured events", () => assert.match(REALTIME, /JSON\.stringify\(\{ event, payload/)],
+    ["19 realtime server path is explicit", () => assert.match(REALTIME, /path: "\/ws"/)],
+    ["20 realtime server closes on shutdown", () => assert.match(REALTIME, /server\.once\("close"/)],
     ["21 WebDAV mount is normalized", () => assert.match(SERVER, /normalizeWebDavMountPath/)],
     ["22 WebDAV path matching is explicit", () => assert.match(SERVER, /isWebDavRequestPath/)],
     ["23 WebDAV named wildcard route exists", () => assert.match(SERVER, /WEBDAV_PATH}\/\*splat/)],

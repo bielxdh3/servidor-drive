@@ -16,9 +16,23 @@ function request(portNumber, requestPath, options = {}) { return new Promise((re
 async function ready(portNumber) { for (let index = 0; index < 100; index += 1) { try { await request(portNumber, "/login.html"); return; } catch { await new Promise((resolve) => setTimeout(resolve, 50)); } } throw new Error("server did not start"); }
 function event(socket, name) { return new Promise((resolve, reject) => { const timer = setTimeout(() => reject(new Error(`missing ${name}`)), 2000); socket.on("message", (raw) => { const message = JSON.parse(raw); if (message.event === name) { clearTimeout(timer); resolve(message); } }); socket.once("error", reject); }); }
 function close(socket) { return new Promise((resolve) => socket.once("close", (code) => resolve(code))); }
+function message(socket, timeout = 2000) { return new Promise((resolve, reject) => { const timer = setTimeout(() => reject(new Error("missing WebSocket message")), timeout); socket.once("message", (raw) => { clearTimeout(timer); resolve(JSON.parse(raw.toString())); }); socket.once("error", reject); }); }
+function stop(child) { return new Promise((resolve) => { if (child.exitCode !== null || child.signalCode !== null) return resolve(); child.once("exit", resolve); child.kill(); }); }
+async function realtimeServer(t, extraEnv = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rootark-realtime-contract-"));
+  fs.mkdirSync(path.join(dir, "data"));
+  fs.writeFileSync(path.join(dir, "data", "users.json"), JSON.stringify([{ username: "agent", password: bcrypt.hashSync("password", 10), role: "admin", permissions: {}, sessionVersion: 0 }]));
+  fs.symlinkSync(path.join(ROOT, "public"), path.join(dir, "public"), "junction");
+  const portNumber = await port();
+  const child = spawn(process.execPath, [path.join(ROOT, "server.js")], { cwd: dir, env: { ...process.env, PORT: String(portNumber), DB_ENABLED: "false", JWT_SECRET: crypto.randomBytes(48).toString("base64url"), ...extraEnv }, stdio: "ignore", windowsHide: true });
+  t.after(async () => { await stop(child); fs.rmSync(dir, { recursive: true, force: true }); });
+  await ready(portNumber);
+  return { child, portNumber, origin: `http://127.0.0.1:${portNumber}` };
+}
+async function login(portNumber) { const body = JSON.stringify({ username: "agent", password: "password" }); const response = await request(portNumber, "/auth/login", { method: "POST", headers: { "content-type": "application/json", "content-length": Buffer.byteLength(body) }, body }); assert.equal(response.status, 200); const cookies = response.headers["set-cookie"].map((item) => item.split(";", 1)[0]); return { cookie: cookies.join("; "), csrf: cookies.find((item) => item.startsWith("rootark_csrf=")).split("=", 2)[1] }; }
 
 test("realtime transport declares bounded payload, compression, binary, and burst handling", () => {
-  const contents = fs.readFileSync(path.join(ROOT, "server.js"), "utf8");
+  const contents = fs.readFileSync(path.join(ROOT, "src/realtime/server.js"), "utf8");
   assert.match(contents, /maxPayload: REALTIME_MAX_PAYLOAD_BYTES/);
   assert.match(contents, /perMessageDeflate: false/);
   assert.match(contents, /if \(isBinary\) return socket\.close\(1003/);
@@ -47,12 +61,78 @@ test("WebSocket HTTP upgrade enforces cookie, Origin, message, and binary bounda
   const origin = `http://127.0.0.1:${portNumber}`;
   const connect = (headers = {}, requestedOrigin = origin) => new WebSocket(`ws://127.0.0.1:${portNumber}/ws`, { headers, origin: requestedOrigin });
   const allowed = connect({ cookie }); t.after(() => allowed.terminate()); await event(allowed, "connected"); allowed.send("not-json"); allowed.send(JSON.stringify({ event: "ping" })); await event(allowed, "pong");
-  const missing = connect(); assert.equal(await close(missing), 1008);
-  const malformed = connect({ cookie: "rootark_session=not-a-token" }); assert.equal(await close(malformed), 1008);
-  const wrongOrigin = connect({ cookie }, "https://evil.test"); assert.equal(await close(wrongOrigin), 1008);
+  const rejected = (socket) => { const events = []; socket.on("message", (raw) => events.push(JSON.parse(raw.toString()))); return close(socket).then((code) => { assert.equal(events.some((item) => item.event === "connected"), false); return code; }); };
+  const missing = connect(); assert.equal(await rejected(missing), 1008);
+  const malformed = connect({ cookie: "rootark_session=not-a-token" }); assert.equal(await rejected(malformed), 1008);
+  const wrongOrigin = connect({ cookie }, "https://evil.test"); assert.equal(await rejected(wrongOrigin), 1008);
   const binary = connect({ cookie }); await event(binary, "connected"); const binaryClose = close(binary); binary.send(Buffer.from([1])); assert.equal(await binaryClose, 1003);
   const oversized = connect({ cookie }); await event(oversized, "connected"); const oversizedClose = close(oversized); oversized.send("x".repeat(17 * 1024)); assert.equal(await oversizedClose, 1009);
   const burst = connect({ cookie }); await event(burst, "connected"); const burstClose = close(burst); for (let index = 0; index < 31; index += 1) burst.send(JSON.stringify({ event: "ping" })); assert.equal(await burstClose, 1008);
+});
+
+test("realtime emits connected first and preserves exact notification envelopes", { timeout: 20_000 }, async (t) => {
+  const { portNumber, origin } = await realtimeServer(t);
+  const credentials = await login(portNumber);
+  const socket = new WebSocket(`ws://127.0.0.1:${portNumber}/ws`, { headers: { cookie: credentials.cookie }, origin });
+  t.after(() => socket.terminate());
+  const first = message(socket);
+  await new Promise((resolve, reject) => { socket.once("open", resolve); socket.once("error", reject); });
+  const connected = await first;
+  assert.deepEqual(Object.keys(connected).sort(), ["event", "payload", "timestamp"]);
+  assert.equal(connected.event, "connected");
+  assert.deepEqual(connected.payload, { username: "agent" });
+  assert.ok(Number.isFinite(Date.parse(connected.timestamp)));
+
+  const notificationPromise = message(socket);
+  const body = JSON.stringify({ name: "contract-folder" });
+  const response = await request(portNumber, "/folders", { method: "POST", headers: { cookie: credentials.cookie, "x-csrf-token": credentials.csrf, "content-type": "application/json", "content-length": Buffer.byteLength(body) }, body });
+  assert.equal(response.status, 201);
+  const notification = await notificationPromise;
+  assert.deepEqual(Object.keys(notification).sort(), ["event", "payload", "timestamp"]);
+  assert.equal(notification.event, "data:changed");
+  assert.deepEqual(notification.payload, { source: "folders" });
+  assert.ok(Date.parse(notification.timestamp) >= Date.parse(connected.timestamp));
+});
+
+test("realtime message-rate window resets after the configured interval", { timeout: 20_000 }, async (t) => {
+  const { portNumber, origin } = await realtimeServer(t, { REALTIME_MAX_MESSAGES_PER_WINDOW: "2", REALTIME_RATE_WINDOW_MS: "1000" });
+  const credentials = await login(portNumber);
+  const socket = new WebSocket(`ws://127.0.0.1:${portNumber}/ws`, { headers: { cookie: credentials.cookie }, origin });
+  t.after(() => socket.terminate());
+  await event(socket, "connected");
+  socket.send(JSON.stringify({ event: "ping" })); await event(socket, "pong");
+  socket.send(JSON.stringify({ event: "ping" })); await event(socket, "pong");
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  socket.send(JSON.stringify({ event: "ping" })); await event(socket, "pong");
+  socket.send(JSON.stringify({ event: "ping" })); await event(socket, "pong");
+  assert.equal(socket.readyState, WebSocket.OPEN);
+});
+
+function unresponsiveWebSocket(portNumber, origin, cookie) {
+  const key = crypto.randomBytes(16).toString("base64");
+  const socket = net.createConnection(portNumber, "127.0.0.1");
+  socket.on("error", () => {});
+  const handshake = new Promise((resolve, reject) => {
+    let response = "";
+    const timer = setTimeout(() => reject(new Error("WebSocket handshake timed out")), 2000);
+    socket.on("data", (chunk) => { response += chunk.toString("latin1"); if (response.includes("\r\n\r\n")) { clearTimeout(timer); resolve(response); } });
+    socket.once("close", () => { clearTimeout(timer); reject(new Error("WebSocket closed before handshake")); });
+  });
+  const closed = new Promise((resolve) => socket.once("close", resolve));
+  socket.once("connect", () => socket.write(`GET /ws HTTP/1.1\r\nHost: 127.0.0.1:${portNumber}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: ${key}\r\nSec-WebSocket-Version: 13\r\nOrigin: ${origin}\r\nCookie: ${cookie}\r\n\r\n`));
+  return { socket, handshake, closed };
+}
+
+test("heartbeat terminates an unresponsive idle client and shutdown leaves no child process", { timeout: 20_000 }, async (t) => {
+  const { child, portNumber, origin } = await realtimeServer(t, { REALTIME_HEARTBEAT_MS: "1000", REALTIME_IDLE_TIMEOUT_MS: "1000" });
+  const credentials = await login(portNumber);
+  const raw = unresponsiveWebSocket(portNumber, origin, credentials.cookie);
+  t.after(() => raw.socket.destroy());
+  const handshake = await raw.handshake;
+  assert.match(handshake, /101 Switching Protocols/);
+  await Promise.race([raw.closed, new Promise((_, reject) => setTimeout(() => reject(new Error("idle client remained connected")), 4000))]);
+  await stop(child);
+  assert.ok(child.exitCode !== null || child.signalCode !== null);
 });
 
 test("WebDAV HTTP boundary rejects unauthenticated, hostile, traversing, and infinite-depth requests", { timeout: 20_000 }, async (t) => {

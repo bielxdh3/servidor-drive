@@ -108,7 +108,40 @@ function snapshot(dir) {
   return entries.sort();
 }
 
-async function createHarness(t) {
+function startFakeClamAv(response) {
+  const daemon = net.createServer((socket) => {
+    let buffer = Buffer.alloc(0);
+    let started = false;
+
+    socket.on("data", (chunk) => {
+      buffer = Buffer.concat([buffer, chunk]);
+      while (true) {
+        if (!started) {
+          const header = Buffer.from("zINSTREAM\0");
+          if (buffer.length < header.length) return;
+          if (!buffer.subarray(0, header.length).equals(header)) return socket.destroy();
+          buffer = buffer.subarray(header.length);
+          started = true;
+        }
+
+        if (buffer.length < 4) return;
+        const size = buffer.readUInt32BE(0);
+        if (size === 0) {
+          socket.end(response);
+          return;
+        }
+        if (buffer.length < 4 + size) return;
+        buffer = buffer.subarray(4 + size);
+      }
+    });
+  });
+  return new Promise((resolve, reject) => {
+    daemon.once("error", reject);
+    daemon.listen(0, "127.0.0.1", () => resolve({ daemon, port: daemon.address().port }));
+  });
+}
+
+async function createHarness(t, scanEnv = {}) {
   const password = crypto.randomBytes(24).toString("base64url");
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rootark-upload-safety-"));
   const quarantineDir = path.join(dir, "quarantine");
@@ -135,6 +168,7 @@ async function createHarness(t) {
       UPLOAD_BLOCK_EXECUTABLES: "true",
       UPLOAD_QUARANTINE_DIR: quarantineDir,
       JWT_SECRET: crypto.randomBytes(48).toString("base64url"),
+      ...scanEnv,
     },
     stdio: "ignore",
     windowsHide: true,
@@ -223,6 +257,98 @@ test("authorized harmless multipart upload enters the selected folder pending ar
   assert.deepEqual(fs.readFileSync(path.join(harness.dir, "temp", FOLDER_ID, "notes.txt")), bytes);
   assert.deepEqual(quarantine(harness.dir).items, []);
   assert.deepEqual(fs.existsSync(harness.quarantineDir) ? fs.readdirSync(harness.quarantineDir) : [], []);
+});
+
+test("unavailable ClamAV remains fail-open into pending state when fail-closed is disabled", { timeout: 30_000 }, async (t) => {
+  const clamAvPort = await getUnusedPort();
+  const harness = await createHarness(t, {
+    UPLOAD_SCAN_PROVIDER: "clamav",
+    CLAMAV_HOST: "127.0.0.1",
+    CLAMAV_PORT: String(clamAvPort),
+    UPLOAD_FAIL_CLOSED: "false",
+  });
+  const session = await login(harness.port, "uploader", harness.password);
+  const bytes = Buffer.from("scanner unavailable but allowed\n");
+  const response = await upload(harness.port, session, "scanner-off.txt", bytes);
+
+  assert.equal(response.status, 200, response.body);
+  assert.equal(JSON.parse(response.body).message, "Upload enviado para aprovacao");
+  assert.ok(pending(harness.dir)[`${FOLDER_ID}/scanner-off.txt`]);
+  assert.deepEqual(fs.readFileSync(path.join(harness.dir, "temp", FOLDER_ID, "scanner-off.txt")), bytes);
+  assert.deepEqual(quarantine(harness.dir).items, []);
+  assert.deepEqual(filesUnder(harness.quarantineDir), []);
+});
+
+test("unavailable ClamAV fail-closed upload is quarantined before pending registration", { timeout: 30_000 }, async (t) => {
+  const clamAvPort = await getUnusedPort();
+  const harness = await createHarness(t, {
+    UPLOAD_SCAN_PROVIDER: "clamav",
+    CLAMAV_HOST: "127.0.0.1",
+    CLAMAV_PORT: String(clamAvPort),
+    UPLOAD_FAIL_CLOSED: "true",
+  });
+  const session = await login(harness.port, "uploader", harness.password);
+  const bytes = Buffer.from("scanner unavailable and blocked\n");
+  const response = await upload(harness.port, session, "scanner-fail-closed.txt", bytes);
+  const result = JSON.parse(response.body);
+  const items = quarantine(harness.dir).items;
+
+  assert.equal(response.status, 503);
+  assert.deepEqual(result, { error: "Upload bloqueado: scanner indisponivel." });
+  assert.deepEqual(pending(harness.dir), {});
+  assert.equal(fs.existsSync(path.join(harness.dir, "temp", FOLDER_ID, "scanner-fail-closed.txt")), false);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].reason, "scan_failed_fail_closed");
+  assert.equal(items[0].scanResult.status, "failed");
+  const quarantinedPath = path.join(harness.quarantineDir, items[0].storedQuarantineFilename);
+  assert.equal(isContained(harness.quarantineDir, quarantinedPath), true);
+  assert.deepEqual(fs.readFileSync(quarantinedPath), bytes);
+});
+
+test("local fake ClamAV accepts a clean INSTREAM response into pending state", { timeout: 30_000 }, async (t) => {
+  const fake = await startFakeClamAv("stream: OK\n");
+  t.after(() => new Promise((resolve) => fake.daemon.close(() => resolve())));
+  const harness = await createHarness(t, {
+    UPLOAD_SCAN_PROVIDER: "clamav",
+    CLAMAV_HOST: "127.0.0.1",
+    CLAMAV_PORT: String(fake.port),
+    UPLOAD_FAIL_CLOSED: "true",
+  });
+  const session = await login(harness.port, "uploader", harness.password);
+  const bytes = Buffer.from("fake daemon clean\n");
+  const response = await upload(harness.port, session, "fake-clean.txt", bytes);
+
+  assert.equal(response.status, 200, response.body);
+  assert.ok(pending(harness.dir)[`${FOLDER_ID}/fake-clean.txt`]);
+  assert.deepEqual(fs.readFileSync(path.join(harness.dir, "temp", FOLDER_ID, "fake-clean.txt")), bytes);
+  assert.deepEqual(quarantine(harness.dir).items, []);
+});
+
+test("local fake ClamAV infected INSTREAM response quarantines before pending registration", { timeout: 30_000 }, async (t) => {
+  const fake = await startFakeClamAv("stream: Eicar-Test-Signature FOUND\n");
+  t.after(() => new Promise((resolve) => fake.daemon.close(() => resolve())));
+  const harness = await createHarness(t, {
+    UPLOAD_SCAN_PROVIDER: "clamav",
+    CLAMAV_HOST: "127.0.0.1",
+    CLAMAV_PORT: String(fake.port),
+    UPLOAD_FAIL_CLOSED: "false",
+  });
+  const session = await login(harness.port, "uploader", harness.password);
+  const bytes = Buffer.from("fake daemon infected\n");
+  const response = await upload(harness.port, session, "fake-infected.txt", bytes);
+  const result = JSON.parse(response.body);
+  const items = quarantine(harness.dir).items;
+
+  assert.equal(response.status, 422);
+  assert.deepEqual(result, { error: "Upload bloqueado pela verificacao de seguranca." });
+  assert.deepEqual(pending(harness.dir), {});
+  assert.equal(items.length, 1);
+  assert.equal(items[0].reason, "clamav_infected");
+  assert.equal(items[0].scanResult.status, "infected");
+  assert.equal(items[0].scanResult.virus, "Eicar-Test-Signature");
+  const quarantinedPath = path.join(harness.quarantineDir, items[0].storedQuarantineFilename);
+  assert.equal(isContained(harness.quarantineDir, quarantinedPath), true);
+  assert.deepEqual(fs.readFileSync(quarantinedPath), bytes);
 });
 
 test("traversal-style multipart filenames stay contained in the selected folder", { timeout: 30_000 }, async (t) => {
