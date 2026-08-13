@@ -2,7 +2,7 @@
 
 ## STATUS
 
-This documentation correction makes no runtime change. The current mission authorizes scoped local commits, scoped branches, pushes, and PR creation/update within `bielxdh3/root.ark`; no such publication action has occurred yet. Phase 8 remains `PARTIAL`; Phase 9 remains `NOT_STARTED`; Phase 15 remains `RELEASE_GATE_BLOCKED_ENVIRONMENT`. No new zero-knowledge runtime implementation is claimed.
+This documentation correction makes no runtime change. The authorized publication actions are now recorded in `PUBLICATION_RECONCILIATION` below. Phase 8 remains `PARTIAL`; Phase 9 remains `NOT_STARTED`; Phase 15 remains `RELEASE_GATE_BLOCKED_ENVIRONMENT`. No new zero-knowledge runtime implementation is claimed.
 
 ## EXECUTOR_PROVENANCE
 
@@ -14,7 +14,7 @@ The applicable skill instructions are: `C:\CodexGlobal\skills\ponytail\SKILL.md`
 
 ## BASELINE
 
-The baseline SHA and branch above remain unchanged. Existing dirty implementation, test, workflow, architecture, validation, and extraction changes are preserved. No runtime, test, workflow, package, data, upload, temporary-user-data, or Git metadata change has occurred in this documentation correction. Scoped commits, branches, pushes, and PRs remain authorized only after semantic diff review and focused validation.
+The baseline SHA and branch above remain unchanged. Existing dirty implementation, test, workflow, architecture, validation, and extraction changes are preserved. No runtime, test, workflow, package, data, upload, or temporary-user-data change has occurred in this documentation reconciliation. The authorized commits, branches, pushes, and draft PRs are listed below; no merge or release action occurred.
 
 ## PHASE_ACCOUNTING
 
@@ -32,7 +32,7 @@ These reservations are separate from residual environment-dependent validation b
 
 ## CHANGES
 
-No runtime or product behavior changed in this continuation. Current semantic commit families are proposal-only: realtime boundary; upload scanning boundary; cloud inventory contracts; documentation/architecture/evidence; and the CI default-branch workflow. No family is represented as committed in this continuation.
+No runtime or product behavior changed in this documentation reconciliation. The semantic commit families are now represented by the five authorized commits and draft PRs listed in `PUBLICATION_RECONCILIATION`; this record does not advance Phase 8 or Phase 9.
 
 ## EXISTING_DIRTY_WORK_RECONCILIATION
 
@@ -40,11 +40,25 @@ The existing dirty worktree was preserved as user work. The continuation does no
 
 ## COMMITS
 
-No commit has occurred yet; commit is permitted only after semantic diff review and focused validation.
+The five authorized commits are recorded in `PUBLICATION_RECONCILIATION`. They are based on the `Root/main` baseline SHA `28747c6ebdac873650e2d5a3c6193824e7cc9985`; no commit was amended or rewritten.
 
 ## BRANCHES_AND_PRS
 
-The current branch remains `cdx/rootark-roadmap`. This mission authorizes scoped local branch work, pushes, and PR creation/update within `bielxdh3/root.ark`; no branch creation, branch mutation, push, PR creation, or PR update has occurred yet. Merge, release, tag, deploy, destructive remote action, issue-state mutation, and settings changes remain prohibited.
+The publication branches and draft PRs are recorded in `PUBLICATION_RECONCILIATION`. All are based on `Root/main` baseline SHA `28747c6ebdac873650e2d5a3c6193824e7cc9985`. No merge, release, tag, deploy, force-push, destructive remote action, issue-state mutation, or repository-setting mutation occurred.
+
+## PUBLICATION_RECONCILIATION
+
+The following five authorized commits were published on separate branches as draft PRs, all based on `Root/main` baseline SHA `28747c6ebdac873650e2d5a3c6193824e7cc9985`. The `Refs #N` wording is preserved for each PR reference.
+
+| Commit | Branch | Draft PR | Reference |
+|---|---|---|---|
+| `38d387d9caee07975be33c7bf589a2072c7966ae` | `cdx/rootark-dependency-hardening` | [PR #50](https://github.com/bielxdh3/root.ark/pull/50) | `Refs #50` |
+| `8c5b29be7589f40a20c72344961e70212c09cb6a` | `cdx/rootark-boundary-extractions` | [PR #51](https://github.com/bielxdh3/root.ark/pull/51) | `Refs #51` |
+| `05226828f8d13f8013770a44bb2663f5848ead91` | `cdx/rootark-cloud-inventory-contracts` | [PR #52](https://github.com/bielxdh3/root.ark/pull/52) | `Refs #52` |
+| `66a0133cbe39722950c2f34a9639a6e7e54adc7c` | `cdx/rootark-ci-default-branch` | [PR #53](https://github.com/bielxdh3/root.ark/pull/53) | `Refs #53` |
+| `185cf2b2c148aa574bc84d9aa52c4efd8cdc62f0` | `cdx/rootark-roadmap-evidence` | [PR #54](https://github.com/bielxdh3/root.ark/pull/54) | `Refs #54` |
+
+All five PRs are draft. PR #50 is the separate brace-expansion 5.0.9 lockfile hardening; its branch audit is clean. The unmerged source baseline remains affected by the brace-expansion advisory. Remote CI, provider, browser, production, and cryptographic validation remain unconfirmed or blocked. No merge, release, tag, deploy, force-push, destructive remote action, issue-state mutation, or repository-setting mutation occurred.
 
 ## TESTS
 
@@ -54,13 +68,13 @@ Static checks already recorded as passed: `node --check` on the seven changed/ne
 
 | Check | Current result | Classification |
 |---|---|---|
-| `npm.cmd audit --package-lock-only --audit-level=high` | Exit 1; one high `GHSA-rgw5-rvv9-x895` / CVE-class DoS advisory in transitive `brace-expansion` 5.0.8 via `archiver -> readdir-glob -> minimatch` 10.2.6. Fixed `brace-expansion` 5.0.9 is available, but lockfile repair is blocked and `package-lock.json` remains unchanged. | `SECURITY_DEPENDENCY_ADVISORY` plus `BLOCKED_ENVIRONMENT_TOOLCHAIN_REPAIR` |
+| `npm.cmd audit --package-lock-only --audit-level=high` | Exit 1 against the unmerged source baseline; one high `GHSA-rgw5-rvv9-x895` / CVE-class DoS advisory in transitive `brace-expansion` 5.0.8 via `archiver -> readdir-glob -> minimatch` 10.2.6. PR #50 separately hardens the lockfile to `brace-expansion` 5.0.9 and its branch audit is clean; the unmerged source baseline remains advisory-affected. | `SECURITY_DEPENDENCY_ADVISORY` plus `BLOCKED_ENVIRONMENT_TOOLCHAIN_REPAIR` |
 
 The prior fresh-control artifact at `docs/validation/2026-08-13-rootark-fresh-control-evidence.md` remains historical evidence and is not rewritten here.
 
 ## FAILURE_LEDGER
 
-The fresh-control ledger records the exact focused aggregate as 43 tests with 19 passed and 24 failed, and `npm.cmd test` as 106 tests with 34 passed and 72 failed. First actionable failures were missing `bcryptjs`, `jsonwebtoken`, `@aws-sdk/client-s3`, `better-sqlite3`, and other incomplete dependencies. Syntax validation recorded 83/83 and artifact validation passed. The direct `npm.cmd audit --package-lock-only --audit-level=high` returned exit 1; the current audit result identifies one high transitive brace-expansion 5.0.8 advisory (`GHSA-rgw5-rvv9-x895`, CVE-class DoS) through `archiver -> readdir-glob -> minimatch` 10.2.6. The fixed repair target is brace-expansion 5.0.9 with official integrity `sha512-ScQ4IuvIEF1TMlP7Zt+vjJ//9zlPb2SDcxWxM3bk8s6t6GGdJ7KO1dCcTidOPJKePW30LE/2cT7wCyPho9/Wxg==`. The online audit-fix attempt failed with registry/cache EPERM, and the required offline lockfile-only attempt returned exit 0 without changing `package-lock.json`; the audit remains unresolved. Classify this as `SECURITY_DEPENDENCY_ADVISORY` plus `BLOCKED_ENVIRONMENT_TOOLCHAIN_REPAIR`, not as a clean audit or a generic advisory-endpoint absence. These are environment/toolchain and confirmed-advisory classifications, not source-defect findings.
+The fresh-control ledger records the exact focused aggregate as 43 tests with 19 passed and 24 failed, and `npm.cmd test` as 106 tests with 34 passed and 72 failed. First actionable failures were missing `bcryptjs`, `jsonwebtoken`, `@aws-sdk/client-s3`, `better-sqlite3`, and other incomplete dependencies. Syntax validation recorded 83/83 and artifact validation passed. The direct `npm.cmd audit --package-lock-only --audit-level=high` returned exit 1 against the unmerged source baseline; the current audit result identifies one high transitive brace-expansion 5.0.8 advisory (`GHSA-rgw5-rvv9-x895`, CVE-class DoS) through `archiver -> readdir-glob -> minimatch` 10.2.6. PR #50 separately hardens the lockfile to brace-expansion 5.0.9, and its branch audit is clean; the unmerged source baseline remains advisory-affected. The fixed repair target is brace-expansion 5.0.9 with official integrity `sha512-ScQ4IuvIEF1TMlP7Zt+vjJ//9zlPb2SDcxWxM3bk8s6t6GGdJ7KO1dCcTidOPJKePW30LE/2cT7wCyPho9/Wxg==`. The online audit-fix attempt failed with registry/cache EPERM, and the required offline lockfile-only attempt returned exit 0 without changing the source-baseline `package-lock.json`; classify this as `SECURITY_DEPENDENCY_ADVISORY` plus `BLOCKED_ENVIRONMENT_TOOLCHAIN_REPAIR`, not as a clean audit or a generic advisory-endpoint absence. These are environment/toolchain and confirmed-advisory classifications, not source-defect findings.
 
 ## SECURITY_REVIEW
 
@@ -72,7 +86,7 @@ Fresh evidence classifies dependency installation, registry/TCP/HTTPS access, np
 
 ## RELEASE_GATE
 
-`RELEASE_GATE_BLOCKED_ENVIRONMENT` remains active independently of publication authorization. Passing static checks does not establish a full runtime gate. This mission authorizes scoped local commits, scoped branches, pushes, and PR creation/update within `bielxdh3/root.ark`; no such publication action has occurred yet. Merge, release, tag, deploy, destructive remote action, issue-state mutation, and settings changes remain prohibited.
+`RELEASE_GATE_BLOCKED_ENVIRONMENT` remains active independently of publication authorization. Passing static checks does not establish a full runtime gate. The five draft PRs and their commits are recorded in `PUBLICATION_RECONCILIATION`; remote CI, provider, browser, production, and cryptographic validation remain unconfirmed or blocked. No merge, release, tag, deploy, force-push, destructive remote action, issue-state mutation, or repository-setting mutation occurred.
 
 ## FINAL_REVIEW
 
@@ -80,7 +94,7 @@ The current documentation and architecture evidence supports `Approved with rese
 
 ## REMOTE_ACTIONS
 
-This mission authorizes scoped local commits, scoped branches, pushes, and PR creation/update within `bielxdh3/root.ark`; no commit, push, branch, PR creation/update, or other publication action has occurred yet. Merge, release, tag, deploy, destructive remote action, issue-state mutation, and settings changes remain prohibited.
+The authorized commits, branches, and draft PRs are recorded in `PUBLICATION_RECONCILIATION`. No merge, release, tag, deploy, force-push, destructive remote action, issue-state mutation, or repository-setting mutation occurred.
 
 ## REMAINING_OWNER_DECISIONS
 

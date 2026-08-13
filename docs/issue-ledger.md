@@ -6,7 +6,7 @@ Fresh exact-attachment evidence is linked at `docs/validation/2026-08-13-rootark
 
 The linked artifact preserves the exact network diagnostics, per-command focused/full test-failure ledger, and independent rootark-zk-1 review. The formal verdict is **Approved with reservations**. Phase 8 is `PARTIAL`, Phase 9 is `NOT_STARTED`, and Phase 15 is `BLOCKED_ENVIRONMENT` with `RELEASE_GATE_BLOCKED_ENVIRONMENT` wording preserved; publication authorization is separately bounded. The two named `.codex-fresh-cache-20260813-b` and `.codex-fresh-install-20260813-b` directories were exact-scope inspected, removed, and verified absent without targeting user data or unrelated dirty changes.
 
-Reconciled locally on 2026-08-13 against the verified canonical baseline `Root/main` at `28747c6ebdac873650e2d5a3c6193824e7cc9985`. This is local evidence only; no issue, PR, branch, or remote setting was changed.
+Reconciled locally on 2026-08-13 against the verified canonical baseline `Root/main` at `28747c6ebdac873650e2d5a3c6193824e7cc9985`. The authorized commits, branches, and draft PRs are recorded in `PUBLICATION_RECONCILIATION`; no issue-state or repository-setting mutation occurred.
 
 | Issue | State | Evidence / remaining boundary |
 |---:|---|---|
@@ -21,14 +21,28 @@ Reconciled locally on 2026-08-13 against the verified canonical baseline `Root/m
 | #9 | `blocked-by-owner-decision` | 2FA/TOTP remains gated by explicit scope and the zero-knowledge/account-recovery model; no implementation was invented. |
 | #10 | `closure-ready-local` | D-001's current independent Root.ark/BielOS boundary and technical relationship contract are documented and closure-ready locally; future integration, migration, identity, and key relationships remain a separate owner-dependent project. Remote issue closure remains unclaimed because remote mutation is prohibited in this packet; no remote state is inferred. |
 | #11 | `historical-complete` | Bounded security inventory is historical evidence; changed-boundary reviews were focused rather than broad rescans. |
-| #12 | `historical-complete` | Release discipline and evidence-before-DONE rules remain active; this mission made no publication. |
+| #12 | `historical-complete` | Release discipline and evidence-before-DONE rules remain active; the authorized draft publication record is preserved below. |
 | #13 | `discarded` | Historical placeholder; no implementation required. |
 | #14 | `closure-ready-local` | Root/main and canonical SHA are verified locally and stale local references were corrected. The technical branch/default-state work is closure-ready locally; remote issue closure remains unclaimed because remote mutation is prohibited in this packet, and no remote state is inferred. |
 | #15 | `historical-complete` | Governance review is historical evidence; review/correction discipline remains active. |
 
 ## Current local gate
 
-The worktree contains uncommitted implementation/test/documentation changes from the bounded phases. Fresh Phase A-C recovery preserved branch `cdx/rootark-roadmap` and HEAD `28747c6ebdac873650e2d5a3c6193824e7cc9985`. No push, merge, pull request, issue mutation, release, tag, deploy, or remote setting change was performed. Remaining work is gated by dependency/network recovery, zero-knowledge implementation and owner decisions, WebDAV and full persistence parity, native/provider/production evidence, and deliberate publication authorization.
+The worktree retains implementation/test/documentation changes from the bounded phases that are represented by the publication records below. Fresh Phase A-C recovery preserved branch `cdx/rootark-roadmap` and the `Root/main` baseline SHA `28747c6ebdac873650e2d5a3c6193824e7cc9985`. No merge, release, tag, deploy, force-push, destructive remote action, issue-state mutation, or repository-setting mutation occurred. Remaining work is gated by dependency/network recovery, zero-knowledge implementation and owner decisions, WebDAV and full persistence parity, native/provider/production evidence, and draft-PR review.
+
+## PUBLICATION_RECONCILIATION
+
+The following five authorized commits were published on separate branches as draft PRs, all based on `Root/main` baseline SHA `28747c6ebdac873650e2d5a3c6193824e7cc9985`. The `Refs #N` wording is preserved for each PR reference.
+
+| Commit | Branch | Draft PR | Reference |
+|---|---|---|---|
+| `38d387d9caee07975be33c7bf589a2072c7966ae` | `cdx/rootark-dependency-hardening` | [PR #50](https://github.com/bielxdh3/root.ark/pull/50) | `Refs #50` |
+| `8c5b29be7589f40a20c72344961e70212c09cb6a` | `cdx/rootark-boundary-extractions` | [PR #51](https://github.com/bielxdh3/root.ark/pull/51) | `Refs #51` |
+| `05226828f8d13f8013770a44bb2663f5848ead91` | `cdx/rootark-cloud-inventory-contracts` | [PR #52](https://github.com/bielxdh3/root.ark/pull/52) | `Refs #52` |
+| `66a0133cbe39722950c2f34a9639a6e7e54adc7c` | `cdx/rootark-ci-default-branch` | [PR #53](https://github.com/bielxdh3/root.ark/pull/53) | `Refs #53` |
+| `185cf2b2c148aa574bc84d9aa52c4efd8cdc62f0` | `cdx/rootark-roadmap-evidence` | [PR #54](https://github.com/bielxdh3/root.ark/pull/54) | `Refs #54` |
+
+All five PRs are draft. PR #50 is the separate brace-expansion 5.0.9 lockfile hardening; its branch audit is clean. The unmerged source baseline remains affected by the brace-expansion advisory. Remote CI, provider, browser, production, and cryptographic validation remain unconfirmed or blocked. No merge, release, tag, deploy, force-push, destructive remote action, issue-state mutation, or repository-setting mutation occurred.
 
 ## Master phase ledger (original Phase 0-16 numbering)
 
@@ -40,7 +54,7 @@ Primary Phase 0-16 statuses use only `ACCEPTED`, `PARTIAL`, `BLOCKED_OWNER_DECIS
 |---:|---|---|---|---|---|
 | 0 | Orientation/baseline | `ACCEPTED` | Starting SHA `28747c6ebdac873650e2d5a3c6193824e7cc9985`, verified `Root/main`, current dirty worktree preserved | No reset/clean or baseline rewrite; provenance must remain explicit | Keep every continuation report anchored to the verified SHA and dirty-state map |
 | 1 | Historical evidence | `PARTIAL` | Issue #7 report records 21 `PASS`, 0 `FAIL`, 2 environmental `BLOCKED`; Issue #7 ledger state is historical-complete | Fresh rerun, live ClamAV, OS mount, providers, production behavior remain unclaimed | Preserve historical evidence and rerun only with disposable capabilities |
-| 2 | Issue #14 | `ACCEPTED` | `Root/main`, `origin/HEAD`, and canonical SHA are locally verified; stale branch references were corrected | Remote issue state cannot be changed in this packet and is not inferred | Leave remote Issue #14 untouched; report technical closure separately |
+| 2 | Issue #14 | `ACCEPTED` | `Root/main`, `origin/HEAD`, and canonical SHA are locally verified; stale branch references were corrected | Remote issue state was not mutated and is not inferred | Leave remote Issue #14 untouched; report technical closure separately |
 | 3 | Realtime contract tests | `BLOCKED_ENVIRONMENT` | Fresh focused run reached 33 tests: 19 passed and 14 failed on dependency-loading `MODULE_NOT_FOUND` errors; prior 7/7 evidence remains historical/local only | Complete disposable dependency install; buffered-client closure remains unverified | Re-run the focused suite after registry and dependency recovery |
 | 4 | Realtime auth/notifications extraction | `BLOCKED_ENVIRONMENT` | Source boundary remains bounded, but fresh realtime/auth execution could not load `bcryptjs`; no fresh runtime acceptance is claimed | Complete dependencies, browser, CI, buffered-client, and production evidence remain open | Re-run runtime boundary tests after dependency recovery |
 | 5 | Bounded architecture extraction | `BLOCKED_ENVIRONMENT` | Source and prior local contracts remain preserved; fresh focused execution was blocked by missing `@aws-sdk/client-s3` and `better-sqlite3` | Complete dependencies, chunked/WebDAV/provider parity, live ClamAV, OS mount, and lifecycle proof remain open | Re-run bounded suites after dependency recovery |
@@ -52,7 +66,7 @@ Primary Phase 0-16 statuses use only `ACCEPTED`, `PARTIAL`, `BLOCKED_OWNER_DECIS
 | 11 | Issue #6 backlog reconciliation | `PARTIAL` | `docs/plan-tree.md` §6 lists deferred features and explicitly rejects casual implementation | Stabilization, product decisions, security review, and scoped issues remain prerequisites | Approve features individually only after gates close |
 | 12 | Bidirectional sync/WebDAV bridge | `NOT_STARTED` | Current evidence covers one-way sync MVP and direct server WebDAV only; D-009 requires client/local-bridge boundaries | Bridge, conflict authority, bidirectional protocol, metadata, recovery, and acceptance remain open | Design as a separate D-009 project; do not infer it from current MVPs |
 | 13 | Search/previews/PWA/clients/groups/admin UX | `NOT_STARTED` | Existing search/preview/admin surfaces are current implementation; plan backlog marks PWA, clients, groups, FTS, and redesign as not-yet-approved | Product scope, trust model, client architecture, and UX decisions remain open | Keep backlog deferred |
-| 14 | Deployment/adapters/resilience | `BLOCKED_ENVIRONMENT` | Fresh artifact and syntax checks passed, but dependency, native-binding, provider, and production gates remain unavailable; no deployment acceptance is claimed | Provider, deployment, TLS, production, native dependency, and resilience evidence remain open; remote Issue #14 mutation prohibited | Recover dependencies, then repeat environment-specific validation |
+| 14 | Deployment/adapters/resilience | `BLOCKED_ENVIRONMENT` | Fresh artifact and syntax checks passed, but dependency, native-binding, provider, and production gates remain unavailable; no deployment acceptance is claimed | Provider, deployment, TLS, production, native dependency, and resilience evidence remain open; remote Issue #14 was not mutated | Recover dependencies, then repeat environment-specific validation |
 | 15 | Documentation/release gate | `BLOCKED_ENVIRONMENT` | The local release gate is blocked by incomplete dependency/network, native-binding, provider, and CI evidence; documentation and secret-scan checks passed locally | Exact-SHA CI, deployment exposure, product approval, and publication authorization remain separate open boundaries | Recover the environment and complete release evidence; seek publication authorization separately |
 | 16 | Independent security/quality review | `BLOCKED_ENVIRONMENT` | Architect review found no concrete source defect; residual runtime/provider/production risks remain unvalidated because the fresh dependency gate is blocked | Independent final review, complete validation, and quality gate evidence remain outstanding | Repeat final security/quality review after dependency recovery |
 
@@ -62,24 +76,24 @@ Phase 8 remains `PARTIAL`: the zero-knowledge contract now contains a concrete A
 
 ## Local diagnostic classifications (2026-08-13)
 
-These are independent local execution classifications. None is a publication authorization decision, and none authorizes remote mutation.
+These are independent local execution classifications. None is a publication authorization decision, and no further remote mutation is claimed in this reconciliation.
 
 | Boundary | Classification | Safe evidence | Meaning and next action |
 |---|---|---|---|
 | Linked-worktree Git metadata | `BLOCKED_ENVIRONMENT_LOCAL_GIT_ACL` | `E:\servidor-roadmap\.git` points to `E:\servidor\.git\worktrees\servidor-roadmap`; the common object store is `E:\servidor\.git`. `git worktree list --porcelain` shows no live lock files; `git cat-file -e HEAD` succeeds. Read-only ACL inspection found no deny entry for the active `codexsandboxoffline` account, but metadata/object write behavior remains unsafe to change. | No safe ACL repair was applied because no active-account deny was proven and broad ownership/permission changes are prohibited. Preserve the worktree and classify the write boundary as environment-blocked. |
 | npm install/toolchain | `BLOCKED_TOOLCHAIN_DEPENDENCY_INSTALL` | Node `v24.14.1`, npm `11.11.0`, lockfile version 3 with 378 locked packages, absent `node_modules`, and missing `bcryptjs`, `@aws-sdk/client-s3`, and `better-sqlite3`. DNS resolves `registry.npmjs.org`, but TCP/HTTPS 443 connectivity fails. A disposable cache/install was attempted; `npm.cmd ci` timed out after 120 seconds and did not produce usable dependencies. | The dependency tree is incomplete. This is an environment/network boundary, not a source regression; retry only with a functioning disposable install path. |
 | Native SQLite dependency | `BLOCKED_NATIVE_DEPENDENCY` | The existing continuation evidence records `npm.cmd rebuild better-sqlite3` exiting 0 while package contents remained incomplete and `require()` still failed. | A successful rebuild exit code is insufficient evidence of a usable native binding; do not claim SQLite runtime validation. |
-| npm audit endpoint | `BLOCKED_REGISTRY_AUDIT_ENDPOINT` | Fresh `npm.cmd audit --package-lock-only --audit-level=high` and `npm.cmd run validate:dependencies` failed at the npm advisory endpoint after registry connectivity failure. | Audit evidence is unavailable; this is separate from install completeness. |
+| npm audit and lockfile repair | `SECURITY_DEPENDENCY_ADVISORY` plus `BLOCKED_ENVIRONMENT_TOOLCHAIN_REPAIR` | The unmerged source baseline audit returned exit 1 with one high GHSA-rgw5-rvv9-x895 advisory in brace-expansion 5.0.8 via archiver -> readdir-glob -> minimatch 10.2.6; PR #50 separately hardens the lockfile to 5.0.9 and its branch audit is clean. | The unmerged source baseline remains advisory-affected; remote CI and independent validation remain unconfirmed or blocked. |
 | Product/architecture decisions | `BLOCKED_OWNER_DECISION` | D-003/D-006/D-007/D-009 and the zero-knowledge contract leave product policy, migration scope, recovery authority, sharing UX, and sync conflict authority open. | Owner-visible decisions remain separate from technical primitive selection and local tool failures. |
-| Publication and remote mutation | `NOT_A_PUBLICATION_BLOCKER` | This packet explicitly prohibits commit, push, PR, merge, release, deploy, and issue/remote mutation. | Publication is an authorization boundary, not the cause of the local npm or Git failures. Handle it only under a later explicit authorization. |
+| Publication and remote mutation | `NOT_A_PUBLICATION_BLOCKER` | Authorized commits, branches, and draft PRs are recorded in `PUBLICATION_RECONCILIATION`. No merge, release, tag, deploy, force-push, destructive remote action, issue-state mutation, or repository-setting mutation occurred. | Publication is separate from the remaining environment and validation blockers. |
 
 ## Continuation authorization addendum — 2026-08-13
 
-The documentation-only continuation report is `docs/validation/2026-08-13-rootark-continuation-master-report.md`. Trusted-wrapper provenance records executor `biel4`, backend `app_server`, branch `cdx/rootark-roadmap`, base SHA `28747c6ebdac873650e2d5a3c6193824e7cc9985`, App Server thread `019ffb95-e675-76e1-ae22-a3129af79b5a`, current provenance turn `019ffd1b-057f-73a3-a53b-1619612ff2e8`, process `21208`, `reuse_existing=false`, and `app_server` task transport; this is wrapper provenance, not model text. The current mission supersedes the prior packet's no-publication boundary only for this mission's authorized local commits, scoped branches, pushes, and PR creation/update within `bielxdh3/root.ark`; no merge, release, tag, deploy, destructive remote, issue-state, or settings action is authorized, and no such publication action has occurred yet.
+The documentation-only continuation report is `docs/validation/2026-08-13-rootark-continuation-master-report.md`. Trusted-wrapper provenance records executor `biel4`, backend `app_server`, branch `cdx/rootark-roadmap`, base SHA `28747c6ebdac873650e2d5a3c6193824e7cc9985`, App Server thread `019ffb95-e675-76e1-ae22-a3129af79b5a`, current provenance turn `019ffd1b-057f-73a3-a53b-1619612ff2e8`, process `21208`, `reuse_existing=false`, and `app_server` task transport; this is wrapper provenance, not model text. The authorized commits, branches, and draft PRs are listed in `PUBLICATION_RECONCILIATION`; no merge, release, tag, deploy, force-push, destructive remote, issue-state, or repository-setting action occurred.
 
 Rootark-zk-1 remains **Approved with reservations**. The three reservations are: independent cryptographic review blocking Phase 8, including library/provenance/vector checks; genuine owner decisions for sharing UX/expiry/recipient recovery, recovery authority, mixed-mode migration window, sync conflict authority, and authentication/2FA coupling; and implementation acceptance for interoperability, negative/fuzz/property coverage, recovery/rotation/compromise, bridge crash safety, migration rollback, backup/restore, and no plaintext/key leakage. Environment-dependent validation remains separately blocked.
 
-Phase 8 remains `PARTIAL`, Phase 9 `NOT_STARTED`, and Phase 15 `RELEASE_GATE_BLOCKED_ENVIRONMENT`. No new zero-knowledge runtime implementation is claimed. Static checks remain recorded as passed (`node --check` on seven changed/new JavaScript files, `git diff --check`, and scoped secret scan with zero matches); dependency-backed tests remain blocked as documented in the fresh-control artifact. Current semantic commit families are proposal-only. No commit, push, scoped branch, or PR action has occurred in this continuation; commit is permitted only after semantic diff review and focused validation. `RELEASE_GATE_BLOCKED_ENVIRONMENT` is independent of publication authorization. The direct `npm.cmd audit --package-lock-only --audit-level=high` returned exit 1; the current audit result identifies one high transitive brace-expansion 5.0.8 advisory (`GHSA-rgw5-rvv9-x895`, CVE-class DoS) through `archiver -> readdir-glob -> minimatch` 10.2.6. The fixed repair target is brace-expansion 5.0.9 with official integrity `sha512-ScQ4IuvIEF1TMlP7Zt+vjJ//9zlPb2SDcxWxM3bk8s6t6GGdJ7KO1dCcTidOPJKePW30LE/2cT7wCyPho9/Wxg==`. The online audit-fix attempt failed with registry/cache EPERM; the required offline lockfile-only attempt returned exit 0 without changing `package-lock.json`. Classify this as `SECURITY_DEPENDENCY_ADVISORY` plus `BLOCKED_ENVIRONMENT_TOOLCHAIN_REPAIR`, not as a clean audit or a generic advisory-endpoint absence.
+Phase 8 remains `PARTIAL`, Phase 9 `NOT_STARTED`, and Phase 15 `RELEASE_GATE_BLOCKED_ENVIRONMENT`. No new zero-knowledge runtime implementation is claimed. Static checks remain recorded as passed (`node --check` on seven changed/new JavaScript files, `git diff --check`, and scoped secret scan with zero matches); dependency-backed tests remain blocked as documented in the fresh-control artifact. The five semantic commit families and draft PRs are recorded in `PUBLICATION_RECONCILIATION`. The unmerged source baseline audit returned exit 1 with one high transitive brace-expansion 5.0.8 advisory (`GHSA-rgw5-rvv9-x895`, CVE-class DoS) through `archiver -> readdir-glob -> minimatch` 10.2.6. PR #50 separately hardens the lockfile to brace-expansion 5.0.9, and its branch audit is clean; the unmerged source baseline remains advisory-affected. The fixed repair target is brace-expansion 5.0.9 with official integrity `sha512-ScQ4IuvIEF1TMlP7Zt+vjJ//9zlPb2SDcxWxM3bk8s6t6GGdJ7KO1dCcTidOPJKePW30LE/2cT7wCyPho9/Wxg==`. The online audit-fix attempt failed with registry/cache EPERM, and the required offline lockfile-only attempt returned exit 0 without changing the source-baseline `package-lock.json`. Classify this as `SECURITY_DEPENDENCY_ADVISORY` plus `BLOCKED_ENVIRONMENT_TOOLCHAIN_REPAIR`, not as a clean audit or a generic advisory-endpoint absence.
 
 ## ARCHITECT DIFF REVIEW
 
@@ -87,7 +101,7 @@ Independent review of the current dirty diff found no concrete source defect req
 
 ## LOCAL COMMITS
 
-None created. HEAD remains `28747c6ebdac873650e2d5a3c6193824e7cc9985`; the linked-worktree Git write boundary remains environment-blocked and no commit readiness is claimed.
+The five authorized commits and draft PRs are recorded in `PUBLICATION_RECONCILIATION`. HEAD remains anchored to baseline `28747c6ebdac873650e2d5a3c6193824e7cc9985`; no commit was amended or rewritten.
 
 ## FRESH VALIDATION MATRIX
 
@@ -98,7 +112,7 @@ None created. HEAD remains `28747c6ebdac873650e2d5a3c6193824e7cc9985`; the linke
 | Scoped secret scan | PASS | 9 scoped source/test/ledger/validation targets scanned; 0 sensitive-pattern matches. |
 | Focused realtime/auth/upload/cloud/WebDAV/SQLite run | ENVIRONMENT_BLOCKED | 33 tests: 19 passed, 14 failed on dependency-loading `MODULE_NOT_FOUND` errors for `bcryptjs`, `@aws-sdk/client-s3`, and `better-sqlite3`. |
 | `npm.cmd test -- --test-reporter=tap` | ENVIRONMENT_BLOCKED | 106 tests: 34 passed, 72 failed; repository `node_modules` was absent and failures were dependency-loading failures. |
-| `npm.cmd audit --package-lock-only --audit-level=high` | ENVIRONMENT_BLOCKED | Exit 1; advisory endpoint failed. |
+| `npm.cmd audit --package-lock-only --audit-level=high` | `SECURITY_DEPENDENCY_ADVISORY` plus `BLOCKED_ENVIRONMENT_TOOLCHAIN_REPAIR` | Exit 1 against the unmerged source baseline; one high brace-expansion 5.0.8 advisory remains. PR #50 separately hardens the lockfile to 5.0.9 and its branch audit is clean. |
 | `npm.cmd run validate` | ENVIRONMENT_BLOCKED | Exit 1 after syntax passed and dependency-missing test stage failed. |
 | `git diff --check` | PASS | Exit 0. |
 
@@ -106,7 +120,7 @@ No concrete source defect was identified in the fresh failures.
 
 ## RELEASE GATE
 
-`RELEASE_GATE_BLOCKED_ENVIRONMENT`: syntax, artifacts, secret scan, and whitespace checks pass, but dependency installation, native SQLite, focused/runtime acceptance, audit, CI, provider, production, and exact release authorization are incomplete. No commit or publication has occurred yet; scoped commits, branches, pushes, and PRs are authorized only after semantic diff review and focused validation.
+`RELEASE_GATE_BLOCKED_ENVIRONMENT`: syntax, artifacts, secret scan, and whitespace checks pass, but dependency installation, native SQLite, focused/runtime acceptance, audit, CI, provider, production, and exact release authorization are incomplete. The five commits and draft PRs are recorded above; no merge, release, tag, deploy, force-push, destructive remote action, issue-state mutation, or repository-setting mutation occurred.
 
 ## FINAL SECURITY/QUALITY REVIEW
 
