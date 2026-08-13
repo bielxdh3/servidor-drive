@@ -1,12 +1,15 @@
 # Root.ark Plan Tree
 
 Last reconstructed: 2026-07-25
+Last branch reconciliation: 2026-08-13
 
 Repository: `bielxdh3/root.ark`
 
-Current default branch observed: `codex/folders-acl`
+Current default branch verified: `Root/main` (GitHub repository settings and `git ls-remote --symref origin HEAD` verified 2026-08-13).
 
-Baseline HEAD used for this reconstruction: `4062f4c67bfda9d144aceb6dbbed539b8a917e4a`
+Current canonical baseline HEAD verified: `28747c6ebdac873650e2d5a3c6193824e7cc9985` (`origin/HEAD` and `refs/heads/Root/main`).
+
+Historical reconstruction baseline retained for provenance: `4062f4c67bfda9d144aceb6dbbed539b8a917e4a` (2026-07-25).
 
 ## Status labels
 
@@ -30,6 +33,10 @@ A feature is not `[DONE]` merely because files, routes, UI, or documentation exi
 4. GitHub issues for executable scope.
 5. Historical chat context only as input, never as proof.
 
+Issue reconciliation ledger: `docs/issue-ledger.md` (locally reconciled 2026-08-13; remote issue state was not mutated).
+
+Master Phase 0-16 ledger and independent local blocker taxonomy: `docs/issue-ledger.md`. The governing continuation supplies the original meanings for all phases; local statuses and evidence are reconciled there without converting design or historical evidence into acceptance.
+
 ## 0. Current product snapshot
 
 ### Application identity
@@ -37,7 +44,7 @@ A feature is not `[DONE]` merely because files, routes, UI, or documentation exi
 - `[IMPLEMENTED-UNVERIFIED]` Independent Node.js/Express file-management application currently exists in this repository.
 - `[DECIDED]` D-001 keeps this repository actively developed as Root.ark while allowing only a future, explicitly designed and approved migration or selective reuse into BielOS. Track remaining relationship consequences in issue #10.
 - `[DECISION REQUIRED]` Confirm final spelling and branding: `Root.ark`, `root.ark`, `root.arc`, or another approved name. Track in issue #4.
-- `[DECISION REQUIRED]` Resolve whether `codex/folders-acl` remains the canonical branch or history should move safely to a permanent branch such as `main`. Track in issue #14.
+- `[DONE]` Root/main is the verified canonical/default branch: GitHub reports `Root/main`, and `origin/HEAD` plus `refs/heads/Root/main` resolve to `28747c6ebdac873650e2d5a3c6193824e7cc9985` (verified 2026-08-13). The `codex/folders-acl` references remain historical provenance; CI now targets `Root/main`, with no history rewrite or remote mutation performed. Issue #14 is locally closure-ready; remote issue closure is not claimed here.
 
 ### Verified code-level capabilities
 
@@ -254,6 +261,10 @@ Prerequisites: critical security fixes complete and disposable local workspace a
 - `[BLOCKED]` Convert confirmed defects into separate scoped issues.
 - `[BLOCKED]` Do not repair unrelated defects opportunistically inside the validation run.
 
+### Phase 3 status reconciliation (2026-08-13)
+
+The committed Issue #7 report at `docs/validation/2026-08-02-operational-validation.md` is the current historical evidence for Phase 3: it records 21 `PASS`, 0 `FAIL`, and 2 environmental `BLOCKED` claims for live ClamAV and an actual OS WebDAV mount, with no product failure. The existing `[BLOCKED]` lines in Phases 3.0–3.6 are preserved as a derived reproduction checklist, not a claim that the validated historical run never occurred. A fresh rerun remains environment-dependent and is not claimed by this continuation.
+
 ## 4. Architecture stabilization
 
 Issue: #5
@@ -267,9 +278,26 @@ Prerequisites: phases 2.1 through 2.3 complete and relevant tests covering each 
 - `[DONE]` Define an evidence-backed extraction order and select realtime authentication/notifications as the first bounded candidate.
 - `[DONE]` Complete the mapping task without moving runtime code.
 
+### Phase 4.0.1: Realtime transport contract coverage
+
+- `[DONE]` Add focused public-contract coverage for rejected upgrades, connected-first ordering, exact event envelopes, notification source/timestamps, message-rate reset, heartbeat/idle termination, and child-process shutdown cleanup in `test/realtime-transport-boundaries.test.js`.
+- `[DONE]` Validate the focused realtime suite twice at 7/7, the auth-security suite at 13/13, and the combined auth/realtime run at 20/20; syntax and `git diff --check` also passed at local HEAD `28747c6ebdac873650e2d5a3c6193824e7cc9985`.
+- `[IMPLEMENTED-UNVERIFIED]` Buffered-client close remains not directly covered because a deterministic public fixture would require brittle backpressure forcing or runtime changes; browser, CI, provider, and production behavior remain outside this phase.
+
 ### Phase 4.1: Bounded extractions
 
-- `[BLOCKED]` Extract one domain at a time; the next candidate is realtime authentication and notifications, not completed work.
+- `[DONE]` Extract the realtime transport and notification fan-out boundary into `src/realtime/server.js`; retain thin compatibility adapters in `server.js`, preserve the shared `parseBoundedNumber` helper used by WebDAV, and leave producer call sites and public contracts unchanged.
+- `[DONE]` Validate the extracted working tree with realtime transport 7/7 twice, auth-security 13/13, realtime/WebDAV meta-remediation 62/62, combined realtime/auth 20/20, syntax checks, and `git diff --check` at local base `28747c6ebdac873650e2d5a3c6193824e7cc9985`.
+- `[IMPLEMENTED-UNVERIFIED]` Buffered-client close is not directly covered; browser, CI, provider, production, and remote-closure behavior remain outside this local phase.
+- `[DONE]` Add disposable upload-scanning contract coverage for ClamAV-unavailable fail-open, fail-closed quarantine, clean INSTREAM parsing, infected INSTREAM quarantine, suspicious extensions, and path containment in `test/upload-security.test.js`; the focused suite passed 16/16 twice locally.
+- `[IMPLEMENTED-UNVERIFIED]` Live ClamAV daemon behavior, chunked/WebDAV/provider/production scan-entry parity, and zero-knowledge client-side scanning remain unverified or architecturally open.
+- `[DONE]` Extract the current upload scanning/quarantine boundary into deliverable `src/upload-scanning.js`; preserve the thin `server.js` adapter, all three entry points, fail-open/fail-closed semantics, quarantine/audit contracts, and D-009's unverified-quarantine limitation.
+- `[DONE]` Validate the extracted working tree with upload-security 16/16 twice, realtime transport 7/7, auth-security 13/13, realtime/WebDAV meta-remediation 62/62, syntax checks, and `git diff --check` at local base `28747c6ebdac873650e2d5a3c6193824e7cc9985`.
+- `[DONE]` Validate the existing `services/cloudStorage.js` boundary with mock-only inventory contracts for S3/Drive prefix, parent, metadata, and duplicate-identity containment; `test/cloud-storage.test.js` passed 27/27 twice without provider credentials.
+- `[IMPLEMENTED-UNVERIFIED]` No redundant cloud runtime extraction was made; external provider behavior and D-003/D-009 compatibility remain unverified.
+- `[DONE]` Validate the existing direct-protocol WebDAV boundary with executable/oversize/abort, completed-journal recovery, crash-consistency, and meta-remediation suites (90/90 combined); no OS mount or runtime extraction was claimed.
+- `[IMPLEMENTED-UNVERIFIED]` WebDAV remains inline because metadata journaling, cloud intent, and D-009 local-bridge requirements make a safe bounded extraction larger than this phase; mount/provider/production behavior remains gated.
+- `[NEXT]` Execute the missing disposable JSON/SQLite parity, migration, and restart probes described in `docs/validation/2026-08-13-json-sqlite-parity-matrix.md`; native binding availability, full parity, and the final SQLite production policy remain environment- and owner-gated.
 - `[BLOCKED]` Prefer existing partial boundaries rather than inventing a new framework.
 - `[BLOCKED]` Preserve CommonJS, route names, response shapes, storage behavior, and UI contracts.
 - `[BLOCKED]` Use one coherent commit per extraction.
@@ -288,9 +316,11 @@ Potential extraction order after coverage exists:
 
 ### Phase 4.2: Persistence convergence
 
-- `[BLOCKED]` Measure JSON/SQLite behavioral parity.
-- `[DECISION REQUIRED]` Decide whether SQLite becomes mandatory for production.
-- `[BLOCKED]` Preserve safe migration and rollback documentation.
+- `[DONE]` Validate focused SQLite recovery, migration-generation, trash-persistence, and archive/staging safety contracts: the disposable combined run passed 70/70 after rebuilding the native `better-sqlite3` binding.
+- `[DONE]` Add the source-backed JSON/SQLite parity matrix at `docs/validation/2026-08-13-json-sqlite-parity-matrix.md`; it records the bounded 70/70 evidence and the remaining probes without claiming full parity.
+- `[IMPLEMENTED-UNVERIFIED]` Targeted recovery/generation/transaction evidence does not establish complete JSON/SQLite parity, migration/restart coverage across every entity, or long-running production migration safety.
+- `[DECISION REQUIRED]` Decide whether SQLite becomes mandatory for production; the parity matrix recommends it only after parity and migration acceptance and owner approval.
+- `[DONE]` Record bounded migration, rollback, restart, and production-policy limitations in the JSON/SQLite parity matrix; implementation and full parity remain open.
 - `[BLOCKED]` Remove legacy paths only after data migration and rollback strategy are proven.
 
 ## 5. Product discovery track
@@ -304,7 +334,7 @@ This track may proceed conversationally in parallel with stabilization. Runtime 
 - `[PARALLEL-DISCOVERY]` Final product name and branding.
 - `[DECIDED]` D-001 keeps Root.ark active in this repository; future migration or selective reuse into BielOS requires a dedicated architecture, security, and contract phase.
 - `[DECIDED]` Root.ark runtime, data, sessions, and authentication remain independent until an explicit integration is designed and approved.
-- `[OPEN]` Define the future migration policy, integration contracts, and exact identity relationship without sharing state automatically.
+- `[DONE]` Document the current independent Root.ark/BielOS boundary in `docs/architecture/rootark-bielos-relationship-contract.md`; Issue #10 is closure-ready locally, while future integration, migration, identity, and key relationships remain owner-dependent and the remote issue was not changed.
 - `[PARALLEL-DISCOVERY]` Existing features to preserve, redesign, or retire.
 
 ### Phase 5.1: Users and trust model
@@ -321,9 +351,11 @@ This track may proceed conversationally in parallel with stabilization. Runtime 
 
 - `[DECIDED]` Backups may preserve encrypted blobs and required metadata, but must not create an administrator plaintext-recovery path.
 - `[DECIDED]` D-006 requires client-side key generation, compartment-isolated key sets, rotation for new content after access loss, and protected offline material on authorized devices.
-- `[DECIDED]` D-007 requires per-file keys, isolated compartment hierarchies, mandatory recovery-package verification, explicit historical re-encryption, and future-authorization rotation after package compromise; expert cryptographic architecture remains `[OPEN]`.
+- `[DECIDED]` D-007 requires per-file keys, isolated compartment hierarchies, mandatory recovery-package verification, explicit historical re-encryption, and future-authorization rotation after package compromise; the Architect technical recommendation is recorded pending independent security review, while implementation, acceptance, and product policy remain `[OPEN]`.
 - `[DECIDED]` D-008 sets 30-day normal deletion and backup retention, immediate access revocation, and backup-aware cryptographic erasure that cannot be declared complete while service-controlled decryption material remains usable.
-- `[DECIDED]` D-009 requires encrypted client-generated previews and indexes, server-blind sharing, local-bridge-only zero-knowledge WebDAV, and eventual mandatory bidirectional synchronization; implementation architecture remains `[OPEN]`.
+- `[DECIDED]` D-009 requires encrypted client-generated previews and indexes, server-blind sharing, local-bridge-only zero-knowledge WebDAV, and eventual mandatory bidirectional synchronization; the reviewable architecture/migration contract is documented, while implementation and acceptance remain `[OPEN]`.
+- `[DONE]` Record the reviewable zero-knowledge architecture and migration contract at `docs/architecture/zero-knowledge-migration-contract.md`; implementation remains gated by its `OWNER_DECISION_PACKET` and independent security review.
+- `[IMPLEMENTED-UNVERIFIED]` Current server-readable encryption, metadata, previews/search, ClamAV, server-native WebDAV, sync MVP, and backup behavior remain legacy/current behavior and are not a claim that Root.ark is zero-knowledge today.
 - `[PARALLEL-DISCOVERY]` Local, S3, Google Drive, or hybrid canonical storage.
 - `[PARALLEL-DISCOVERY]` Approval workflow and intended purpose.
 - `[PARALLEL-DISCOVERY]` Define the remaining sharing recipient, public-link, expiration, and limit details under D-009.
@@ -344,10 +376,10 @@ This track may proceed conversationally in parallel with stabilization. Runtime 
 ### Phase 5.4: Approved product brief
 
 - `[DONE]` Record approved Round 1 decisions D-001 through D-003 with consequences and follow-up dependencies; keep Issue #4 open.
-- `[DONE]` Record approved Round 2 decisions D-004 through D-006 with consequences and explicitly open deferred details; keep Issues #4 and #10 open.
-- `[DONE]` Record approved Round 3 decisions D-007 through D-009 with consequences and explicitly open expert architecture and implementation details; keep Issues #4 and #10 open.
-- `[BLOCKED]` Create architecture documents for high-risk boundaries.
-- `[BLOCKED]` Reconcile this plan tree and feature backlog with the approved direction.
+- `[DONE]` Record approved Round 2 decisions D-004 through D-006 with consequences and explicitly open deferred details; keep Issue #4 open, while Issue #10's independent relationship is closure-ready locally and future integration remains owner-dependent.
+- `[DONE]` Record approved Round 3 decisions D-007 through D-009 with consequences and explicitly open expert architecture and implementation details; keep Issue #4 open, while Issue #10's independent relationship is closure-ready locally and future integration remains owner-dependent.
+- `[DONE]` Add `docs/architecture/rootark-bielos-relationship-contract.md` and `docs/architecture/zero-knowledge-migration-contract.md` for the high-risk relationship and zero-knowledge boundaries; these are architecture/threat-model deliverables, not runtime implementation or product acceptance.
+- `[DONE]` Synchronize this plan tree with the accepted relationship, zero-knowledge, and parity documents while preserving owner-dependent choices, current implementation limitations, and no-remote-closure language.
 - `[BLOCKED]` Do not silently reinterpret old implementation as the final product contract.
 
 ## 6. Feature backlog
@@ -409,8 +441,8 @@ All items below are candidates, not commitments.
 
 Historical completed checkpoints, retained as evidence rather than future work: Issues #11, #1, #2, #3, and #7 are closed/completed in the live repository state.
 
-1. `[NEXT]` Prepare the first bounded Issue #5 extraction: realtime authentication and notifications, after the missing transport-contract tests and exact-head validation described in `docs/architecture/current-server-responsibility-map.md`.
-2. `[PARALLEL-DISCOVERY]` Continue structured product discovery; Rounds 1 through 3 are recorded, while Issues #4 and #10 remain open.
+1. `[NEXT]` Measure JSON/SQLite parity and migration/restart behavior with disposable fixtures; native binding availability and final SQLite production policy remain open.
+2. `[PARALLEL-DISCOVERY]` Continue structured product discovery; Rounds 1 through 3 are recorded, Issue #4 remains open, and Issue #10's current independent relationship is closure-ready locally while future integration remains owner-dependent; the remote issue was not changed.
 3. `[BLOCKED]` Approve individual future features only after stabilization and discovery. Issues #6 and #9 remain gated.
 
 ## 9. Plan-tree update rule
