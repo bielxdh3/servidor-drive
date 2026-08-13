@@ -162,6 +162,74 @@ test("Google Drive lists and deletes every paginated prefix entry", async () => 
   assert.deepEqual(deleted, ["a", "b", "a", "b"]);
 });
 
+test("S3 inventory rejects foreign prefixes and malformed area, folder, or name keys", async () => {
+  const cases = [
+    ["other/uploads/folder/file.txt", "foreign_prefix"],
+    ["rootark/other/folder/file.txt", "invalid_inventory_key"],
+    ["rootark/uploads/../file.txt", "invalid_inventory_key"],
+    ["rootark/uploads/folder/", "invalid_inventory_key"],
+    ["rootark/uploads/folder/file.txt/extra", "invalid_inventory_key"],
+  ];
+
+  for (const [key, code] of cases) {
+    const storage = createCloudStorage({
+      provider: "s3",
+      prefix: "rootark",
+      s3: { bucket: "bucket" },
+      createS3Client: async () => ({ send: async () => ({ Contents: [{ Key: key }] }) }),
+    });
+    await assert.rejects(storage.inventory(), { code });
+  }
+});
+
+test("Google Drive inventory rejects objects outside the parent or with mismatched rootArk metadata", async () => {
+  const cases = [
+    {
+      file: { id: "outside", parents: ["other"], appProperties: { rootArkKey: "rootark/uploads/folder/file.txt", rootArkFolderId: "folder", rootArkArea: "uploads" } },
+      code: "outside_configured_parent",
+    },
+    {
+      file: { id: "wrong-folder", parents: ["parent"], appProperties: { rootArkKey: "rootark/uploads/other/file.txt", rootArkFolderId: "folder", rootArkArea: "uploads" } },
+      code: "invalid_inventory_metadata",
+    },
+    {
+      file: { id: "wrong-area", parents: ["parent"], appProperties: { rootArkKey: "rootark/temp/folder/file.txt", rootArkFolderId: "folder", rootArkArea: "uploads" } },
+      code: "invalid_inventory_metadata",
+    },
+  ];
+
+  for (const { file, code } of cases) {
+    const storage = createCloudStorage({
+      provider: "gdrive",
+      gdrive: { folderId: "parent" },
+      createGoogleDriveClient: async () => ({ files: { list: async () => ({ data: { files: [file] } }) } }),
+    });
+    await assert.rejects(storage.inventory(), { code });
+  }
+});
+
+test("cloud inventory rejects duplicate provider identities", async () => {
+  const s3 = createCloudStorage({
+    provider: "s3",
+    s3: { bucket: "bucket" },
+    createS3Client: async () => ({ send: async () => ({ Contents: [
+      { Key: "rootark/uploads/folder/file.txt" },
+      { Key: "rootark/uploads/folder/file.txt" },
+    ] }) }),
+  });
+  await assert.rejects(s3.inventory(), { code: "duplicate_inventory_identity" });
+
+  const drive = createCloudStorage({
+    provider: "gdrive",
+    gdrive: { folderId: "parent" },
+    createGoogleDriveClient: async () => ({ files: { list: async () => ({ data: { files: [
+      { id: "same", parents: ["parent"], appProperties: { rootArkKey: "rootark/uploads/folder/file.txt", rootArkFolderId: "folder", rootArkArea: "uploads" } },
+      { id: "same", parents: ["parent"], appProperties: { rootArkKey: "rootark/uploads/folder/file.txt" , rootArkFolderId: "folder", rootArkArea: "uploads" } },
+    ] } }) } }),
+  });
+  await assert.rejects(drive.inventory(), { code: "duplicate_inventory_identity" });
+});
+
 test("configuration errors avoid client creation and provider errors do not disclose credentials", async () => {
   let created = 0;
   const missingBucket = createCloudStorage({ provider: "s3", createS3Client: async () => { created += 1; return {}; } });
