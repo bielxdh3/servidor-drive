@@ -111,4 +111,3 @@ Allowed docs-only checks are `git diff --check` and a scoped secret scan. Depend
 - [RFC 9864 fully specified algorithms](https://www.rfc-editor.org/rfc/rfc9864.html)
 - [hpke-js](https://github.com/dajiaji/hpke-js), [panva/hpke](https://github.com/panva/hpke), [noble-curves](https://github.com/paulmillr/noble-curves)
 - [argon2-browser](https://www.npmjs.com/package/argon2-browser), [argon2id](https://www.npmjs.com/package/argon2id), [@node-rs/argon2](https://www.npmjs.com/package/@node-rs/argon2)
-
