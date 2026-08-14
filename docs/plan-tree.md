@@ -355,6 +355,9 @@ This track may proceed conversationally in parallel with stabilization. Runtime 
 - `[DECIDED]` D-008 sets 30-day normal deletion and backup retention, immediate access revocation, and backup-aware cryptographic erasure that cannot be declared complete while service-controlled decryption material remains usable.
 - `[DECIDED]` D-009 requires encrypted client-generated previews and indexes, server-blind sharing, local-bridge-only zero-knowledge WebDAV, and eventual mandatory bidirectional synchronization; the reviewable architecture/migration contract is documented, while implementation and acceptance remain `[OPEN]`.
 - `[DONE]` Record the reviewable zero-knowledge architecture and migration contract at `docs/architecture/zero-knowledge-migration-contract.md`; implementation remains gated by its `OWNER_DECISION_PACKET` and independent security review.
+- `[BLOCKED]` Complete the independent Phase 8 security closure in `docs/validation/2026-08-14-rootark-phase8-independent-security-closure.md`; the verdict is `PHASE_8_BLOCKED_SECURITY_REVIEW` because draft status, HPKE authorization binding, deterministic encoding, nonce safety, and library/Argon2id provenance remain blocking.
+- `[BLOCKED]` Keep Phase 9 `NOT_STARTED`: do not add crypto scaffolding, dependencies, vectors, migration code, or runtime foundation until the Phase 9 entry criteria and independent review gates in the closure report are accepted.
+- `[DECISION REQUIRED]` Resolve only the genuine owner decisions: sharing/public-link UX, recovery authority, migration window/UX, sync conflict UX, and any remaining 2FA policy. Primitive, envelope, nonce, library, vector, and parser choices remain technical/security decisions.
 - `[IMPLEMENTED-UNVERIFIED]` Current server-readable encryption, metadata, previews/search, ClamAV, server-native WebDAV, sync MVP, and backup behavior remain legacy/current behavior and are not a claim that Root.ark is zero-knowledge today.
 - `[PARALLEL-DISCOVERY]` Local, S3, Google Drive, or hybrid canonical storage.
 - `[PARALLEL-DISCOVERY]` Approval workflow and intended purpose.
@@ -428,6 +431,7 @@ All items below are candidates, not commitments.
 
 ### Phase 7.1: Release gate
 
+- `[BLOCKED]` Phase 8 independent security verdict remains `PHASE_8_BLOCKED_SECURITY_REVIEW`; Phase 8 is `PARTIAL`, Phase 9 is `NOT_STARTED`, and Phase 15 remains `RELEASE_GATE_BLOCKED_ENVIRONMENT`.
 - `[BLOCKED]` Critical security findings closed or explicitly accepted.
 - `[BLOCKED]` Repeatable tests and CI pass for the exact release SHA.
 - `[BLOCKED]` Disposable operational validation completed.

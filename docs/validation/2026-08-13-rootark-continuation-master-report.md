@@ -18,7 +18,7 @@ The source branch `cdx/rootark-roadmap` is clean and exactly at the `Root/main` 
 
 ## PHASE_ACCOUNTING
 
-Phase 8 is `PARTIAL`: the architecture is technically specified, but independent cryptographic review, implementation, migration, and acceptance remain open. Phase 9 is `NOT_STARTED`: no cryptographic implementation or migration scaffolding was added. Phase 15 is `RELEASE_GATE_BLOCKED_ENVIRONMENT`: local dependency, network, native-binding, provider, and production evidence remain incomplete; remote CI is confirmed partial and advisory-blocked. The release-gate classification is independent of publication authorization.
+Phase 8 is `PARTIAL` with verdict `PHASE_8_BLOCKED_SECURITY_REVIEW`: the architecture is corrected and technically specified, but independent cryptographic review, exact vectors, provenance, implementation, migration, and acceptance remain open. Phase 9 is `NOT_STARTED`: no cryptographic implementation or migration scaffolding was added. Phase 15 is `RELEASE_GATE_BLOCKED_ENVIRONMENT`: local dependency, network, native-binding, provider, and production evidence remain incomplete; remote CI is confirmed partial and advisory-blocked. The release-gate classification is independent of publication authorization.
 
 ## ZK_RESERVATIONS
 
@@ -29,6 +29,12 @@ The existing fresh-control evidence records three exact rootark-zk-1 reservation
 3. **Implementation acceptance remains open.** Acceptance must cover interoperability, negative/fuzz/property tests, recovery/rotation/compromise handling, bridge crash safety, migration rollback, backup/restore, and prevention of plaintext or key leakage in logs and errors.
 
 These reservations are separate from residual environment-dependent validation blockers. They do not approve implementation or convert current server-readable behavior into zero-knowledge behavior.
+
+## PHASE_8_INDEPENDENT_SECURITY_CLOSURE — 2026-08-14
+
+The bounded closure report is `docs/validation/2026-08-14-rootark-phase8-independent-security-closure.md`. Live PR #54 provenance is `cdx/rootark-roadmap-evidence` at docs head `4a604e43a57ba8368fca35e72ff10dff4e271c71`, `https://github.com/bielxdh3/root.ark/pull/54`; the source baseline remains `Root/main` at `28747c6ebdac873650e2d5a3c6193824e7cc9985`. The report records the fresh attacker matrix, required classifications, active draft-26 correction, direct RFC9180 envelope profile, final COSE boundary, exact Ed25519 authorization bytes, deterministic RFC8949 parser rules, GCM wrap decision, provenance matrix, owner decisions, and Phase 9 entry criteria.
+
+Verdict: **`PHASE_8_BLOCKED_SECURITY_REVIEW`**. Phase 8 remains `PARTIAL`, Phase 9 remains `NOT_STARTED`, and Phase 15 remains `RELEASE_GATE_BLOCKED_ENVIRONMENT`. No Phase 9 foundation, runtime cryptography, dependency, lockfile, migration, or test implementation was executed. Docs-only validation is limited to `git diff --check` and a scoped secret scan; dependency-backed tests, provider, browser, production, native, and cryptographic execution remain unavailable or unconfirmed.
 
 ## CHANGES
 
@@ -84,7 +90,7 @@ The fresh-control ledger records the exact focused aggregate as 43 tests with 19
 
 ## SECURITY_REVIEW
 
-Formal rootark-zk-1 verdict: **Approved with reservations**. The recommendation is standards-based and explicitly separates architecture from implementation, owner policy, and the current server-readable legacy system. Residual risks include compromised authorized endpoints or recipients, metadata/traffic leakage, legacy decryptable copies, and unvalidated bridge/sync/migration behavior. Independent security review remains required before implementation.
+Formal rootark-zk-1 verdict: **`PHASE_8_BLOCKED_SECURITY_REVIEW`**. The corrected recommendation is standards-based and explicitly separates architecture from implementation, owner policy, and the current server-readable legacy system. Residual risks include compromised authorized endpoints or recipients, metadata/traffic leakage, legacy decryptable copies, and unvalidated bridge/sync/migration behavior. Independent security review remains required before implementation.
 
 ## ENVIRONMENT_BLOCKERS
 
@@ -96,7 +102,7 @@ Fresh evidence classifies dependency installation, registry/TCP/HTTPS access, np
 
 ## FINAL_REVIEW
 
-The current documentation and architecture evidence supports `Approved with reservations` for the documented recommendation only. No concrete source defect is asserted by this continuation. Phase 8 cannot advance until the independent cryptographic review and required acceptance gates close.
+The current documentation and architecture evidence supports `PHASE_8_BLOCKED_SECURITY_REVIEW` for the documented recommendation. The correction identifies concrete blocking technical and provenance gates; no implementation approval is asserted. Phase 8 cannot advance and Phase 9 remains `NOT_STARTED` until the independent cryptographic review and required acceptance gates close.
 
 ## REMOTE_ACTIONS
 
