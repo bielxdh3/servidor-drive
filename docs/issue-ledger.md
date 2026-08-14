@@ -86,7 +86,7 @@ Primary Phase 0-16 statuses use only `ACCEPTED`, `PARTIAL`, `BLOCKED_OWNER_DECIS
 
 ## Phase 8 technical status addendum (2026-08-13)
 
-Phase 8 remains `PARTIAL`: the zero-knowledge contract now contains a concrete Architect recommendation pending independent security review, covering standards-based primitives, the audited client crypto-module boundary, key hierarchy, envelope/AAD/version registry, device/recovery lifecycle, derived data, sharing, backup/erasure, local WebDAV bridge, sync, migration/rollback, fixtures, and failure classification. This resolves implementation-only design questions without claiming implementation or owner approval. Phase 9 remains `NOT_STARTED`; no crypto implementation, migration, dependency, runtime, test, or package change was made. Current server-readable behavior remains legacy and is not zero-knowledge evidence.
+Phase 8 remains `PARTIAL`: the zero-knowledge contract now contains a concrete Architect recommendation pending independent security review, covering standards-based primitives, the proposed/reviewed client crypto-module boundary, key hierarchy, envelope/AAD/version registry, device/recovery lifecycle, derived data, sharing, backup/erasure, local WebDAV bridge, sync, migration/rollback, fixtures, and failure classification. This resolves implementation-only design questions without claiming implementation or owner approval. Phase 9 remains `NOT_STARTED`; no crypto implementation, migration, dependency, runtime, test, or package change was made. Current server-readable behavior remains legacy and is not zero-knowledge evidence.
 
 ## Phase 8 closure gate addendum — 2026-08-14
 
