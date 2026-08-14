@@ -101,6 +101,12 @@ Phase 9 foundation work is separately authorized by this accepted design but rem
 
 **Final verdict: `PHASE_8_ACCEPTED_FOR_BOUNDED_PHASE_9_FOUNDATION`.** Phase 8 is `ACCEPTED`; Phase 9 is separately authorized but `NOT_STARTED`. No Phase 9 foundation or runtime cryptography was executed. This report is architecture/evidence only and does not claim current zero-knowledge behavior or release readiness.
 
+## PHASE_9_FOUNDATION_WORK — 2026-08-14
+
+Status: **`PHASE_9_FOUNDATION_BLOCKED_ENVIRONMENT_DEPENDENCIES`**. Using the same biel4 App Server Executor on turn `01a00094-8b4e-7ba1-b84b-aee6b50b015f`, the bounded foundation was attempted on `cdx/rootark-zk-foundation` from baseline `28747c6ebdac873650e2d5a3c6193824e7cc9985`. The branch was verified clean; npm metadata acquisition for `@hpke/core` 1.9.0, `@hpke/dhkem-x25519` 1.8.0, `libsodium-wrappers-sumo` 0.8.4, and a strict deterministic-CBOR dependency timed out after 30 seconds.
+
+No package, lockfile, source, test, crypto, or production-route file changed; no partial or homegrown crypto was created. The foundation branch remains clean and uncommitted at baseline, with no push or PR. Phase 8 remains **`PHASE_8_ACCEPTED_FOR_BOUNDED_PHASE_9_FOUNDATION`** / `ACCEPTED` and does not claim current zero-knowledge or release readiness. Phase 9 implementation remains `NOT_STARTED`, blocked at dependency acquisition; retry only when the same Executor has reproducible registry access. Phase 15 release/environment blockers remain unchanged.
+
 ## Validation boundary
 
 Allowed docs-only checks are `git diff --check` and a scoped secret scan. Dependency-backed tests, cryptographic vectors, interoperability, provider behavior, browser behavior, production behavior, OS WebDAV, live ClamAV, and native bindings are not claimed by this report.
