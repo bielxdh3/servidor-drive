@@ -546,7 +546,7 @@ function signAuthorization(manifest, privateKey) {
 async function verifyAuthorization(manifest, signature, publicKey, expected = {}) {
   const sig = bytes(signature, "INVALID_SIGNATURE", 64, 64, 64);
   if (!publicKey) fail("INVALID_VERIFYING_KEY");
-  for (const field of ["sender_key_id", "recipient_key_id", "compartment_id", "object_id", "version_id", "purpose", "epoch", "expiry", "replay_id", "idempotency_key", "wrap_id"]) {
+  for (const field of ["sender_key_id", "recipient_key_id", "compartment_id", "object_id", "version_id", "purpose", "epoch", "expiry", "replay_id", "idempotency_key", "wrap_id", "hpke_enc", "hpke_info_digest", "wrapped_key_digest", "ciphertext_digest"]) {
     if (Object.hasOwn(expected, field)) {
       const actual = manifest[field];
       const same = isBytes(actual) && isBytes(expected[field])
@@ -556,8 +556,11 @@ async function verifyAuthorization(manifest, signature, publicKey, expected = {}
     }
   }
   try {
-    return crypto.verify(null, await buildAuthorizationSignatureInput(manifest), publicKey, sig);
-  } catch (_) {
+    const valid = crypto.verify(null, await buildAuthorizationSignatureInput(manifest), publicKey, sig);
+    if (!valid) fail("AUTHENTICATION_FAILED", SECURITY_CLASS.AUTHENTICATION);
+    return true;
+  } catch (error) {
+    if (error instanceof RootarkZkError) throw error;
     fail("SIGNATURE_VERIFY_FAILED", SECURITY_CLASS.AUTHENTICATION);
   }
 }

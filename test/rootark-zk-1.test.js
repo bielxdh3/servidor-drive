@@ -215,16 +215,16 @@ test("Ed25519 authorization rejects altered signatures and substitutions", async
   assert.equal(await z.verifyAuthorization(manifest, signature, keys.publicKey), true);
   const altered = Buffer.from(signature);
   altered[0] ^= 1;
-  assert.equal(await z.verifyAuthorization(manifest, altered, keys.publicKey), false);
-  assert.equal(await z.verifyAuthorization({ ...manifest, purpose: "key-wrap" }, signature, keys.publicKey), false);
-  await assert.rejects(z.verifyAuthorization(manifest, signature, keys.publicKey, { object_id: b(99) }));
-  for (const field of ["sender_key_id", "recipient_key_id", "compartment_id", "object_id", "version_id", "epoch", "expiry", "replay_id", "idempotency_key", "wrap_id"]) {
+  await assert.rejects(z.verifyAuthorization(manifest, altered, keys.publicKey), (error) => error.code === "AUTHENTICATION_FAILED" && error.classification === z.SECURITY_CLASS.AUTHENTICATION);
+  await assert.rejects(z.verifyAuthorization({ ...manifest, purpose: "key-wrap" }, signature, keys.publicKey), (error) => error.code === "AUTHENTICATION_FAILED");
+  await assert.rejects(z.verifyAuthorization(manifest, signature, keys.publicKey, { object_id: b(99) }), (error) => error.code === "SCOPE_MISMATCH");
+  for (const field of ["sender_key_id", "recipient_key_id", "compartment_id", "object_id", "version_id", "purpose", "epoch", "expiry", "replay_id", "idempotency_key", "wrap_id", "hpke_enc", "hpke_info_digest", "wrapped_key_digest", "ciphertext_digest"]) {
     const expected = {
       [field]: Buffer.isBuffer(manifest[field])
         ? b(99, manifest[field].length)
-        : typeof manifest[field] === "bigint" ? manifest[field] + 1n : manifest[field] + 1,
+        : typeof manifest[field] === "bigint" ? manifest[field] + 1n : typeof manifest[field] === "string" ? "key-wrap" : manifest[field] + 1,
     };
-    await assert.rejects(z.verifyAuthorization(manifest, signature, keys.publicKey, expected));
+    await assert.rejects(z.verifyAuthorization(manifest, signature, keys.publicKey, expected), (error) => error.code === "SCOPE_MISMATCH");
   }
 });
 
