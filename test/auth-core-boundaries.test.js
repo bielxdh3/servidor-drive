@@ -137,3 +137,25 @@ test("a policy change binds an existing full HTTP and realtime session", () => {
     else process.env.TOTP_POLICY = originalPolicy;
   }
 });
+
+test("invalid dynamic TOTP policy blocks HTTP and realtime authentication without disclosure", () => {
+  const originalPolicy = process.env.TOTP_POLICY;
+  const originalRoles = process.env.TOTP_REQUIRED_ROLES;
+  const account = { username: "invalid-policy", role: "admin", permissions: {}, sessionVersion: 8, totpEnabled: false };
+  try {
+    process.env.TOTP_POLICY = "typo-mode";
+    const httpDenied = runPolicyHttp(account, "/files");
+    assert.deepEqual(httpDenied, { code: 503, body: { error: "Configuracao TOTP invalida." } });
+    assert.equal(runPolicyRealtime(account), null);
+
+    process.env.TOTP_POLICY = "role-required";
+    process.env.TOTP_REQUIRED_ROLES = "   ";
+    assert.deepEqual(runPolicyHttp(account, "/files"), { code: 503, body: { error: "Configuracao TOTP invalida." } });
+    assert.equal(runPolicyRealtime(account), null);
+  } finally {
+    if (originalPolicy === undefined) delete process.env.TOTP_POLICY;
+    else process.env.TOTP_POLICY = originalPolicy;
+    if (originalRoles === undefined) delete process.env.TOTP_REQUIRED_ROLES;
+    else process.env.TOTP_REQUIRED_ROLES = originalRoles;
+  }
+});

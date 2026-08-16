@@ -175,6 +175,30 @@ test("global required policy returns a bounded enrollment session without activa
   }
 });
 
+test("invalid runtime TOTP policy blocks login with a sanitized configuration error", async () => {
+  const originalPolicy = process.env.TOTP_POLICY;
+  const originalRoles = process.env.TOTP_REQUIRED_ROLES;
+  try {
+    const harness = createHarness([user("invalid-policy")]);
+    process.env.TOTP_POLICY = "not-a-policy";
+    let result = await harness.call("POST", "/auth/login", { username: "invalid-policy", password: "password" }, "invalid-policy");
+    assert.equal(result.code, 503);
+    assert.deepEqual(result.body, { error: "Configuracao TOTP invalida." });
+    assert.equal(JSON.stringify(result.body).includes("not-a-policy"), false);
+
+    process.env.TOTP_POLICY = "role-required";
+    process.env.TOTP_REQUIRED_ROLES = " \t ";
+    result = await harness.call("POST", "/auth/login", { username: "invalid-policy", password: "password" }, "invalid-policy");
+    assert.equal(result.code, 503);
+    assert.deepEqual(result.body, { error: "Configuracao TOTP invalida." });
+  } finally {
+    if (originalPolicy === undefined) delete process.env.TOTP_POLICY;
+    else process.env.TOTP_POLICY = originalPolicy;
+    if (originalRoles === undefined) delete process.env.TOTP_REQUIRED_ROLES;
+    else process.env.TOTP_REQUIRED_ROLES = originalRoles;
+  }
+});
+
 test("bad confirmation and missing application key fail closed without activating or exposing material", async () => {
   const missingHarness = createHarness([user("carol")], { getTotpKey: () => { throw new Error("missing"); } });
   const missing = await missingHarness.call("POST", "/auth/2fa/enroll", {}, "carol");

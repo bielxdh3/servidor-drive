@@ -10,7 +10,12 @@ const {
   verifyRecoveryCode,
   verifyTotp,
 } = require("../services/totp");
-const { getTotpPolicy, isTotpRequired } = require("../services/totpPolicy");
+const {
+  getTotpPolicy,
+  isTotpPolicyError,
+  isTotpRequired,
+  TOTP_POLICY_ERROR_MESSAGE,
+} = require("../services/totpPolicy");
 
 const loginAttemptsByIp = new Map();
 const loginAttemptsByUsername = new Map();
@@ -233,6 +238,16 @@ function genericTotpFailure(res, status = 401) {
   return sensitiveAuthResponse(res).status(status).json({ error: "Autenticacao de dois fatores invalida." });
 }
 
+function getRuntimeTotpPolicy(res) {
+  try {
+    return getTotpPolicy();
+  } catch (error) {
+    if (!isTotpPolicyError(error)) throw error;
+    sensitiveAuthResponse(res).status(503).json({ error: TOTP_POLICY_ERROR_MESSAGE });
+    return null;
+  }
+}
+
 function requireAdminReauthentication(actor, body, key, bcrypt) {
   if (!actor || !bcrypt.compareSync(String(body?.password || ""), actor.password || DUMMY_PASSWORD_HASH)) return null;
   if (!actor.totpEnabled) return { type: "password" };
@@ -335,6 +350,8 @@ function registerAuthRoutes(app, context) {
     resetLoginState(loginAttemptsByIp, ip);
     resetLoginState(loginAttemptsByUsername, normalizedUsername);
 
+    const totpPolicy = getRuntimeTotpPolicy(res);
+    if (!totpPolicy) return;
     cleanupChallenges(now);
     if (user.totpEnabled) {
       try { getEncryptedTotpSecret(user, totpKey()); } catch {
@@ -347,7 +364,7 @@ function registerAuthRoutes(app, context) {
       return sensitiveAuthResponse(res).json({ challengeRequired: true, challengeId, expiresIn: Math.ceil(challengeTtlMs / 1000) });
     }
 
-    if (isTotpRequired(user)) {
+    if (isTotpRequired(user, totpPolicy)) {
       const token = issueSession({ req, res, user, context, enrollmentOnly: true });
       return sensitiveAuthResponse(res).status(403).json({ enrollmentRequired: true, token, username: user.username, expiresIn: 900 });
     }
@@ -386,12 +403,16 @@ function registerAuthRoutes(app, context) {
   });
 
   app.get("/auth/2fa/policy", authenticate, (req, res) => {
-    const policy = getTotpPolicy();
+    const policy = getRuntimeTotpPolicy(res);
+    if (!policy) return;
     sensitiveAuthResponse(res).json({ mode: policy.mode, requiredRoles: [...policy.roles] });
   });
 
   app.get("/auth/2fa/status", authenticate, (req, res) => {
-    sensitiveAuthResponse(res).json({ enabled: Boolean(req.user.totpEnabled), required: isTotpRequired(req.user), enrollmentRequired: isTotpRequired(req.user) && !req.user.totpEnabled });
+    const policy = getRuntimeTotpPolicy(res);
+    if (!policy) return;
+    const required = isTotpRequired(req.user, policy);
+    sensitiveAuthResponse(res).json({ enabled: Boolean(req.user.totpEnabled), required, enrollmentRequired: required && !req.user.totpEnabled });
   });
 
   app.post("/auth/2fa/enroll", authenticate, async (req, res) => {
@@ -470,6 +491,8 @@ function registerAuthRoutes(app, context) {
     const actor = users.find((entry) => entry.username === req.user.username);
     const user = users.find((entry) => entry.username === req.params.username);
     if (!user) return sensitiveAuthResponse(res).status(404).json({ error: "Usuario nao encontrado" });
+    const totpPolicy = getRuntimeTotpPolicy(res);
+    if (!totpPolicy) return;
     if (!verificationRateLimit(req, actor?.username)) return genericTotpFailure(res, 429);
     let proof;
     try { proof = requireAdminReauthentication(actor, req.body, actor?.totpEnabled ? totpKey() : null, bcrypt); } catch { proof = null; }
@@ -486,7 +509,7 @@ function registerAuthRoutes(app, context) {
     user.sessionVersion = (user.sessionVersion || 0) + 1;
     saveUsers(users);
     auditLog("auth.2fa.admin_reset", getAuditActor(req), { type: "user", id: user.username }, "reset", "success", { resetBy: req.user.username, method: proof.type });
-    return sensitiveAuthResponse(res).json({ enabled: false, enrollmentRequired: isTotpRequired(user), loginRequired: true });
+    return sensitiveAuthResponse(res).json({ enabled: false, enrollmentRequired: isTotpRequired(user, totpPolicy), loginRequired: true });
   });
 
   app.get("/auth/me", authenticate, (req, res) => {

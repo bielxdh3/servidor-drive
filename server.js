@@ -41,6 +41,7 @@ const registerBackupRoutes = require("./src/routes/backups");
 const registerTrashRoutes = require("./src/routes/trash");
 const { createAuthenticate, createRealtimeAuthenticator, getExpectedOrigin, parseCookies } = require("./src/middlewares/auth");
 const { createRequirePermission } = require("./src/middlewares/permissions");
+const { validateTotpPolicy } = require("./src/services/totpPolicy");
 
 const app = express();
 const server = http.createServer(app);
@@ -67,6 +68,7 @@ const JWT_SECRET = String(process.env.JWT_SECRET || "");
 if (JWT_SECRET.length < 32 || JWT_SECRET === "rootark_secret_change_in_production") {
   throw new Error("JWT_SECRET deve ser definido explicitamente com pelo menos 32 caracteres seguros.");
 }
+validateTotpPolicy();
 const PORT = Number(process.env.PORT || 3000);
 const SESSION_COOKIE_OPTIONS = { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/" };
 const USERS_SEED_FILE = "./data/users.json";
