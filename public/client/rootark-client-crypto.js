@@ -29,9 +29,14 @@
   }
 
   function fromBase64url(value) {
-    const normalized = String(value || "").replace(/-/g, "+").replace(/_/g, "/");
-    const binary = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="));
-    return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    const text = String(value || "");
+    if (!/^[A-Za-z0-9_-]+$/.test(text) || text.length % 4 === 1) throw new Error("Base64URL invalido");
+    const normalized = text.replace(/-/g, "+").replace(/_/g, "/");
+    let binary;
+    try { binary = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=")); } catch { throw new Error("Base64URL invalido"); }
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    if (base64url(bytes) !== text) throw new Error("Base64URL nao canonico");
+    return bytes;
   }
 
   function canonicalize(value) {
@@ -47,6 +52,10 @@
     return JSON.stringify(canonicalize(value));
   }
 
+  function contextText(context) {
+    return typeof context === "string" ? context : canonicalJson(context);
+  }
+
   async function importKey(rawKey) {
     if (!subtle) throw new Error("Web Crypto indisponivel");
     return subtle.importKey("raw", keyBytes(rawKey), { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
@@ -54,7 +63,7 @@
 
   async function encryptJson(value, rawKey, context = "Root.ark/client") {
     const iv = cryptoApi.getRandomValues(new Uint8Array(12));
-    const aad = textEncoder.encode(String(context));
+    const aad = textEncoder.encode(contextText(context));
     const ciphertext = await subtle.encrypt({ name: "AES-GCM", iv, additionalData: aad, tagLength: 128 }, await importKey(rawKey), textEncoder.encode(canonicalJson(value)));
     return { algorithm: "AES-256-GCM", iv: base64url(iv), ciphertext: base64url(new Uint8Array(ciphertext)), aad: base64url(aad) };
   }
@@ -62,9 +71,12 @@
   async function decryptJson(envelope, rawKey, context = "Root.ark/client") {
     if (!envelope || envelope.algorithm !== "AES-256-GCM" || !envelope.iv || !envelope.ciphertext || !envelope.aad) throw new Error("Envelope protegido invalido");
     const aad = fromBase64url(envelope.aad);
-    const expected = textEncoder.encode(String(context));
+    const iv = fromBase64url(envelope.iv);
+    const ciphertext = fromBase64url(envelope.ciphertext);
+    if (iv.byteLength !== 12 || ciphertext.byteLength < 16) throw new Error("Envelope protegido invalido");
+    const expected = textEncoder.encode(contextText(context));
     if (new TextDecoder().decode(aad) !== new TextDecoder().decode(expected)) throw new Error("Contexto protegido invalido");
-    const plaintext = await subtle.decrypt({ name: "AES-GCM", iv: fromBase64url(envelope.iv), additionalData: aad, tagLength: 128 }, await importKey(rawKey), fromBase64url(envelope.ciphertext));
+    const plaintext = await subtle.decrypt({ name: "AES-GCM", iv, additionalData: aad, tagLength: 128 }, await importKey(rawKey), ciphertext);
     return JSON.parse(textDecoder.decode(plaintext));
   }
 
