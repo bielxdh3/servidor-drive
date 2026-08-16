@@ -1,6 +1,6 @@
 # Root.ark Phase 10 TOTP/2FA Security Record
 
-Status: `PHASE_10_IMPLEMENTED_LOCALLY_WITH_VALIDATION`; this is not a production-release or remote-issue-closure claim.
+Status: `PHASE_10_TOTP_IMPLEMENTED_AND_SECURITY_REVIEW_APPROVED`; this is the local engineering verdict only. It is not release readiness, production approval, remote Issue #9 closure, or publication acceptance.
 
 ## Scope and trust boundaries
 
@@ -24,12 +24,11 @@ Migration 5 adds `totp_enabled`, encrypted active/pending secret JSON, recovery 
 
 ## Validation evidence
 
-The local gate covered RFC 6238 SHA-1 vectors, AES-GCM/AAD failure, CSPRNG recovery generation and one-way verification, pending confirmation, login challenge, single-use recovery, replay fencing, disable/reset revocation, admin reauthentication, global policy, missing-key failure, enrollment-only HTTP/realtime boundaries, CSRF preservation, SQLite migration/persistence, Phase 9 crypto vectors, syntax validation, a disposable HTTP flow, and whitespace checks.
+Final focused evidence recorded for this local verdict is 50 tests passing across RFC 6238 SHA-1 vectors, AES-GCM/AAD failure, CSPRNG recovery generation and one-way verification, pending confirmation, login challenge, single-use recovery, replay fencing, disable/reset revocation, admin reauthentication, global policy, missing-key failure, enrollment-only HTTP/realtime boundaries, CSRF preservation, SQLite migration/persistence, Phase 9 crypto vectors, and auth/session regressions. Syntax validation, artifact validation, lockfile/install consistency, `git diff --check`, and the targeted secret scan gates also passed. A bounded disposable HTTP integration flow covered primary login, the 2FA challenge, full session issuance, and CSRF rejection on a cookie-authenticated sensitive request.
 
-The dependency audit remains outside this change: the starting branch still contains the pre-existing high `brace-expansion` advisory; the separate dependency-hardening branch has the 5.0.9 repair. Browser automation, external providers, production deployment, remote CI for this SHA, and release/publication acceptance remain unvalidated.
+The package-lock dependency audit remains non-clean because the starting branch contains the pre-existing high `brace-expansion` advisory; the separate dependency-hardening branch has the 5.0.9 repair. Browser automation, external providers, production deployment, remote CI for this SHA, and release/publication acceptance remain unvalidated.
 
 ## Residual handoffs
 
-- Re-run the complete repository suite and environment/provider gates in the integration/release environment.
-- Obtain an independent final security review of the completed Phase 10 diff.
-- Keep Phase 9/10 technical closure separate from remote issue state, draft PR state, production readiness, and the future Phase 11 work.
+- Complete the remaining browser, provider, production, remote-CI, and release gates in their appropriate environments.
+- Keep this local Phase 9/10 engineering verdict separate from remote issue state, draft PR state, production readiness, publication, and the future Phase 11 work.

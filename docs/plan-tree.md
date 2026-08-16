@@ -14,6 +14,7 @@ Historical reconstruction baseline retained for provenance: `4062f4c67bfda9d144a
 ## Status labels
 
 - `[DONE]`: implemented and supported by relevant validation evidence.
+- `[ACCEPTED-LOCAL]`: reviewed and accepted for the bounded local engineering scope; environment, production, or publication acceptance may remain open.
 - `[IMPLEMENTED-UNVERIFIED]`: code/documentation exists, but operational or regression proof is incomplete.
 - `[CURRENT]`: active phase. New execution should stay within this phase.
 - `[NEXT]`: next approved phase after the current gate.
@@ -194,7 +195,7 @@ Prerequisites: phases 2.1 through 2.3 and a product decision about 2FA scope.
 - `[DONE]` Encrypt seeds with the existing application master-key boundary, hash recovery codes with scrypt, fail closed on missing/invalid key material, and avoid secret-bearing audit/response paths.
 - `[DONE]` Preserve session-version revocation, cookie/CSRF checks, enrollment-only route fencing, realtime freshness, and JSON/SQLite user persistence through migration 5.
 - `[DONE]` Add optional, role-required, and global-required policy modes without implicit all-user activation; default behavior for existing users remains optional/inactive.
-- `[IMPLEMENTED-UNVERIFIED]` Focused local and disposable HTTP evidence passes. Browser automation, remote CI, provider, production, and release acceptance remain open; see `docs/security/phase-10-totp.md`.
+- `[ACCEPTED-LOCAL]` `PHASE_10_TOTP_IMPLEMENTED_AND_SECURITY_REVIEW_APPROVED`: 50 focused tests, syntax/artifact/lockfile/diff/targeted-secret gates, and bounded disposable HTTP evidence pass locally. Browser automation, providers, production, remote CI, release, and publication acceptance remain open; see `docs/security/phase-10-totp.md`.
 
 Phase 9 bounded foundation closeout: `PHASE_9_BOUNDED_FOUNDATION_ACCEPTED` for the reviewed `rootark-zk-1` foundation at the starting SHA, with local crypto vectors now passing after dependency installation. This does not accept zero-knowledge migration/runtime/release behavior. Residual Phase 9 handoffs remain dependency provenance/reproducibility, integration/runtime migration, provider/browser/CI/production evidence, and independent review.
 
@@ -393,7 +394,7 @@ All items below are candidates, not commitments.
 
 ### Authentication and administration
 
-- `[DO NOT IMPLEMENT YET]` 2FA/TOTP. Dedicated gated issue #9.
+- `[ACCEPTED-LOCAL]` 2FA/TOTP Issue #9 is implemented and security-reviewed within the bounded local scope; remote/publication/release acceptance remains separate.
 - `[DO NOT IMPLEMENT YET]` Recovery and session-management UI.
 - `[DO NOT IMPLEMENT YET]` User groups and group permissions.
 
