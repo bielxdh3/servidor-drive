@@ -36,7 +36,24 @@ Issue #9 is accepted locally within this engineering scope. This does not close 
 
 Local engineering verdict: **`PHASE_11_BACKLOG_RECONCILED`** at starting SHA `76f2a02cf6e3872ab2d7b61ff617021daf893c61` on `cdx/rootark-phase11-backlog-reconciliation`. The canonical nine-item matrix is `docs/roadmap/phase-11-backlog-reconciliation.md`.
 
-The matrix reconciles Issue #6 candidates as non-commitments and requires a separate future issue for each approved feature. TOTP is reconciled by the accepted Phase 10 record. Bidirectional synchronization and WebDAV mutations target Phase 12; search, previews, PWA/clients, groups, and admin UX target Phase 13; deployment prerequisites target Phase 14; naming and branding remain an owner/product decision. No Phase 12+ implementation, remote issue mutation, PR mutation, publication, merge, deploy, or release action occurred.
+The matrix reconciles Issue #6 candidates as non-commitments and requires a separate future issue for each approved feature. TOTP is reconciled by the accepted Phase 10 record. Bidirectional synchronization and WebDAV mutations target Phase 12; search, previews, PWA/clients, groups, and admin UX target Phase 13; deployment prerequisites target Phase 14; naming and branding remain an owner/product decision. No Phase 12+ implementation occurred in that reconciliation turn; remote issue mutation, PR mutation, publication, merge, deploy, or release action also did not occur.
+
+## Phase 12 local implementation — 2026-08-16
+
+The bounded Phase 12 implementation is present at starting SHA
+`730f581dd262ef0a21a1e73a9b3fc95149e68c63` on
+`cdx/rootark-phase12-zk-sync-webdav`. It adds the versioned client envelope,
+durable journal, loopback local bridge, and server-blind opaque object route.
+Focused tests cover protocol/AAD, journal restart, bridge safety/trash, route
+conflict/replay behavior, and the authenticated DELETE tombstone endpoint. The
+independent bounded Phase 12 focused gate passed 65/65; the local executable
+slice passes 4/4. The server never decrypts or receives file keys, and existing
+public WebDAV route shapes were not changed.
+
+Local status is **`PHASE_12_ACCEPTED_LOCAL`** for the bounded implementation and
+focused gate. Dependency-backed broader repository regressions, provider,
+browser, production, deployment, release, remote publication, and independent
+Phase 16 review remain outside this branch and unclaimed.
 
 ## Current local gate
 
@@ -90,7 +107,7 @@ Primary Phase 0-16 statuses use only `ACCEPTED`, `PARTIAL`, `BLOCKED_OWNER_DECIS
 | 9 | Zero-knowledge implementation program | `ACCEPTED` | `PHASE_9_BOUNDED_FOUNDATION_ACCEPTED`: the bounded `rootark-zk-1` foundation and vectors are accepted locally; full zero-knowledge migration/runtime/release behavior remains outside scope | Reproducibility/provenance, migration/runtime, provider/browser/CI/production, and independent release evidence remain open | Preserve the bounded foundation and hand off full implementation only through a separately scoped phase |
 | 10 | Issue #9 2FA/TOTP | `ACCEPTED` | `PHASE_10_TOTP_IMPLEMENTED_AND_SECURITY_REVIEW_APPROVED`: TOTP enrollment, challenge, recovery, disable/reset, policy, migration, session/realtime fencing, 52/52 focused auth/TOTP/security tests, 616/616 broad tests in 38.2 seconds, syntax 88/88, artifact/install/diff/secret gates, and bounded HTTP evidence are recorded locally | Browser, provider, production, remote-CI, release, and publication gates remain open; the pre-existing high `brace-expansion` advisory remains | Keep remote issue/publication and Draft PR state untouched; complete environment and release gates separately |
 | 11 | Issue #6 backlog reconciliation | `ACCEPTED` | `PHASE_11_BACKLOG_RECONCILED`: `docs/roadmap/phase-11-backlog-reconciliation.md` contains the complete nine-item evidence and boundary matrix; candidates remain non-commitments and each approved feature requires a separate issue | Stabilization, product decisions, security review, and scoped issues remain prerequisites for any future implementation | Keep all candidates gated; begin only a separately approved feature issue |
-| 12 | Bidirectional sync/WebDAV bridge | `NOT_STARTED` | Current evidence covers one-way sync MVP and direct server WebDAV only; D-009 requires client/local-bridge boundaries | Bridge, conflict authority, bidirectional protocol, metadata, recovery, and acceptance remain open | Design as a separate D-009 project; do not infer it from current MVPs |
+| 12 | Bidirectional sync/WebDAV bridge | `ACCEPTED` | `PHASE_12_ACCEPTED_LOCAL`: versioned client protocol, durable journal, loopback bridge, opaque `/sync/v1/objects` routes including DELETE tombstones, and an independent 65/65 focused gate are recorded locally | Dependency-backed broader regression, provider/browser/production, deployment, release, and independent review evidence remain open | Preserve the bounded implementation and hand off deployment/release/review separately |
 | 13 | Search/previews/PWA/clients/groups/admin UX | `NOT_STARTED` | Existing search/preview/admin surfaces are current implementation; plan backlog marks PWA, clients, groups, FTS, and redesign as not-yet-approved | Product scope, trust model, client architecture, and UX decisions remain open | Keep backlog deferred |
 | 14 | Deployment/adapters/resilience | `BLOCKED_ENVIRONMENT` | Fresh artifact and syntax checks passed, but dependency, native-binding, provider, and production gates remain unavailable; no deployment acceptance is claimed | Provider, deployment, TLS, production, native dependency, and resilience evidence remain open; remote Issue #14 was not mutated | Recover dependencies, then repeat environment-specific validation |
 | 15 | Documentation/release gate | `BLOCKED_ENVIRONMENT` | The local release gate is blocked by incomplete dependency/network, native-binding, provider, and production evidence; remote CI is confirmed partial and advisory-blocked, while documentation and secret-scan checks passed locally | Deployment exposure, product approval, and publication authorization remain separate open boundaries | Recover the environment and complete release evidence; seek publication authorization separately |

@@ -399,6 +399,15 @@ All items below are candidates, not commitments.
 - `[DO NOT IMPLEMENT YET]` TOTP is reconciled to accepted Phase 10; bidirectional sync and WebDAV mutations target Phase 12; search, previews, PWA/clients, groups, and admin UX target Phase 13; deployment prerequisites target Phase 14; naming and branding remain an owner/product decision.
 - `[DO NOT IMPLEMENT YET]` No Phase 12+ source, test, migration, UI, dependency, synchronization, WebDAV, deployment, or product implementation is authorized by this reconciliation.
 
+### Phase 12: ZK sync and local WebDAV bridge — 2026-08-16
+
+- `[ACCEPTED-LOCAL]` Add the versioned client protocol with stable IDs, deterministic allow-listed metadata, AES-256-GCM/AAD envelopes, key epoch/compartment/device context, Lamport revisions, create/update/move/delete tombstones, and base-revision conflict semantics.
+- `[ACCEPTED-LOCAL]` Add an atomic durable pending/seen journal with restart recovery.
+- `[ACCEPTED-LOCAL]` Add the loopback-only bearer-protected local WebDAV bridge with containment/symlink/traversal checks, safe PROPFIND/GET/PUT/MKCOL/MOVE/DELETE, journal callbacks, and DELETE-to-trash behavior.
+- `[ACCEPTED-LOCAL]` Add the authenticated, bounded, opaque `/sync/v1/objects` routes, including DELETE tombstone persistence, with per-user authorization, atomic persistence, conflict/replay/stale rejection, and no decryption/key handling; existing public WebDAV routes remain unchanged.
+- `[ACCEPTED-LOCAL]` Record the independent 65/65 Phase 12 focused gate; the local executable slice passes 4/4. Broader dependency/provider/browser/production validation remains separate.
+- `[LATER]` Complete provider/browser/production validation, deployment hardening, release acceptance, and independent Phase 16 review.
+
 ### Authentication and administration
 
 - `[ACCEPTED-LOCAL]` 2FA/TOTP Issue #9 is implemented and security-reviewed within the bounded local scope; final independent evidence is 52/52 focused and 616/616 broad tests, with remote/publication/release acceptance remaining separate.

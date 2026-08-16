@@ -39,12 +39,14 @@ const registerAnalyticsRoutes = require("./src/routes/analytics");
 const registerAuditRoutes = require("./src/routes/audit");
 const registerBackupRoutes = require("./src/routes/backups");
 const registerTrashRoutes = require("./src/routes/trash");
+const { registerSyncRoutes } = require("./src/routes/sync");
 const { createAuthenticate, createRealtimeAuthenticator, getExpectedOrigin, parseCookies } = require("./src/middlewares/auth");
 const { createRequirePermission } = require("./src/middlewares/permissions");
 const { validateTotpPolicy } = require("./src/services/totpPolicy");
 
 const app = express();
 const server = http.createServer(app);
+const syncJsonParser = express.json({ limit: "9mb" });
 function parseBoundedNumber(name, fallback, minimum, maximum) {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && Number.isInteger(value) && value >= minimum && value <= maximum ? value : fallback;
@@ -4385,6 +4387,7 @@ function initData() {
 app.set("trust proxy", true);
 app.use((req, res, next) => {
   if (WEBDAV_ENABLED && isWebDavRequestPath(req.path)) return next();
+  if (req.path === "/sync/v1" || req.path.startsWith("/sync/v1/")) return syncJsonParser(req, res, next);
   return express.json()(req, res, next);
 });
 app.use((req, res, next) => {
@@ -4451,6 +4454,13 @@ wss.on("connection", (socket, req) => {
 });
 
 const requirePermission = createRequirePermission();
+
+registerSyncRoutes({
+  app,
+  authenticate,
+  requirePermission,
+  storagePath: process.env.SYNC_OBJECTS_FILE || "./data/sync-objects.json",
+});
 
 if (WEBDAV_ENABLED) {
   registerWebDavRoutes();
