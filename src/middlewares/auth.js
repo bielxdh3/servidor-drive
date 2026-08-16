@@ -40,7 +40,17 @@ function createAuthenticate({ jwt, jwtSecret, loadUser, normalizeUserPermissions
       const claims = verifyClaims(jwt, token, jwtSecret);
       const user = loadUser(claims.username);
       if (!user || user.disabled || claims.sessionVersion !== (user.sessionVersion || 0)) throw new Error("revoked");
-      req.user = { username: user.username, role: user.role, permissions: normalizeUserPermissions(user), sessionVersion: user.sessionVersion || 0 };
+      req.user = {
+        username: user.username,
+        role: user.role,
+        permissions: normalizeUserPermissions(user),
+        sessionVersion: user.sessionVersion || 0,
+        totpEnabled: Boolean(user.totpEnabled),
+        enrollmentOnly: Boolean(claims.totpEnrollment),
+      };
+      if (claims.totpEnrollment && !["/auth/2fa/enroll", "/auth/2fa/confirm", "/auth/2fa/status", "/auth/2fa/policy", "/auth/logout"].includes(req.path)) {
+        return res.status(403).json({ error: "2FA enrollment required." });
+      }
       req.authType = bearer ? "bearer" : "cookie";
       if (req.authType === "cookie" && !["GET", "HEAD", "OPTIONS"].includes(req.method)) {
         const origin = req.headers.origin;
@@ -61,9 +71,17 @@ function createRealtimeAuthenticator({ jwt, jwtSecret, loadUser, normalizeUserPe
     if (!token) return null;
     try {
       const claims = verifyClaims(jwt, token, jwtSecret);
+      if (claims.totpEnrollment) return null;
       const user = loadUser(claims.username);
       if (!user || user.disabled || claims.sessionVersion !== (user.sessionVersion || 0)) return null;
-      return { username: user.username, role: user.role, permissions: normalizeUserPermissions(user), sessionVersion: user.sessionVersion || 0, expiresAt: Number.isFinite(claims.exp) ? claims.exp * 1000 : null };
+      return {
+        username: user.username,
+        role: user.role,
+        permissions: normalizeUserPermissions(user),
+        sessionVersion: user.sessionVersion || 0,
+        totpEnabled: Boolean(user.totpEnabled),
+        expiresAt: Number.isFinite(claims.exp) ? claims.exp * 1000 : null,
+      };
     } catch {
       return null;
     }

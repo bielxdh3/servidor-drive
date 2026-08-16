@@ -338,7 +338,14 @@ function saveUsers(users) {
   if (shouldUseDatabase()) usersRepository.saveUsers(users);
   if (shouldWriteLegacyJson()) {
     rememberUserGenerations(users);
-    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+    const temporaryFile = `${USERS_FILE}.tmp-${process.pid}-${crypto.randomBytes(8).toString("hex")}`;
+    try {
+      fs.writeFileSync(temporaryFile, JSON.stringify(users, null, 2), { mode: 0o600 });
+      fs.renameSync(temporaryFile, USERS_FILE);
+    } catch (error) {
+      fs.rmSync(temporaryFile, { force: true });
+      throw error;
+    }
   }
 }
 
@@ -2412,7 +2419,8 @@ function isInlinePreviewFile(fileName) {
   return ["image", "pdf", "audio", "video"].includes(getPreviewKind(fileName));
 }
 
-function getServerMasterKey() {
+function getServerMasterKey(options = {}) {
+  const createIfMissing = options.createIfMissing !== false;
   const envKey = process.env.SERVER_MASTER_KEY;
   if (envKey) {
     const cleanKey = envKey.trim();
@@ -2423,13 +2431,16 @@ function getServerMasterKey() {
   }
 
   if (!fs.existsSync(SERVER_MASTER_KEY_FILE)) {
+    if (!createIfMissing) throw new Error("SERVER_MASTER_KEY ausente");
     const masterKey = crypto.randomBytes(32);
     fs.writeFileSync(SERVER_MASTER_KEY_FILE, masterKey.toString("hex"), { mode: 0o600 });
     console.warn("[security] Nova chave mestra gerada em data/server-master.key. Faca backup seguro imediatamente.");
     return masterKey;
   }
 
-  return Buffer.from(fs.readFileSync(SERVER_MASTER_KEY_FILE, "utf-8").trim(), "hex");
+  const fileKey = fs.readFileSync(SERVER_MASTER_KEY_FILE, "utf-8").trim();
+  if (!/^[a-f0-9]{64}$/i.test(fileKey)) throw new Error("SERVER_MASTER_KEY invalida");
+  return Buffer.from(fileKey, "hex");
 }
 
 function deriveKeyFromPassword(password, salt = null) {
@@ -4497,14 +4508,18 @@ registerAuthRoutes(app, {
   getAuditActor,
   jwt,
   jwtSecret: JWT_SECRET,
+  getTotpKey: () => getServerMasterKey({ createIfMissing: false }),
+  qrcode: QRCode,
   sessionCookieOptions: SESSION_COOKIE_OPTIONS,
   loadUsers,
+  saveUsers,
   logAnalyticsEvent,
   normalizeUserPermissions,
+  requirePermission,
 });
 
 app.get("/users", authenticate, requirePermission("manageUsers"), (req, res) => {
-  const users = loadUsers().map(({ password, ...rest }) => ({
+  const users = loadUsers().map(({ password, totpSecret, totpPendingSecret, totpRecoveryHashes, totpLastUsedStep, ...rest }) => ({
     ...rest,
     permissions: normalizeUserPermissions(rest),
   }));
@@ -4587,7 +4602,7 @@ app.put("/users/:username", authenticate, requirePermission("manageUsers"), (req
     { changes, modifiedBy: req.user.username }
   );
 
-  const { password: _, ...updated } = users[idx];
+  const { password: _, totpSecret, totpPendingSecret, totpRecoveryHashes, totpLastUsedStep, ...updated } = users[idx];
   res.json({ message: "Usuario atualizado", user: updated });
 });
 

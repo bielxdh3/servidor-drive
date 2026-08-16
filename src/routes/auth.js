@@ -1,5 +1,21 @@
+const crypto = require("node:crypto");
+const {
+  DEFAULT_WINDOW,
+  PERIOD_SECONDS,
+  decryptSecret,
+  encryptSecret,
+  generateRecoveryCodes,
+  generateSecret,
+  normalizeOtp,
+  verifyRecoveryCode,
+  verifyTotp,
+} = require("../services/totp");
+
 const loginAttemptsByIp = new Map();
 const loginAttemptsByUsername = new Map();
+const loginChallenges = new Map();
+const verificationAttemptsByIp = new Map();
+const verificationAttemptsByUsername = new Map();
 const DUMMY_PASSWORD_HASH = "$2a$10$C8U56P8wZK.G7zWKmqF88e3f64PIxJ1xdTJN9WxiHcSVkYCfaSeDG";
 
 function getEnvNumber(name, fallback) {
@@ -117,6 +133,117 @@ function sendLoginProtectionError(res, statusCode, retryAfterSeconds) {
   return res.status(statusCode).json({ error: "Invalid credentials or temporarily blocked." });
 }
 
+function getTotpPolicy() {
+  const policy = String(process.env.TOTP_POLICY || "optional").trim().toLowerCase();
+  const mode = ["optional", "role-required", "global-required"].includes(policy) ? policy : "optional";
+  const roles = new Set(String(process.env.TOTP_REQUIRED_ROLES || "admin").split(",").map((role) => role.trim()).filter(Boolean));
+  return { mode, roles };
+}
+
+function isTotpRequired(user) {
+  const policy = getTotpPolicy();
+  return policy.mode === "global-required" || policy.mode === "role-required" && policy.roles.has(user.role);
+}
+
+function getTotpKey(getKey) {
+  try {
+    const key = getKey();
+    if (!Buffer.isBuffer(key) || key.length !== 32) throw new Error("invalid key");
+    return key;
+  } catch {
+    throw new Error("TOTP unavailable");
+  }
+}
+
+function getEncryptedTotpSecret(user, key, pending = false) {
+  const record = pending ? user.totpPendingSecret : user.totpSecret;
+  return decryptSecret(record, key, `Root.ark/TOTP/${user.username}`);
+}
+
+function consumeTotpProof(user, code, key, allowRecovery = true) {
+  const otp = normalizeOtp(code);
+  if (otp) {
+    let secret;
+    try { secret = getEncryptedTotpSecret(user, key); } catch { return null; }
+    const step = verifyTotp(secret, otp, { window: DEFAULT_WINDOW });
+    if (step === null || Number.isSafeInteger(user.totpLastUsedStep) && step <= user.totpLastUsedStep) return null;
+    user.totpLastUsedStep = step;
+    return { type: "totp", step };
+  }
+
+  if (!allowRecovery || !Array.isArray(user.totpRecoveryHashes)) return null;
+  const index = user.totpRecoveryHashes.findIndex((hash) => verifyRecoveryCode(code, hash));
+  if (index === -1) return null;
+  user.totpRecoveryHashes.splice(index, 1);
+  return { type: "recovery" };
+}
+
+function issueSession({ req, res, user, context, enrollmentOnly = false }) {
+  const { auditLog, checkAnomalies, getAuditActor, jwt, jwtSecret, logAnalyticsEvent, normalizeUserPermissions, sessionCookieOptions } = context;
+  const token = jwt.sign(
+    { username: user.username, sessionVersion: user.sessionVersion || 0, ...(enrollmentOnly ? { totpEnrollment: true } : {}) },
+    jwtSecret,
+    { algorithm: "HS256", expiresIn: enrollmentOnly ? "15m" : "8h" }
+  );
+  if (!enrollmentOnly) {
+    logAnalyticsEvent("login", { username: user.username, ip: getAuditActor(req, user.username).ip });
+    auditLog("auth.login.success", getAuditActor(req, user.username), { type: "user", id: user.username }, "authenticated", "success", {
+      username: user.username,
+      role: user.role,
+      tokenExpiry: "8h",
+    });
+    checkAnomalies(req, user.username);
+    const csrfToken = crypto.randomBytes(32).toString("base64url");
+    res.cookie("rootark_session", token, sessionCookieOptions);
+    res.cookie("rootark_csrf", csrfToken, { ...sessionCookieOptions, httpOnly: false });
+  }
+  return token;
+}
+
+function cleanupChallenges(now = Date.now()) {
+  for (const [id, challenge] of loginChallenges) if (challenge.expiresAt <= now) loginChallenges.delete(id);
+}
+
+function cleanupVerificationRateStore(store, now, windowMs) {
+  for (const [key, state] of store) if (now - state.windowStart >= windowMs) store.delete(key);
+}
+
+function getChallengeRateState(store, key, now) {
+  let state = store.get(key);
+  if (!state || now - state.windowStart >= state.windowMs) {
+    state = { attempts: 0, windowStart: now, windowMs: 5 * 60 * 1000 };
+    store.set(key, state);
+  }
+  return state;
+}
+
+function getRequestIp(req) {
+  return String(req.ip || req.socket?.remoteAddress || "unknown");
+}
+
+function verificationRateLimit(req, username) {
+  const now = Date.now();
+  const maxAttempts = Math.max(5, Math.min(100, Number(process.env.TOTP_CHALLENGE_MAX_ATTEMPTS) || 10));
+  cleanupVerificationRateStore(verificationAttemptsByIp, now, 5 * 60 * 1000);
+  cleanupVerificationRateStore(verificationAttemptsByUsername, now, 5 * 60 * 1000);
+  const ipState = getChallengeRateState(verificationAttemptsByIp, getRequestIp(req), now);
+  const userState = username ? getChallengeRateState(verificationAttemptsByUsername, String(username).toLowerCase(), now) : null;
+  if (ipState.attempts >= maxAttempts || userState?.attempts >= maxAttempts) return false;
+  ipState.attempts += 1;
+  if (userState) userState.attempts += 1;
+  return true;
+}
+
+function genericTotpFailure(res, status = 401) {
+  return res.status(status).json({ error: "Autenticacao de dois fatores invalida." });
+}
+
+function requireAdminReauthentication(actor, body, key, bcrypt) {
+  if (!actor || !bcrypt.compareSync(String(body?.password || ""), actor.password || DUMMY_PASSWORD_HASH)) return null;
+  if (!actor.totpEnabled) return { type: "password" };
+  return consumeTotpProof(actor, body?.code, key);
+}
+
 function registerAuthRoutes(app, context) {
   const {
     authenticate,
@@ -127,10 +254,17 @@ function registerAuthRoutes(app, context) {
     jwt,
     jwtSecret,
     loadUsers,
+    saveUsers,
+    getTotpKey,
     logAnalyticsEvent,
     normalizeUserPermissions,
+    qrcode,
+    requirePermission,
     sessionCookieOptions,
   } = context;
+
+  const totpKey = () => getTotpKey();
+  const challengeTtlMs = Math.max(60 * 1000, Math.min(10 * 60 * 1000, Number(process.env.TOTP_CHALLENGE_TTL_MS) || 5 * 60 * 1000));
 
   app.post("/auth/login", (req, res) => {
     const { username, password } = req.body;
@@ -206,27 +340,158 @@ function registerAuthRoutes(app, context) {
     resetLoginState(loginAttemptsByIp, ip);
     resetLoginState(loginAttemptsByUsername, normalizedUsername);
 
-    const token = jwt.sign(
-      { username: user.username, sessionVersion: user.sessionVersion || 0 },
-      jwtSecret,
-      { algorithm: "HS256", expiresIn: "8h" }
-    );
+    cleanupChallenges(now);
+    if (user.totpEnabled) {
+      try { getEncryptedTotpSecret(user, totpKey()); } catch {
+        auditLog("auth.login.failed", getAuditActor(req, user.username), { type: "user", id: user.username }, "challenge", "failure", { reason: "totp_unavailable" });
+        return res.status(503).json({ error: "Autenticacao indisponivel." });
+      }
+      const challengeId = crypto.randomBytes(32).toString("base64url");
+      loginChallenges.set(challengeId, { username: user.username, sessionVersion: user.sessionVersion || 0, expiresAt: now + challengeTtlMs, attempts: 0 });
+      auditLog("auth.login.challenge", getAuditActor(req, user.username), { type: "user", id: user.username }, "challenge", "pending", { expiresInMs: challengeTtlMs });
+      return res.json({ challengeRequired: true, challengeId, expiresIn: Math.ceil(challengeTtlMs / 1000) });
+    }
 
-    logAnalyticsEvent("login", {
-      username: user.username,
-      ip: getAuditActor(req, user.username).ip,
-    });
-    auditLog("auth.login.success", getAuditActor(req, user.username), { type: "user", id: user.username }, "authenticated", "success", {
-      username: user.username,
-      role: user.role,
-      tokenExpiry: "8h",
-    });
-    checkAnomalies(req, user.username);
+    if (isTotpRequired(user)) {
+      const token = issueSession({ req, res, user, context, enrollmentOnly: true });
+      return res.status(403).json({ enrollmentRequired: true, token, username: user.username, expiresIn: 900 });
+    }
 
-    const csrfToken = require("crypto").randomBytes(32).toString("base64url");
-    res.cookie("rootark_session", token, sessionCookieOptions);
-    res.cookie("rootark_csrf", csrfToken, { ...sessionCookieOptions, httpOnly: false });
+    const token = issueSession({ req, res, user, context });
     res.json({ token, username: user.username, role: user.role, permissions: normalizeUserPermissions(user) });
+  });
+
+  app.post("/auth/login/2fa", (req, res) => {
+    cleanupChallenges();
+    const challengeId = typeof req.body?.challengeId === "string" ? req.body.challengeId : "";
+    const code = req.body?.code;
+    const challenge = loginChallenges.get(challengeId);
+    if (!verificationRateLimit(req, challenge?.username)) return genericTotpFailure(res, 429);
+    if (!challenge || challenge.expiresAt <= Date.now() || challenge.attempts >= 5) {
+      loginChallenges.delete(challengeId);
+      return genericTotpFailure(res);
+    }
+    challenge.attempts += 1;
+    const user = loadUsers().find((entry) => entry.username === challenge.username && !entry.disabled && (entry.sessionVersion || 0) === challenge.sessionVersion);
+    if (!user) return genericTotpFailure(res);
+    let proof;
+    try { proof = consumeTotpProof(user, code, totpKey()); } catch { proof = null; }
+    if (!proof) {
+      auditLog("auth.login.challenge.failed", getAuditActor(req, challenge.username), { type: "user", id: challenge.username }, "challenge", "failure", { reason: "invalid_proof" });
+      if (challenge.attempts >= 5) loginChallenges.delete(challengeId);
+      return genericTotpFailure(res);
+    }
+    try { saveUsers(loadUsers().map((entry) => entry.username === user.username ? user : entry)); } catch {
+      return res.status(503).json({ error: "Autenticacao indisponivel." });
+    }
+    loginChallenges.delete(challengeId);
+    const token = issueSession({ req, res, user, context });
+    auditLog("auth.login.challenge.success", getAuditActor(req, user.username), { type: "user", id: user.username }, "challenge", "success", { method: proof.type });
+    res.json({ token, username: user.username, role: user.role, permissions: normalizeUserPermissions(user) });
+  });
+
+  app.get("/auth/2fa/policy", authenticate, (req, res) => {
+    const policy = getTotpPolicy();
+    res.json({ mode: policy.mode, requiredRoles: [...policy.roles] });
+  });
+
+  app.get("/auth/2fa/status", authenticate, (req, res) => {
+    res.json({ enabled: Boolean(req.user.totpEnabled), required: isTotpRequired(req.user), enrollmentRequired: isTotpRequired(req.user) && !req.user.totpEnabled });
+  });
+
+  app.post("/auth/2fa/enroll", authenticate, async (req, res) => {
+    const users = loadUsers();
+    const user = users.find((entry) => entry.username === req.user.username);
+    if (!user || user.totpEnabled) return res.status(409).json({ error: "2FA ja configurado." });
+    try {
+      const secret = generateSecret();
+      user.totpPendingSecret = { ...encryptSecret(secret, totpKey(), `Root.ark/TOTP/${user.username}`), createdAt: Date.now() };
+      saveUsers(users);
+      const issuer = String(process.env.TOTP_ISSUER || "Root.ark").trim() || "Root.ark";
+      const otpauthUri = `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(user.username)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=${PERIOD_SECONDS}`;
+      const qrCode = await context.qrcode.toDataURL(otpauthUri, { errorCorrectionLevel: "M" });
+      auditLog("auth.2fa.enrollment.started", getAuditActor(req), { type: "user", id: user.username }, "started", "success", { algorithm: "SHA1", digits: 6, period: PERIOD_SECONDS });
+      return res.json({ secret, otpauthUri, qrCode, expiresIn: 10 * 60 });
+    } catch {
+      auditLog("auth.2fa.enrollment.failed", getAuditActor(req), { type: "user", id: user.username }, "started", "failure", { reason: "key_unavailable" });
+      return res.status(503).json({ error: "2FA indisponivel." });
+    }
+  });
+
+  app.post("/auth/2fa/confirm", authenticate, (req, res) => {
+    const users = loadUsers();
+    const user = users.find((entry) => entry.username === req.user.username);
+    if (!verificationRateLimit(req, user?.username)) return genericTotpFailure(res, 429);
+    if (!user?.totpPendingSecret || !Number.isFinite(user.totpPendingSecret.createdAt) || Date.now() - user.totpPendingSecret.createdAt > 10 * 60 * 1000) return genericTotpFailure(res, 400);
+    try {
+      const key = totpKey();
+      const secret = getEncryptedTotpSecret(user, key, true);
+      const step = verifyTotp(secret, req.body?.code, { window: DEFAULT_WINDOW });
+      if (step === null) return genericTotpFailure(res, 400);
+      const recovery = generateRecoveryCodes();
+      user.totpSecret = user.totpPendingSecret;
+      user.totpPendingSecret = null;
+      user.totpEnabled = true;
+      user.totpRecoveryHashes = recovery.hashes;
+      user.totpLastUsedStep = step;
+      user.totpEnrolledAt = new Date().toISOString();
+      user.sessionVersion = (user.sessionVersion || 0) + 1;
+      saveUsers(users);
+      auditLog("auth.2fa.enabled", getAuditActor(req), { type: "user", id: user.username }, "enabled", "success", { recoveryCodeCount: recovery.codes.length });
+      return res.json({ enabled: true, recoveryCodes: recovery.codes, loginRequired: true });
+    } catch {
+      return res.status(503).json({ error: "2FA indisponivel." });
+    }
+  });
+
+  app.post("/auth/2fa/disable", authenticate, (req, res) => {
+    const users = loadUsers();
+    const user = users.find((entry) => entry.username === req.user.username);
+    if (!verificationRateLimit(req, user?.username)) return genericTotpFailure(res, 429);
+    if (!user?.totpEnabled || !bcrypt.compareSync(String(req.body?.password || ""), user.password || DUMMY_PASSWORD_HASH)) return genericTotpFailure(res);
+    try {
+      const key = totpKey();
+      const proof = consumeTotpProof(user, req.body?.code, key);
+      if (!proof) return genericTotpFailure(res);
+      user.totpEnabled = false;
+      user.totpSecret = null;
+      user.totpPendingSecret = null;
+      user.totpRecoveryHashes = [];
+      user.totpLastUsedStep = null;
+      user.totpEnrolledAt = null;
+      user.sessionVersion = (user.sessionVersion || 0) + 1;
+      saveUsers(users);
+      res.clearCookie("rootark_session", sessionCookieOptions);
+      res.clearCookie("rootark_csrf", sessionCookieOptions);
+      auditLog("auth.2fa.disabled", getAuditActor(req), { type: "user", id: user.username }, "disabled", "success", { method: proof.type });
+      return res.json({ enabled: false, loginRequired: true });
+    } catch {
+      return res.status(503).json({ error: "2FA indisponivel." });
+    }
+  });
+
+  app.post("/users/:username/2fa/reset", authenticate, requirePermission("manageUsers"), (req, res) => {
+    const users = loadUsers();
+    const actor = users.find((entry) => entry.username === req.user.username);
+    const user = users.find((entry) => entry.username === req.params.username);
+    if (!user) return res.status(404).json({ error: "Usuario nao encontrado" });
+    if (!verificationRateLimit(req, actor?.username)) return genericTotpFailure(res, 429);
+    let proof;
+    try { proof = requireAdminReauthentication(actor, req.body, actor?.totpEnabled ? totpKey() : null, bcrypt); } catch { proof = null; }
+    if (!proof) {
+      auditLog("auth.2fa.admin_reset", getAuditActor(req), { type: "user", id: user.username }, "reset", "failure", { reason: "reauthentication_failed" });
+      return genericTotpFailure(res);
+    }
+    user.totpEnabled = false;
+    user.totpSecret = null;
+    user.totpPendingSecret = null;
+    user.totpRecoveryHashes = [];
+    user.totpLastUsedStep = null;
+    user.totpEnrolledAt = null;
+    user.sessionVersion = (user.sessionVersion || 0) + 1;
+    saveUsers(users);
+    auditLog("auth.2fa.admin_reset", getAuditActor(req), { type: "user", id: user.username }, "reset", "success", { resetBy: req.user.username, method: proof.type });
+    return res.json({ enabled: false, enrollmentRequired: isTotpRequired(user), loginRequired: true });
   });
 
   app.get("/auth/me", authenticate, (req, res) => {

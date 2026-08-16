@@ -225,6 +225,20 @@ const MIGRATIONS = [
       db.exec("ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0; ALTER TABLE users ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0;");
     },
   },
+  {
+    version: 5,
+    name: "user_totp_security",
+    up(db) {
+      db.exec(`
+        ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE users ADD COLUMN totp_secret_json TEXT;
+        ALTER TABLE users ADD COLUMN totp_pending_secret_json TEXT;
+        ALTER TABLE users ADD COLUMN totp_recovery_hashes_json TEXT NOT NULL DEFAULT '[]';
+        ALTER TABLE users ADD COLUMN totp_last_used_step INTEGER;
+        ALTER TABLE users ADD COLUMN totp_enrolled_at TEXT;
+      `);
+    },
+  },
 ];
 
 function ensureMigrationTable(db) {
