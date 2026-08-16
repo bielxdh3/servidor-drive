@@ -10,12 +10,18 @@ function response() {
     code: 200,
     body: undefined,
     cookies: {},
+    headers: {},
     status(code) { this.code = code; return this; },
     json(body) { this.body = body; return this; },
     cookie(name, value) { this.cookies[name] = value; return this; },
     clearCookie(name) { delete this.cookies[name]; return this; },
-    setHeader() { return this; },
+    setHeader(name, value) { this.headers[name.toLowerCase()] = String(value); return this; },
   };
+}
+
+function assertNoStore(res) {
+  assert.equal(res.headers["cache-control"], "no-store");
+  assert.equal(res.headers.pragma, "no-cache");
 }
 
 let harnessCounter = 0;
@@ -77,6 +83,7 @@ test("TOTP enrollment, challenge, recovery single-use, disable, and admin reset 
   try {
     const enrolled = await harness.call("POST", "/auth/2fa/enroll", {}, "alice");
     assert.equal(enrolled.code, 200);
+    assertNoStore(enrolled);
     assert.match(enrolled.body.otpauthUri, /^otpauth:\/\/totp\//);
     assert.match(enrolled.body.qrCode, /^qr:otpauth:\/\/totp\//);
     assert.equal(Boolean(harness.users.find((entry) => entry.username === "alice").totpEnabled), false);
@@ -89,6 +96,7 @@ test("TOTP enrollment, challenge, recovery single-use, disable, and admin reset 
       : "000000";
     const confirmed = await harness.call("POST", "/auth/2fa/confirm", { code: confirmationCode }, "alice");
     assert.equal(confirmed.code, 200);
+    assertNoStore(confirmed);
     assert.equal(confirmed.body.recoveryCodes.length, 10);
     let currentAlice = harness.users.find((entry) => entry.username === "alice");
     assert.equal(currentAlice.totpEnabled, true);
@@ -99,11 +107,14 @@ test("TOTP enrollment, challenge, recovery single-use, disable, and admin reset 
     assert.equal(JSON.stringify(harness.users).includes(pendingSecret), false);
 
     const challenged = await harness.call("POST", "/auth/login", { username: "alice", password: "password" }, "alice");
+    assertNoStore(challenged);
     assert.equal(challenged.body.challengeRequired, true);
     const bad = await harness.call("POST", "/auth/login/2fa", { challengeId: challenged.body.challengeId, code: "000000" }, "alice");
     assert.equal(bad.code, 401);
+    assertNoStore(bad);
     const recovered = await harness.call("POST", "/auth/login/2fa", { challengeId: challenged.body.challengeId, code: confirmed.body.recoveryCodes[0] }, "alice");
     assert.equal(recovered.code, 200);
+    assertNoStore(recovered);
     assert.ok(recovered.body.token);
     const replayChallenge = await harness.call("POST", "/auth/login", { username: "alice", password: "password" }, "alice");
     const replay = await harness.call("POST", "/auth/login/2fa", { challengeId: replayChallenge.body.challengeId, code: confirmed.body.recoveryCodes[0] }, "alice");
@@ -111,6 +122,7 @@ test("TOTP enrollment, challenge, recovery single-use, disable, and admin reset 
 
     const disable = await harness.call("POST", "/auth/2fa/disable", { password: "password", code: confirmed.body.recoveryCodes[1] }, "alice");
     assert.equal(disable.code, 200);
+    assertNoStore(disable);
     currentAlice = harness.users.find((entry) => entry.username === "alice");
     assert.equal(currentAlice.totpEnabled, false);
     assert.equal(currentAlice.sessionVersion, 2);
@@ -153,6 +165,7 @@ test("global required policy returns a bounded enrollment session without activa
   try {
     const result = await harness.call("POST", "/auth/login", { username: "bob", password: "password" }, "bob");
     assert.equal(result.code, 403);
+    assertNoStore(result);
     assert.equal(result.body.enrollmentRequired, true);
     assert.ok(result.body.token);
     assert.equal(harness.users.find((entry) => entry.username === "bob").totpEnabled, undefined);
@@ -166,12 +179,14 @@ test("bad confirmation and missing application key fail closed without activatin
   const missingHarness = createHarness([user("carol")], { getTotpKey: () => { throw new Error("missing"); } });
   const missing = await missingHarness.call("POST", "/auth/2fa/enroll", {}, "carol");
   assert.equal(missing.code, 503);
+  assertNoStore(missing);
   assert.equal(missingHarness.users[0].totpPendingSecret, undefined);
 
   const working = createHarness([user("dave")]);
   const started = await working.call("POST", "/auth/2fa/enroll", {}, "dave");
   const bad = await working.call("POST", "/auth/2fa/confirm", { code: "000000" }, "dave");
   assert.equal(bad.code, 400);
+  assertNoStore(bad);
   assert.equal(Boolean(working.users[0].totpEnabled), false);
   assert.equal(JSON.stringify(working.events).includes(started.body.secret), false);
   assert.equal(JSON.stringify(working.events).includes(started.body.otpauthUri), false);

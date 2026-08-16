@@ -62,3 +62,78 @@ test("enrollment-only sessions cannot reach application routes or realtime", () 
   });
   assert.equal(realtime("token"), null);
 });
+
+function runPolicyHttp(user, path) {
+  let result;
+  const middleware = createAuthenticate({
+    jwt: { verify: () => ({ username: user.username, sessionVersion: user.sessionVersion || 0 }) },
+    jwtSecret: SECRET,
+    loadUser: () => user,
+    normalizeUserPermissions: (entry) => entry.permissions || {},
+  });
+  const req = { headers: { authorization: "Bearer token" }, method: "GET", path, protocol: "http", get: () => "localhost" };
+  middleware(req, { status: (code) => ({ json: (body) => { result = { code, body }; } }) }, () => { result = { ok: true, user: req.user }; });
+  return result;
+}
+
+function runPolicyRealtime(user) {
+  const realtime = require("../src/middlewares/auth").createRealtimeAuthenticator({
+    jwt: { verify: () => ({ username: user.username, sessionVersion: user.sessionVersion || 0 }) },
+    jwtSecret: SECRET,
+    loadUser: () => user,
+    normalizeUserPermissions: (entry) => entry.permissions || {},
+  });
+  return realtime("token");
+}
+
+test("HTTP and realtime authentication re-evaluate optional, role, and global TOTP policy", () => {
+  const originalPolicy = process.env.TOTP_POLICY;
+  const originalRoles = process.env.TOTP_REQUIRED_ROLES;
+  const admin = { username: "policy-admin", role: "admin", permissions: {}, sessionVersion: 4, totpEnabled: false };
+  const user = { username: "policy-user", role: "user", permissions: {}, sessionVersion: 4, totpEnabled: false };
+  try {
+    process.env.TOTP_POLICY = "optional";
+    assert.equal(runPolicyHttp(admin, "/files").ok, true);
+    assert.ok(runPolicyRealtime(admin));
+
+    process.env.TOTP_POLICY = "role-required";
+    process.env.TOTP_REQUIRED_ROLES = "admin";
+    assert.equal(runPolicyHttp(admin, "/files").code, 403);
+    for (const path of ["/auth/2fa/enroll", "/auth/2fa/confirm", "/auth/2fa/status", "/auth/2fa/policy", "/auth/logout"]) {
+      assert.equal(runPolicyHttp(admin, path).ok, true);
+    }
+    assert.equal(runPolicyRealtime(admin), null);
+    admin.totpEnabled = true;
+    assert.equal(runPolicyHttp(admin, "/files").ok, true);
+    assert.ok(runPolicyRealtime(admin));
+    assert.equal(runPolicyHttp(user, "/files").ok, true);
+    assert.ok(runPolicyRealtime(user));
+
+    process.env.TOTP_POLICY = "global-required";
+    admin.totpEnabled = false;
+    assert.equal(runPolicyHttp(admin, "/files").code, 403);
+    assert.equal(runPolicyRealtime(admin), null);
+  } finally {
+    if (originalPolicy === undefined) delete process.env.TOTP_POLICY;
+    else process.env.TOTP_POLICY = originalPolicy;
+    if (originalRoles === undefined) delete process.env.TOTP_REQUIRED_ROLES;
+    else process.env.TOTP_REQUIRED_ROLES = originalRoles;
+  }
+});
+
+test("a policy change binds an existing full HTTP and realtime session", () => {
+  const originalPolicy = process.env.TOTP_POLICY;
+  const account = { username: "existing-session", role: "admin", permissions: {}, sessionVersion: 7, totpEnabled: false };
+  try {
+    process.env.TOTP_POLICY = "optional";
+    assert.equal(runPolicyHttp(account, "/files").ok, true);
+    assert.ok(runPolicyRealtime(account));
+    process.env.TOTP_POLICY = "global-required";
+    assert.equal(runPolicyHttp(account, "/files").code, 403);
+    assert.equal(runPolicyRealtime(account), null);
+    assert.equal(runPolicyHttp(account, "/auth/2fa/status").ok, true);
+  } finally {
+    if (originalPolicy === undefined) delete process.env.TOTP_POLICY;
+    else process.env.TOTP_POLICY = originalPolicy;
+  }
+});

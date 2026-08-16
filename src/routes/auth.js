@@ -10,6 +10,7 @@ const {
   verifyRecoveryCode,
   verifyTotp,
 } = require("../services/totp");
+const { getTotpPolicy, isTotpRequired } = require("../services/totpPolicy");
 
 const loginAttemptsByIp = new Map();
 const loginAttemptsByUsername = new Map();
@@ -17,6 +18,12 @@ const loginChallenges = new Map();
 const verificationAttemptsByIp = new Map();
 const verificationAttemptsByUsername = new Map();
 const DUMMY_PASSWORD_HASH = "$2a$10$C8U56P8wZK.G7zWKmqF88e3f64PIxJ1xdTJN9WxiHcSVkYCfaSeDG";
+
+function sensitiveAuthResponse(res) {
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Pragma", "no-cache");
+  return res;
+}
 
 function getEnvNumber(name, fallback) {
   const value = Number(process.env[name]);
@@ -130,19 +137,7 @@ function getRetryAfterSeconds(...states) {
 
 function sendLoginProtectionError(res, statusCode, retryAfterSeconds) {
   if (retryAfterSeconds) res.setHeader("Retry-After", String(retryAfterSeconds));
-  return res.status(statusCode).json({ error: "Invalid credentials or temporarily blocked." });
-}
-
-function getTotpPolicy() {
-  const policy = String(process.env.TOTP_POLICY || "optional").trim().toLowerCase();
-  const mode = ["optional", "role-required", "global-required"].includes(policy) ? policy : "optional";
-  const roles = new Set(String(process.env.TOTP_REQUIRED_ROLES || "admin").split(",").map((role) => role.trim()).filter(Boolean));
-  return { mode, roles };
-}
-
-function isTotpRequired(user) {
-  const policy = getTotpPolicy();
-  return policy.mode === "global-required" || policy.mode === "role-required" && policy.roles.has(user.role);
+  return sensitiveAuthResponse(res).status(statusCode).json({ error: "Invalid credentials or temporarily blocked." });
 }
 
 function getTotpKey(getKey) {
@@ -235,7 +230,7 @@ function verificationRateLimit(req, username) {
 }
 
 function genericTotpFailure(res, status = 401) {
-  return res.status(status).json({ error: "Autenticacao de dois fatores invalida." });
+  return sensitiveAuthResponse(res).status(status).json({ error: "Autenticacao de dois fatores invalida." });
 }
 
 function requireAdminReauthentication(actor, body, key, bcrypt) {
@@ -269,7 +264,7 @@ function registerAuthRoutes(app, context) {
   app.post("/auth/login", (req, res) => {
     const { username, password } = req.body;
     if (!username || !password) {
-      return res.status(400).json({ error: "Usuario e senha obrigatorios" });
+      return sensitiveAuthResponse(res).status(400).json({ error: "Usuario e senha obrigatorios" });
     }
 
     const security = getLoginSecurityState(req, username, getAuditActor);
@@ -344,21 +339,21 @@ function registerAuthRoutes(app, context) {
     if (user.totpEnabled) {
       try { getEncryptedTotpSecret(user, totpKey()); } catch {
         auditLog("auth.login.failed", getAuditActor(req, user.username), { type: "user", id: user.username }, "challenge", "failure", { reason: "totp_unavailable" });
-        return res.status(503).json({ error: "Autenticacao indisponivel." });
+        return sensitiveAuthResponse(res).status(503).json({ error: "Autenticacao indisponivel." });
       }
       const challengeId = crypto.randomBytes(32).toString("base64url");
       loginChallenges.set(challengeId, { username: user.username, sessionVersion: user.sessionVersion || 0, expiresAt: now + challengeTtlMs, attempts: 0 });
       auditLog("auth.login.challenge", getAuditActor(req, user.username), { type: "user", id: user.username }, "challenge", "pending", { expiresInMs: challengeTtlMs });
-      return res.json({ challengeRequired: true, challengeId, expiresIn: Math.ceil(challengeTtlMs / 1000) });
+      return sensitiveAuthResponse(res).json({ challengeRequired: true, challengeId, expiresIn: Math.ceil(challengeTtlMs / 1000) });
     }
 
     if (isTotpRequired(user)) {
       const token = issueSession({ req, res, user, context, enrollmentOnly: true });
-      return res.status(403).json({ enrollmentRequired: true, token, username: user.username, expiresIn: 900 });
+      return sensitiveAuthResponse(res).status(403).json({ enrollmentRequired: true, token, username: user.username, expiresIn: 900 });
     }
 
     const token = issueSession({ req, res, user, context });
-    res.json({ token, username: user.username, role: user.role, permissions: normalizeUserPermissions(user) });
+    sensitiveAuthResponse(res).json({ token, username: user.username, role: user.role, permissions: normalizeUserPermissions(user) });
   });
 
   app.post("/auth/login/2fa", (req, res) => {
@@ -382,27 +377,27 @@ function registerAuthRoutes(app, context) {
       return genericTotpFailure(res);
     }
     try { saveUsers(loadUsers().map((entry) => entry.username === user.username ? user : entry)); } catch {
-      return res.status(503).json({ error: "Autenticacao indisponivel." });
+      return sensitiveAuthResponse(res).status(503).json({ error: "Autenticacao indisponivel." });
     }
     loginChallenges.delete(challengeId);
     const token = issueSession({ req, res, user, context });
     auditLog("auth.login.challenge.success", getAuditActor(req, user.username), { type: "user", id: user.username }, "challenge", "success", { method: proof.type });
-    res.json({ token, username: user.username, role: user.role, permissions: normalizeUserPermissions(user) });
+    sensitiveAuthResponse(res).json({ token, username: user.username, role: user.role, permissions: normalizeUserPermissions(user) });
   });
 
   app.get("/auth/2fa/policy", authenticate, (req, res) => {
     const policy = getTotpPolicy();
-    res.json({ mode: policy.mode, requiredRoles: [...policy.roles] });
+    sensitiveAuthResponse(res).json({ mode: policy.mode, requiredRoles: [...policy.roles] });
   });
 
   app.get("/auth/2fa/status", authenticate, (req, res) => {
-    res.json({ enabled: Boolean(req.user.totpEnabled), required: isTotpRequired(req.user), enrollmentRequired: isTotpRequired(req.user) && !req.user.totpEnabled });
+    sensitiveAuthResponse(res).json({ enabled: Boolean(req.user.totpEnabled), required: isTotpRequired(req.user), enrollmentRequired: isTotpRequired(req.user) && !req.user.totpEnabled });
   });
 
   app.post("/auth/2fa/enroll", authenticate, async (req, res) => {
     const users = loadUsers();
     const user = users.find((entry) => entry.username === req.user.username);
-    if (!user || user.totpEnabled) return res.status(409).json({ error: "2FA ja configurado." });
+    if (!user || user.totpEnabled) return sensitiveAuthResponse(res).status(409).json({ error: "2FA ja configurado." });
     try {
       const secret = generateSecret();
       user.totpPendingSecret = { ...encryptSecret(secret, totpKey(), `Root.ark/TOTP/${user.username}`), createdAt: Date.now() };
@@ -411,10 +406,10 @@ function registerAuthRoutes(app, context) {
       const otpauthUri = `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(user.username)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=${PERIOD_SECONDS}`;
       const qrCode = await context.qrcode.toDataURL(otpauthUri, { errorCorrectionLevel: "M" });
       auditLog("auth.2fa.enrollment.started", getAuditActor(req), { type: "user", id: user.username }, "started", "success", { algorithm: "SHA1", digits: 6, period: PERIOD_SECONDS });
-      return res.json({ secret, otpauthUri, qrCode, expiresIn: 10 * 60 });
+      return sensitiveAuthResponse(res).json({ secret, otpauthUri, qrCode, expiresIn: 10 * 60 });
     } catch {
       auditLog("auth.2fa.enrollment.failed", getAuditActor(req), { type: "user", id: user.username }, "started", "failure", { reason: "key_unavailable" });
-      return res.status(503).json({ error: "2FA indisponivel." });
+      return sensitiveAuthResponse(res).status(503).json({ error: "2FA indisponivel." });
     }
   });
 
@@ -438,9 +433,9 @@ function registerAuthRoutes(app, context) {
       user.sessionVersion = (user.sessionVersion || 0) + 1;
       saveUsers(users);
       auditLog("auth.2fa.enabled", getAuditActor(req), { type: "user", id: user.username }, "enabled", "success", { recoveryCodeCount: recovery.codes.length });
-      return res.json({ enabled: true, recoveryCodes: recovery.codes, loginRequired: true });
+      return sensitiveAuthResponse(res).json({ enabled: true, recoveryCodes: recovery.codes, loginRequired: true });
     } catch {
-      return res.status(503).json({ error: "2FA indisponivel." });
+      return sensitiveAuthResponse(res).status(503).json({ error: "2FA indisponivel." });
     }
   });
 
@@ -464,9 +459,9 @@ function registerAuthRoutes(app, context) {
       res.clearCookie("rootark_session", sessionCookieOptions);
       res.clearCookie("rootark_csrf", sessionCookieOptions);
       auditLog("auth.2fa.disabled", getAuditActor(req), { type: "user", id: user.username }, "disabled", "success", { method: proof.type });
-      return res.json({ enabled: false, loginRequired: true });
+      return sensitiveAuthResponse(res).json({ enabled: false, loginRequired: true });
     } catch {
-      return res.status(503).json({ error: "2FA indisponivel." });
+      return sensitiveAuthResponse(res).status(503).json({ error: "2FA indisponivel." });
     }
   });
 
@@ -474,7 +469,7 @@ function registerAuthRoutes(app, context) {
     const users = loadUsers();
     const actor = users.find((entry) => entry.username === req.user.username);
     const user = users.find((entry) => entry.username === req.params.username);
-    if (!user) return res.status(404).json({ error: "Usuario nao encontrado" });
+    if (!user) return sensitiveAuthResponse(res).status(404).json({ error: "Usuario nao encontrado" });
     if (!verificationRateLimit(req, actor?.username)) return genericTotpFailure(res, 429);
     let proof;
     try { proof = requireAdminReauthentication(actor, req.body, actor?.totpEnabled ? totpKey() : null, bcrypt); } catch { proof = null; }
@@ -491,7 +486,7 @@ function registerAuthRoutes(app, context) {
     user.sessionVersion = (user.sessionVersion || 0) + 1;
     saveUsers(users);
     auditLog("auth.2fa.admin_reset", getAuditActor(req), { type: "user", id: user.username }, "reset", "success", { resetBy: req.user.username, method: proof.type });
-    return res.json({ enabled: false, enrollmentRequired: isTotpRequired(user), loginRequired: true });
+    return sensitiveAuthResponse(res).json({ enabled: false, enrollmentRequired: isTotpRequired(user), loginRequired: true });
   });
 
   app.get("/auth/me", authenticate, (req, res) => {

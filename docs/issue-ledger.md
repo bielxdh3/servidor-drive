@@ -18,7 +18,7 @@ Reconciled locally on 2026-08-13 against the verified canonical baseline `Root/m
 | #6 | `open-current` | Feature backlog remains gated by product, security, and architecture decisions; no feature was silently approved. |
 | #7 | `historical-complete` | Operational report is preserved with PASS/BLOCKED distinctions; live ClamAV, OS mount, external providers, and production behavior remain environmental limits. |
 | #8 | `historical-complete` | Governance/source-of-truth documents are preserved and synchronized locally where stale branch claims affected execution. |
-| #9 | `accepted-locally` | `PHASE_10_TOTP_IMPLEMENTED_AND_SECURITY_REVIEW_APPROVED` is the local engineering verdict for the bounded Phase 10 implementation, with 50 focused tests and the recorded validation gates passing; remote issue/publication state, browser/provider/production/remote-CI/release gates remain untouched or open. |
+| #9 | `accepted-locally` | `PHASE_10_TOTP_IMPLEMENTED_AND_SECURITY_REVIEW_APPROVED` is the local engineering verdict for the bounded Phase 10 implementation and final hardening correction, with 50 final focused tests plus 43/43 correction tests and the recorded validation gates passing; remote issue/publication state, browser/provider/production/remote-CI/release gates remain untouched or open. |
 | #10 | `closure-ready-local` | D-001's current independent Root.ark/BielOS boundary and technical relationship contract are documented and closure-ready locally; future integration, migration, identity, and key relationships remain a separate owner-dependent project. Remote issue closure remains unclaimed because remote mutation is prohibited in this packet; no remote state is inferred. |
 | #11 | `historical-complete` | Bounded security inventory is historical evidence; changed-boundary reviews were focused rather than broad rescans. |
 | #12 | `historical-complete` | Release discipline and evidence-before-DONE rules remain active; the authorized draft publication record is preserved below. |
@@ -28,7 +28,7 @@ Reconciled locally on 2026-08-13 against the verified canonical baseline `Root/m
 
 ## Phase 9/10 local transition — 2026-08-16
 
-The current local engineering verdict is **`PHASE_9_BOUNDED_FOUNDATION_ACCEPTED`** for the bounded Phase 9 foundation and **`PHASE_10_TOTP_IMPLEMENTED_AND_SECURITY_REVIEW_APPROVED`** for Issue #9. The Phase 10 record documents 50 focused tests passing, syntax/artifact/lockfile/diff/targeted-secret gates passing, bounded HTTP integration evidence, and the pre-existing high `brace-expansion` dependency advisory.
+The current local engineering verdict is **`PHASE_9_BOUNDED_FOUNDATION_ACCEPTED`** for the bounded Phase 9 foundation and **`PHASE_10_TOTP_IMPLEMENTED_AND_SECURITY_REVIEW_APPROVED`** for Issue #9. The Phase 10 record documents 50 focused tests passing, the final hardening correction suite passing 43/43, syntax/artifact/lockfile/diff/targeted-secret gates passing, bounded HTTP integration evidence, and the pre-existing high `brace-expansion` dependency advisory.
 
 Issue #9 is accepted locally within this engineering scope. This does not close the remote issue, publish or change PR state, establish browser/provider/production/remote-CI/release acceptance, or claim production readiness. The dated sections below preserve their historical status at the time they were written and are not remote-closure evidence.
 

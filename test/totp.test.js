@@ -1,8 +1,10 @@
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const test = require("node:test");
 const {
   base32Encode,
   decryptSecret,
+  deriveTotpSeedKey,
   encryptSecret,
   generateRecoveryCodes,
   hotp,
@@ -28,12 +30,29 @@ test("TOTP matches RFC 6238 SHA-1 vectors with the documented one-step window", 
 });
 
 test("TOTP secret encryption requires a 32-byte application key and decrypts with AAD", () => {
-  const key = Buffer.alloc(32, 7);
+  const key = Buffer.from(Array.from({ length: 32 }, (_, index) => index + 1));
   const record = encryptSecret(RFC_SECRET, key, "Root.ark/TOTP/alice");
+  assert.equal(record.version, 2);
+  assert.equal(record.keyDerivation, "hkdf-sha256");
+  assert.equal(record.keyInfo, "Root.ark/TOTP/seed-encryption/v1");
   assert.equal(decryptSecret(record, key, "Root.ark/TOTP/alice"), RFC_SECRET);
+  assert.notDeepEqual(deriveTotpSeedKey(key), key);
+  assert.notDeepEqual(
+    deriveTotpSeedKey(key),
+    Buffer.from(crypto.hkdfSync("sha256", key, Buffer.alloc(0), Buffer.from("different-domain"), 32))
+  );
+  assert.equal(JSON.stringify(record).includes(key.toString("hex")), false);
+  assert.throws(() => {
+    const decipher = crypto.createDecipheriv("aes-256-gcm", key, Buffer.from(record.iv, "hex"));
+    decipher.setAAD(Buffer.from("Root.ark/TOTP/alice"));
+    decipher.setAuthTag(Buffer.from(record.authTag, "hex"));
+    decipher.update(Buffer.from(record.ciphertext, "hex"));
+    decipher.final();
+  });
   assert.throws(() => decryptSecret(record, Buffer.alloc(31), "Root.ark/TOTP/alice"));
   assert.throws(() => decryptSecret(record, key, "Root.ark/TOTP/bob"));
   assert.throws(() => encryptSecret(RFC_SECRET, Buffer.alloc(31), "Root.ark/TOTP/alice"));
+  assert.throws(() => encryptSecret(RFC_SECRET, undefined, "Root.ark/TOTP/alice"));
 });
 
 test("recovery codes are one-way, single-use values", () => {

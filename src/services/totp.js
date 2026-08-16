@@ -10,10 +10,24 @@ const DEFAULT_WINDOW = 1;
 const RECOVERY_CODE_COUNT = 10;
 const RECOVERY_HASH_PREFIX = "scrypt-v1";
 const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+const TOTP_SEED_ENCRYPTION_VERSION = 2;
+const TOTP_SEED_ENCRYPTION_INFO = "Root.ark/TOTP/seed-encryption/v1";
+const TOTP_SEED_KEY_DERIVATION = "hkdf-sha256";
 
 function requireKey(key) {
   if (!Buffer.isBuffer(key) || key.length !== 32) throw new Error("TOTP key unavailable");
   return key;
+}
+
+function deriveTotpSeedKey(masterKey) {
+  const rawKey = requireKey(masterKey);
+  return Buffer.from(crypto.hkdfSync(
+    "sha256",
+    rawKey,
+    Buffer.alloc(0),
+    Buffer.from(TOTP_SEED_ENCRYPTION_INFO, "utf8"),
+    32
+  ));
 }
 
 function base32Encode(input) {
@@ -96,33 +110,45 @@ function verifyTotp(secret, value, options = {}) {
 function encryptSecret(secret, key, aad) {
   const plaintext = base32Decode(secret);
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv("aes-256-gcm", requireKey(key), iv);
-  cipher.setAAD(Buffer.from(String(aad), "utf8"));
-  const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
-  plaintext.fill(0);
-  return {
-    version: 1,
-    algorithm: "aes-256-gcm",
-    iv: iv.toString("hex"),
-    authTag: cipher.getAuthTag().toString("hex"),
-    ciphertext: ciphertext.toString("hex"),
-  };
+  const derivedKey = deriveTotpSeedKey(key);
+  try {
+    const cipher = crypto.createCipheriv("aes-256-gcm", derivedKey, iv);
+    cipher.setAAD(Buffer.from(String(aad), "utf8"));
+    const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+    return {
+      version: TOTP_SEED_ENCRYPTION_VERSION,
+      algorithm: "aes-256-gcm",
+      keyDerivation: TOTP_SEED_KEY_DERIVATION,
+      keyInfo: TOTP_SEED_ENCRYPTION_INFO,
+      iv: iv.toString("hex"),
+      authTag: cipher.getAuthTag().toString("hex"),
+      ciphertext: ciphertext.toString("hex"),
+    };
+  } finally {
+    derivedKey.fill(0);
+    plaintext.fill(0);
+  }
 }
 
 function decryptSecret(record, key, aad) {
-  if (!record || record.version !== 1 || record.algorithm !== "aes-256-gcm") throw new Error("Invalid TOTP secret record");
+  if (!record || record.version !== TOTP_SEED_ENCRYPTION_VERSION || record.algorithm !== "aes-256-gcm" || record.keyDerivation !== TOTP_SEED_KEY_DERIVATION || record.keyInfo !== TOTP_SEED_ENCRYPTION_INFO) throw new Error("Invalid TOTP secret record");
   const iv = Buffer.from(record.iv || "", "hex");
   const authTag = Buffer.from(record.authTag || "", "hex");
   const ciphertext = Buffer.from(record.ciphertext || "", "hex");
   if (iv.length !== 12 || authTag.length !== 16 || ciphertext.length !== SECRET_BYTES) throw new Error("Invalid TOTP secret record");
-  const decipher = crypto.createDecipheriv("aes-256-gcm", requireKey(key), iv);
-  decipher.setAAD(Buffer.from(String(aad), "utf8"));
-  decipher.setAuthTag(authTag);
-  const secret = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+  const derivedKey = deriveTotpSeedKey(key);
   try {
-    return base32Encode(secret);
+    const decipher = crypto.createDecipheriv("aes-256-gcm", derivedKey, iv);
+    decipher.setAAD(Buffer.from(String(aad), "utf8"));
+    decipher.setAuthTag(authTag);
+    const secret = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    try {
+      return base32Encode(secret);
+    } finally {
+      secret.fill(0);
+    }
   } finally {
-    secret.fill(0);
+    derivedKey.fill(0);
   }
 }
 
@@ -157,8 +183,12 @@ module.exports = {
   DIGITS,
   PERIOD_SECONDS,
   RECOVERY_CODE_COUNT,
+  TOTP_SEED_ENCRYPTION_INFO,
+  TOTP_SEED_ENCRYPTION_VERSION,
+  TOTP_SEED_KEY_DERIVATION,
   base32Decode,
   base32Encode,
+  deriveTotpSeedKey,
   decryptSecret,
   encryptSecret,
   generateRecoveryCodes,

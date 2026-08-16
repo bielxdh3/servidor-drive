@@ -1,6 +1,7 @@
 const MAX_TOKEN_LENGTH = 4096;
 const MAX_FUTURE_IAT_SECONDS = 300;
 const JWT_VERIFY_OPTIONS = { algorithms: ["HS256"] };
+const { isTotpEnrollmentPath, isTotpRequired } = require("../services/totpPolicy");
 
 function parseCookies(header = "") {
   const cookies = {};
@@ -40,6 +41,7 @@ function createAuthenticate({ jwt, jwtSecret, loadUser, normalizeUserPermissions
       const claims = verifyClaims(jwt, token, jwtSecret);
       const user = loadUser(claims.username);
       if (!user || user.disabled || claims.sessionVersion !== (user.sessionVersion || 0)) throw new Error("revoked");
+      const enrollmentRequired = isTotpRequired(user) && !user.totpEnabled;
       req.user = {
         username: user.username,
         role: user.role,
@@ -48,7 +50,7 @@ function createAuthenticate({ jwt, jwtSecret, loadUser, normalizeUserPermissions
         totpEnabled: Boolean(user.totpEnabled),
         enrollmentOnly: Boolean(claims.totpEnrollment),
       };
-      if (claims.totpEnrollment && !["/auth/2fa/enroll", "/auth/2fa/confirm", "/auth/2fa/status", "/auth/2fa/policy", "/auth/logout"].includes(req.path)) {
+      if ((claims.totpEnrollment || enrollmentRequired) && !isTotpEnrollmentPath(req.path)) {
         return res.status(403).json({ error: "2FA enrollment required." });
       }
       req.authType = bearer ? "bearer" : "cookie";
@@ -74,6 +76,7 @@ function createRealtimeAuthenticator({ jwt, jwtSecret, loadUser, normalizeUserPe
       if (claims.totpEnrollment) return null;
       const user = loadUser(claims.username);
       if (!user || user.disabled || claims.sessionVersion !== (user.sessionVersion || 0)) return null;
+      if (isTotpRequired(user) && !user.totpEnabled) return null;
       return {
         username: user.username,
         role: user.role,

@@ -91,15 +91,20 @@ test("bounded HTTP login challenge preserves cookie session and CSRF boundaries"
   }
   const primary = await request(port, "/auth/login", { method: "POST", body: { username: "alice", password: "disposable-password" } });
   assert.equal(primary.status, 200);
+  assert.equal(primary.headers["cache-control"], "no-store");
+  assert.equal(primary.headers.pragma, "no-cache");
   const challenge = JSON.parse(primary.body);
   assert.equal(challenge.challengeRequired, true);
   const invalid = await request(port, "/auth/login/2fa", { method: "POST", body: { challengeId: challenge.challengeId, code: "000000" } });
   assert.equal(invalid.status, 401);
+  assert.equal(invalid.headers["cache-control"], "no-store");
   const valid = await request(port, "/auth/login/2fa", {
     method: "POST",
     body: { challengeId: challenge.challengeId, code: hotp(secret, Math.floor(Date.now() / 1000 / 30)) },
   });
   assert.equal(valid.status, 200);
+  assert.equal(valid.headers["cache-control"], "no-store");
+  assert.equal(valid.headers.pragma, "no-cache");
   const cookie = valid.headers["set-cookie"].map((entry) => entry.split(";", 1)[0]).join("; ");
   const me = await request(port, "/auth/me", { headers: { cookie } });
   assert.equal(me.status, 200);
