@@ -40,6 +40,7 @@ const registerAuditRoutes = require("./src/routes/audit");
 const registerBackupRoutes = require("./src/routes/backups");
 const registerTrashRoutes = require("./src/routes/trash");
 const { registerSyncRoutes } = require("./src/routes/sync");
+const { registerGroupRoutes } = require("./src/routes/groups");
 const { createAuthenticate, createRealtimeAuthenticator, getExpectedOrigin, parseCookies } = require("./src/middlewares/auth");
 const { createRequirePermission } = require("./src/middlewares/permissions");
 const { validateTotpPolicy } = require("./src/services/totpPolicy");
@@ -89,6 +90,7 @@ const ANALYTICS_FILE = "./data/analytics.json";
 const AUDIT_LOGS_FILE = "./data/audit-logs.json";
 const AUDIT_ARCHIVE_FILE = "./data/audit-logs-archive.json";
 const QUARANTINE_FILE = "./data/quarantine.json";
+const GROUPS_FILE = "./data/groups.json";
 const CLOUD_STORAGE_PROVIDER = String(process.env.CLOUD_STORAGE_PROVIDER || "local").toLowerCase();
 const CLOUD_STORAGE_PREFIX = String(process.env.CLOUD_STORAGE_PREFIX || "rootark").replace(/^\/+|\/+$/g, "") || "rootark";
 const ROOT_FOLDER_ID = "root";
@@ -157,6 +159,7 @@ let webDavReconciliationRunning = false;
 let webDavReconciliationTimer = null;
 const ENCRYPTION_ITERATIONS = 100000;
 const openFileTokens = new Map();
+let groupsStore = null;
 let analyticsSummaryCache = null;
 const cloudStorage = createCloudStorage({
   provider: CLOUD_STORAGE_PROVIDER,
@@ -1870,6 +1873,7 @@ function hasFolderAccess(req, folder) {
   if (folder.isRoot || folder.id === ROOT_FOLDER_ID) return true;
   if (req.user?.role === "admin" || req.user?.permissions?.manageUsers) return true;
   if (folder.createdBy === req.user?.username) return true;
+  if (groupsStore?.isMember(req.user?.username, folder.groupIds)) return true;
   const access = normalizeFolderAccessEntry(folder).users[req.user?.username];
   return Boolean(access?.read) || Boolean(access?.edit);
 }
@@ -2900,9 +2904,16 @@ function getFolderEligibleUsers(folder) {
     user.role === "admin" ||
     user.permissions?.manageUsers ||
     folder.createdBy === user.username ||
+    groupsStore?.isMember(user.username, folder.groupIds) ||
     Boolean(folderUsers[user.username]?.read) ||
     Boolean(folderUsers[user.username]?.edit)
   ));
+}
+
+function normalizeFolderGroupIds(value, allowMissing = true) {
+  if (value === undefined && allowMissing) return undefined;
+  if (!groupsStore) return null;
+  return groupsStore?.validateIds(value);
 }
 
 function hasFileAccess(req, folder, fileName, entries = loadFilePermissions()) {
@@ -4462,6 +4473,18 @@ registerSyncRoutes({
   storagePath: process.env.SYNC_OBJECTS_FILE || "./data/sync-objects.json",
 });
 
+groupsStore = registerGroupRoutes({
+  app,
+  authenticate,
+  requirePermission,
+  loadUsers,
+  loadFolders,
+  saveFolders,
+  auditLog,
+  getAuditActor,
+  storagePath: process.env.GROUPS_FILE || GROUPS_FILE,
+}).store;
+
 if (WEBDAV_ENABLED) {
   registerWebDavRoutes();
 }
@@ -4869,6 +4892,7 @@ app.post("/folders", authenticate, (req, res) => {
       ]));
   const validUsernames = new Set(loadUsers().map((user) => user.username));
   const folderUsers = {};
+  const groupIds = normalizeFolderGroupIds(req.body.groupIds);
   const invalidUsers = [];
   const expiresAt = getTemporaryExpirationFromBody(req.body);
 
@@ -4878,6 +4902,10 @@ app.post("/folders", authenticate, (req, res) => {
 
   if (expiresAt === undefined) {
     return res.status(400).json({ error: "Expiracao temporaria invalida" });
+  }
+
+  if (groupIds === null) {
+    return res.status(400).json({ error: "Grupos invalidos" });
   }
 
   for (const [username, access] of Object.entries(requestedUsers)) {
@@ -4909,6 +4937,7 @@ app.post("/folders", authenticate, (req, res) => {
     expiresAt,
     users: folderUsers,
     allowedUsers: Object.keys(folderUsers),
+    groupIds: groupIds || [],
     isRoot: false,
   };
 
@@ -4964,6 +4993,11 @@ app.put("/folders/:id/access", authenticate, (req, res) => {
     return res.status(403).json({ error: "Permissao negada para editar esta pasta" });
   }
 
+  const groupIds = normalizeFolderGroupIds(req.body.groupIds);
+  if (groupIds === null) {
+    return res.status(400).json({ error: "Grupos invalidos" });
+  }
+
   const requestedUsers = req.body.users && typeof req.body.users === "object"
     ? req.body.users
     : Object.fromEntries(normalizeAllowedUsers(req.body.allowedUsers).map((username) => [
@@ -4996,6 +5030,7 @@ app.put("/folders/:id/access", authenticate, (req, res) => {
 
   folder.users = folderUsers;
   folder.allowedUsers = Object.keys(folderUsers);
+  if (groupIds !== undefined) folder.groupIds = groupIds;
   folder.updatedAt = new Date().toISOString();
   saveFolders(folders);
   auditLog("folder.access.changed", getAuditActor(req), { type: "folder", id: folderId }, "modified", "success", {

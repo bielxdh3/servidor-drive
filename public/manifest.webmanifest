@@ -1,0 +1,9 @@
+{
+  "name": "Root.ark",
+  "short_name": "Root.ark",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#111012",
+  "theme_color": "#044879",
+  "icons": [{ "src": "/assets/logo.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

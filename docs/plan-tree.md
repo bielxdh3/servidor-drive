@@ -412,18 +412,18 @@ All items below are candidates, not commitments.
 
 - `[ACCEPTED-LOCAL]` 2FA/TOTP Issue #9 is implemented and security-reviewed within the bounded local scope; final independent evidence is 52/52 focused and 616/616 broad tests, with remote/publication/release acceptance remaining separate.
 - `[DO NOT IMPLEMENT YET]` Recovery and session-management UI.
-- `[DO NOT IMPLEMENT YET]` User groups and group permissions.
+- `[ACCEPTED-LOCAL]` Phase 13 adds authenticated group CRUD/membership with an atomic JSON store; `manageUsers` is required and folder `groupIds` add membership access without changing individual sharing.
 
 ### Search and previews
 
 - `[DO NOT IMPLEMENT YET]` SQLite FTS5 content indexing.
 - `[DO NOT IMPLEMENT YET]` Advanced filters.
-- `[DO NOT IMPLEMENT YET]` Better image, PDF, office, media, and code previews.
+- `[ACCEPTED-LOCAL]` Protected client index and preview services use browser AES-256-GCM and local decrypt-before-search/render; server search/preview behavior remains unchanged.
 - `[DO NOT IMPLEMENT YET]` Thumbnail generation and lifecycle.
 
 ### Clients and protocols
 
-- `[DO NOT IMPLEMENT YET]` Installable PWA.
+- `[ACCEPTED-LOCAL]` Installable public-shell PWA, service-worker cache exclusions, encrypted client-local offline queue boundary, and opaque Phase 12 browser protocol adapter are present.
 - `[DO NOT IMPLEMENT YET]` Bidirectional desktop synchronization.
 - `[DO NOT IMPLEMENT YET]` Conflict resolution and deletion sync.
 - `[DO NOT IMPLEMENT YET]` Background/startup service.
@@ -433,7 +433,7 @@ All items below are candidates, not commitments.
 ### Product and interface
 
 - `[DO NOT IMPLEMENT YET]` Final rename and branding migration.
-- `[DO NOT IMPLEMENT YET]` Major UI redesign.
+- `[ACCEPTED-LOCAL]` Minimal groups admin section and protected-search/offline status panel are wired into the existing UI; no redesign was performed.
 - `[DO NOT IMPLEMENT YET]` New product features proposed casually in chat without discovery and issue creation.
 
 ## 7. Documentation and release readiness

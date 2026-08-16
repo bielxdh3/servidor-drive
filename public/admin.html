@@ -344,6 +344,21 @@
         </table>
       </div>
 
+      <div class="card" id="groupsSection">
+        <p class="section-title">Grupos</p>
+        <p class="file-access-note">Grupos controlam acesso adicional a pastas; compartilhamentos individuais continuam inalterados.</p>
+        <div class="form-row">
+          <div class="field"><label>Nome do grupo</label><input id="newGroupName" type="text" maxlength="80" placeholder="equipe-documentos" /></div>
+          <div class="field"><label>Membros (usuarios separados por virgula)</label><input id="newGroupMembers" type="text" placeholder="alice, bob" /></div>
+        </div>
+        <button class="btn-primary" id="btnCreateGroup" type="button">Criar grupo</button>
+        <p class="feedback" id="groupFeedback"></p>
+        <table class="users-table">
+          <thead><tr><th>Grupo</th><th>Membros</th><th>Atualizar membros</th><th>Ações</th></tr></thead>
+          <tbody id="groupsBody"><tr><td colspan="4" style="color:#555">Carregando...</td></tr></tbody>
+        </table>
+      </div>
+
       <!-- Quarentena de uploads -->
       <div class="card">
         <p class="section-title">Quarentena de uploads</p>
@@ -579,6 +594,58 @@
         loadUsers();
       }
 
+      function setGroupFeedback(message, isError = false) {
+        const feedback = document.getElementById("groupFeedback");
+        feedback.textContent = message;
+        feedback.className = "feedback" + (isError ? " err" : " ok");
+      }
+
+      async function loadGroups() {
+        const tbody = document.getElementById("groupsBody");
+        const res = await authFetch("/groups");
+        const groups = await res.json().catch(() => []);
+        if (!res.ok) { tbody.innerHTML = `<tr><td colspan="4" style="color:#ff5555">${escapeHtml(groups.error || "Erro ao carregar grupos.")}</td></tr>`; return; }
+        if (!Array.isArray(groups) || !groups.length) { tbody.innerHTML = `<tr><td colspan="4" style="color:#555">Nenhum grupo.</td></tr>`; return; }
+        tbody.innerHTML = groups.map((group) => `
+          <tr data-group="${escapeHtml(group.id)}">
+            <td style="font:var(--label-sm)">${escapeHtml(group.name)}</td>
+            <td>${escapeHtml((group.members || []).join(", "))}</td>
+            <td><input class="group-members-input" data-group-members="${escapeHtml(group.id)}" value="${escapeHtml((group.members || []).join(", "))}" aria-label="Membros de ${escapeHtml(group.name)}" /></td>
+            <td><button class="btn-primary" type="button" onclick="saveGroupMembers('${escapeJsString(group.id)}')">Salvar</button> <button class="btn-danger" type="button" onclick="deleteGroup('${escapeJsString(group.id)}')">Excluir</button></td>
+          </tr>`).join("");
+      }
+
+      async function saveGroupMembers(groupId) {
+        const input = document.querySelector(`[data-group-members="${CSS.escape(groupId)}"]`);
+        const members = (input?.value || "").split(",").map((value) => value.trim()).filter(Boolean);
+        const res = await authFetch(`/groups/${encodeURIComponent(groupId)}/members`, { method: "PUT", body: JSON.stringify({ members }) });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) { setGroupFeedback(data.error || "Erro ao atualizar membros.", true); return; }
+        setGroupFeedback("Membros atualizados.");
+        loadGroups();
+      }
+
+      async function deleteGroup(groupId) {
+        if (!confirm("Excluir este grupo? O acesso individual de usuarios nao sera alterado.")) return;
+        const res = await authFetch(`/groups/${encodeURIComponent(groupId)}`, { method: "DELETE" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) { setGroupFeedback(data.error || "Erro ao excluir grupo.", true); return; }
+        setGroupFeedback("Grupo excluido.");
+        loadGroups();
+      }
+
+      document.getElementById("btnCreateGroup").addEventListener("click", async () => {
+        const name = document.getElementById("newGroupName").value.trim();
+        const members = document.getElementById("newGroupMembers").value.split(",").map((value) => value.trim()).filter(Boolean);
+        const res = await authFetch("/groups", { method: "POST", body: JSON.stringify({ name, members }) });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) { setGroupFeedback(data.error || "Erro ao criar grupo.", true); return; }
+        document.getElementById("newGroupName").value = "";
+        document.getElementById("newGroupMembers").value = "";
+        setGroupFeedback("Grupo criado.");
+        loadGroups();
+      });
+
       function formatBytes(size) {
         const value = Number(size) || 0;
         if (value < 1024) return `${value} B`;
@@ -593,6 +660,10 @@
           .replace(/>/g, "&gt;")
           .replace(/"/g, "&quot;")
           .replace(/'/g, "&#39;");
+      }
+
+      function escapeJsString(value) {
+        return String(value ?? "").replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\r/g, "\\r").replace(/\n/g, "\\n");
       }
 
       async function loadQuarantine() {
@@ -805,6 +876,7 @@
       fileAccessFileSelect.addEventListener("change", loadSelectedFileAccess);
 
       loadUsers();
+      loadGroups();
       loadQuarantine();
       loadFileAccessFolders();
     </script>
