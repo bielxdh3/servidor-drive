@@ -39,3 +39,26 @@ test("middleware suppresses token parsing detail", () => {
   const denied = auth({ authorization: "Bearer token" }, { username: "alice", sessionVersion: "bad" });
   assert.deepEqual(denied, { code: 401, body: { error: "Token invalido ou expirado" } });
 });
+
+test("enrollment-only sessions cannot reach application routes or realtime", () => {
+  const middleware = createAuthenticate({
+    jwt: { verify: () => ({ username: "alice", sessionVersion: 2, totpEnrollment: true }) },
+    jwtSecret: SECRET,
+    loadUser: () => ({ username: "alice", sessionVersion: 2, permissions: {} }),
+    normalizeUserPermissions: (user) => user.permissions,
+  });
+  let result;
+  const deniedReq = { headers: { authorization: "Bearer token" }, method: "GET", path: "/files", protocol: "http", get: () => "localhost" };
+  middleware(deniedReq, { status: (code) => ({ json: (body) => { result = { code, body }; } }) }, () => { result = { ok: true }; });
+  assert.equal(result.code, 403);
+  const allowedReq = { ...deniedReq, path: "/auth/2fa/enroll" };
+  middleware(allowedReq, { status: (code) => ({ json: (body) => { result = { code, body }; } }) }, () => { result = { ok: true, user: allowedReq.user }; });
+  assert.equal(result.ok, true);
+  const realtime = require("../src/middlewares/auth").createRealtimeAuthenticator({
+    jwt: { verify: () => ({ username: "alice", sessionVersion: 2, totpEnrollment: true }) },
+    jwtSecret: SECRET,
+    loadUser: () => ({ username: "alice", sessionVersion: 2, permissions: {} }),
+    normalizeUserPermissions: (user) => user.permissions,
+  });
+  assert.equal(realtime("token"), null);
+});
