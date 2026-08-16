@@ -195,7 +195,7 @@ Prerequisites: phases 2.1 through 2.3 and a product decision about 2FA scope.
 - `[DONE]` Encrypt seeds with the existing application master-key boundary, hash recovery codes with scrypt, fail closed on missing/invalid key material, and avoid secret-bearing audit/response paths.
 - `[DONE]` Preserve session-version revocation, cookie/CSRF checks, enrollment-only route fencing, realtime freshness, and JSON/SQLite user persistence through migration 5.
 - `[DONE]` Add optional, role-required, and global-required policy modes without implicit all-user activation; default behavior for existing users remains optional/inactive.
-- `[ACCEPTED-LOCAL]` `PHASE_10_TOTP_IMPLEMENTED_AND_SECURITY_REVIEW_APPROVED`: 50 final focused tests plus a 43/43 hardening correction suite, syntax/artifact/lockfile/diff/targeted-secret gates, and bounded disposable HTTP evidence pass locally. Shared live policy re-evaluation, HKDF seed-key derivation, and no-store sensitive responses are covered. Browser automation, providers, production, remote CI, release, and publication acceptance remain open; see `docs/security/phase-10-totp.md`.
+- `[ACCEPTED-LOCAL]` `PHASE_10_TOTP_IMPLEMENTED_AND_SECURITY_REVIEW_APPROVED`: independent evidence records 52/52 focused auth/TOTP/security tests, 616/616 broad `npm.cmd test` in 38.2 seconds, syntax 88/88, runtime artifacts, `npm ci --dry-run`, `git diff --check`, targeted secret scan, and bounded disposable HTTP evidence passing. `npm audit` remains non-clean only for the pre-existing high `brace-expansion` advisory. The +301s→+600s future-iat change was test-only and production behavior was unchanged. Shared live policy re-evaluation, HKDF seed-key derivation, and no-store sensitive responses are covered. Browser automation, providers, production, remote CI, release, and publication acceptance remain open; see `docs/security/phase-10-totp.md`.
 
 Phase 9 bounded foundation closeout: `PHASE_9_BOUNDED_FOUNDATION_ACCEPTED` for the reviewed `rootark-zk-1` foundation at the starting SHA, with local crypto vectors now passing after dependency installation. This does not accept zero-knowledge migration/runtime/release behavior. Residual Phase 9 handoffs remain dependency provenance/reproducibility, integration/runtime migration, provider/browser/CI/production evidence, and independent review.
 
@@ -394,7 +394,7 @@ All items below are candidates, not commitments.
 
 ### Authentication and administration
 
-- `[ACCEPTED-LOCAL]` 2FA/TOTP Issue #9 is implemented and security-reviewed within the bounded local scope; remote/publication/release acceptance remains separate.
+- `[ACCEPTED-LOCAL]` 2FA/TOTP Issue #9 is implemented and security-reviewed within the bounded local scope; final independent evidence is 52/52 focused and 616/616 broad tests, with remote/publication/release acceptance remaining separate.
 - `[DO NOT IMPLEMENT YET]` Recovery and session-management UI.
 - `[DO NOT IMPLEMENT YET]` User groups and group permissions.
 
