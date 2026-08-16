@@ -1,0 +1,35 @@
+# Root.ark Phase 10 TOTP/2FA Security Record
+
+Status: `PHASE_10_IMPLEMENTED_LOCALLY_WITH_VALIDATION`; this is not a production-release or remote-issue-closure claim.
+
+## Scope and trust boundaries
+
+The primary credential remains the existing password login. For an enrolled user, `/auth/login` issues only a short-lived, opaque in-memory challenge. `/auth/login/2fa` must prove the same username and `sessionVersion` with a current RFC 6238 TOTP or an unused recovery code before the existing eight-hour JWT, HttpOnly session cookie, CSRF cookie, analytics event, audit event, and WebSocket freshness path are used.
+
+Enrollment is authenticated, stores only an encrypted pending seed, and does not activate 2FA until confirmation. Confirmation atomically replaces the pending record with the encrypted active seed, stores only recovery-code hashes, increments `sessionVersion`, and returns recovery codes once. The seed and recovery material are never included in user-list or update responses.
+
+The seed is encrypted with AES-256-GCM using the existing `SERVER_MASTER_KEY` application-key boundary and username-bound AAD. TOTP-sensitive paths fail closed when that key is absent, malformed, or the record cannot be authenticated. JSON mode replaces the user file through a temporary file and rename; SQLite uses the existing transactional user repository.
+
+Disable requires the current password and a current TOTP or unused recovery code. Administrative reset preserves the existing `manageUsers` authorization check: an unenrolled acting administrator must reauthenticate with the current password, while an enrolled acting administrator must provide that password plus a current TOTP or unused recovery code. Reset clears all target material, increments the target `sessionVersion`, and never returns old material. Both paths audit only the method/result and revoke the affected target session.
+
+## Policy boundary
+
+`TOTP_POLICY` accepts `optional` (default), `role-required`, or `global-required`. `TOTP_REQUIRED_ROLES` is a comma-separated role list and defaults to `admin` when role-required is selected. Existing users remain inactive by default; policy changes do not silently enroll or activate every account. A required but unenrolled login receives a 15-minute enrollment-only JWT and no full session. The middleware allows only the enrollment/status/policy/logout paths for that token and rejects it for HTTP application routes and realtime authentication.
+
+`TOTP_CHALLENGE_TTL_MS` is bounded to 60 seconds–10 minutes, the per-challenge proof budget is five attempts, and `TOTP_CHALLENGE_MAX_ATTEMPTS` bounds IP and username attempts in a five-minute window. The same bounded verifier budget applies to login challenge, enrollment confirmation, disable, and administrative reset proof paths. Challenge records are cleaned on login/challenge activity and carry the original `sessionVersion`; password, role, permission, disable, reset, and deletion changes therefore continue to revoke stale sessions and realtime access.
+
+## Persistence and migration
+
+Migration 5 adds `totp_enabled`, encrypted active/pending secret JSON, recovery hashes, last-used TOTP step, and enrollment timestamp to SQLite. The JSON user representation uses the same fields. Legacy users with absent fields resolve to disabled/no pending material. The focused SQLite test applies migrations 1–5 and round-trips the encrypted fields and hashes without exposing plaintext.
+
+## Validation evidence
+
+The local gate covered RFC 6238 SHA-1 vectors, AES-GCM/AAD failure, CSPRNG recovery generation and one-way verification, pending confirmation, login challenge, single-use recovery, replay fencing, disable/reset revocation, admin reauthentication, global policy, missing-key failure, enrollment-only HTTP/realtime boundaries, CSRF preservation, SQLite migration/persistence, Phase 9 crypto vectors, syntax validation, a disposable HTTP flow, and whitespace checks.
+
+The dependency audit remains outside this change: the starting branch still contains the pre-existing high `brace-expansion` advisory; the separate dependency-hardening branch has the 5.0.9 repair. Browser automation, external providers, production deployment, remote CI for this SHA, and release/publication acceptance remain unvalidated.
+
+## Residual handoffs
+
+- Re-run the complete repository suite and environment/provider gates in the integration/release environment.
+- Obtain an independent final security review of the completed Phase 10 diff.
+- Keep Phase 9/10 technical closure separate from remote issue state, draft PR state, production readiness, and the future Phase 11 work.

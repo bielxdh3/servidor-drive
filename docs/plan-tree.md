@@ -190,13 +190,13 @@ Issue: #9
 
 Prerequisites: phases 2.1 through 2.3 and a product decision about 2FA scope.
 
-- `[DO NOT IMPLEMENT YET]` Decide admin-only versus all-user 2FA.
-- `[DO NOT IMPLEMENT YET]` Design TOTP enrollment, confirmation, recovery, disable, reset, and migration.
-- `[DO NOT IMPLEMENT YET]` Encrypt per-user TOTP secrets.
-- `[DO NOT IMPLEMENT YET]` Hash one-time recovery codes.
-- `[DO NOT IMPLEMENT YET]` Require strong reauthentication for sensitive 2FA changes.
-- `[DO NOT IMPLEMENT YET]` Add generic challenge errors, rate limiting, and safe audit events.
-- `[DO NOT IMPLEMENT YET]` Implement and validate in multiple bounded tasks.
+- `[DONE]` Implement the bounded all-user-compatible TOTP mechanism in `src/services/totp.js` and `src/routes/auth.js`: authenticated enrollment/confirmation, RFC 6238 login challenge, recovery-code consumption, secure disable, and privileged reset.
+- `[DONE]` Encrypt seeds with the existing application master-key boundary, hash recovery codes with scrypt, fail closed on missing/invalid key material, and avoid secret-bearing audit/response paths.
+- `[DONE]` Preserve session-version revocation, cookie/CSRF checks, enrollment-only route fencing, realtime freshness, and JSON/SQLite user persistence through migration 5.
+- `[DONE]` Add optional, role-required, and global-required policy modes without implicit all-user activation; default behavior for existing users remains optional/inactive.
+- `[IMPLEMENTED-UNVERIFIED]` Focused local and disposable HTTP evidence passes. Browser automation, remote CI, provider, production, and release acceptance remain open; see `docs/security/phase-10-totp.md`.
+
+Phase 9 bounded foundation closeout: `PHASE_9_BOUNDED_FOUNDATION_ACCEPTED` for the reviewed `rootark-zk-1` foundation at the starting SHA, with local crypto vectors now passing after dependency installation. This does not accept zero-knowledge migration/runtime/release behavior. Residual Phase 9 handoffs remain dependency provenance/reproducibility, integration/runtime migration, provider/browser/CI/production evidence, and independent review.
 
 ## 3. Operational validation of existing features
 
@@ -354,10 +354,10 @@ This track may proceed conversationally in parallel with stabilization. Runtime 
 - `[DECIDED]` D-007 requires per-file keys, isolated compartment hierarchies, mandatory recovery-package verification, explicit historical re-encryption, and future-authorization rotation after package compromise; the frozen Phase 8 technical profile records the accepted implementation parameters, while executable proof and product policy remain separate.
 - `[DECIDED]` D-008 sets 30-day normal deletion and backup retention, immediate access revocation, and backup-aware cryptographic erasure that cannot be declared complete while service-controlled decryption material remains usable.
 - `[DECIDED]` D-009 requires encrypted client-generated previews and indexes, server-blind sharing, local-bridge-only zero-knowledge WebDAV, and eventual mandatory bidirectional synchronization; the accepted architecture/migration contract is documented, while Phase 9 implementation and acceptance remain separate.
-- `[DONE]` Record the accepted zero-knowledge architecture and migration contract at `docs/architecture/zero-knowledge-migration-contract.md`; Phase 9 foundation work is separately authorized but not started, and product-policy owner decisions remain separate.
+- `[DONE]` Record the accepted zero-knowledge architecture and migration contract at `docs/architecture/zero-knowledge-migration-contract.md`; the bounded Phase 9 foundation closeout is recorded below and full zero-knowledge migration remains separate.
 - `[DONE]` Complete the independent Phase 8 security closure in `docs/validation/2026-08-14-rootark-phase8-independent-security-closure.md`; the verdict is `PHASE_8_ACCEPTED_FOR_BOUNDED_PHASE_9_FOUNDATION`, with the exact HPKE tuple, sender manifest, deterministic encoding, one-shot wrap construction, candidate policy, and residual risks frozen.
-- `[NEXT]` Phase 9 foundation is `PHASE_9_FOUNDATION_BLOCKED_ENVIRONMENT_DEPENDENCIES` and remains `NOT_STARTED`: the same biel4 App Server Executor timed out after 30 seconds acquiring npm metadata for `@hpke/core` 1.9.0, `@hpke/dhkem-x25519` 1.8.0, `libsodium-wrappers-sumo` 0.8.4, and a strict deterministic-CBOR dependency on `cdx/rootark-zk-foundation` from baseline `28747c6ebdac873650e2d5a3c6193824e7cc9985`; retry only with reproducible registry access, with no unsafe fallback or runtime/migration/release claim.
-- `[DECISION REQUIRED]` Resolve only the genuine owner decisions: sharing/public-link UX, recovery authority, migration window/UX, sync conflict UX, and any remaining 2FA policy. Primitive, envelope, nonce, library, vector, and parser choices remain technical/security decisions.
+- `[DONE]` Close the bounded Phase 9 foundation as `PHASE_9_BOUNDED_FOUNDATION_ACCEPTED`: the reviewed `rootark-zk-1` implementation and vectors pass locally after reproducible dependency installation; full zero-knowledge migration/runtime/provider/browser/CI/production/release acceptance remains open.
+- `[DECISION REQUIRED]` Resolve only the genuine owner decisions: sharing/public-link UX, recovery authority, migration window/UX, and sync conflict UX. Primitive, envelope, nonce, library, vector, parser, and bounded 2FA policy choices are recorded technical/security decisions.
 - `[IMPLEMENTED-UNVERIFIED]` Current server-readable encryption, metadata, previews/search, ClamAV, server-native WebDAV, sync MVP, and backup behavior remain legacy/current behavior and are not a claim that Root.ark is zero-knowledge today.
 - `[PARALLEL-DISCOVERY]` Local, S3, Google Drive, or hybrid canonical storage.
 - `[PARALLEL-DISCOVERY]` Approval workflow and intended purpose.
@@ -431,7 +431,7 @@ All items below are candidates, not commitments.
 
 ### Phase 7.1: Release gate
 
-- `[ACCEPTED]` Phase 8 independent security verdict is `PHASE_8_ACCEPTED_FOR_BOUNDED_PHASE_9_FOUNDATION`; Phase 8 is `ACCEPTED`, Phase 9 is separately authorized but `NOT_STARTED`, and Phase 15 remains `RELEASE_GATE_BLOCKED_ENVIRONMENT`.
+- `[ACCEPTED]` Phase 8 independent security verdict is `PHASE_8_ACCEPTED_FOR_BOUNDED_PHASE_9_FOUNDATION`; the bounded Phase 9 foundation is now `PHASE_9_BOUNDED_FOUNDATION_ACCEPTED`, while Phase 15 remains `RELEASE_GATE_BLOCKED_ENVIRONMENT`.
 - `[BLOCKED]` Critical security findings closed or explicitly accepted.
 - `[BLOCKED]` Repeatable tests and CI pass for the exact release SHA.
 - `[BLOCKED]` Disposable operational validation completed.
