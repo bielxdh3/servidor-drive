@@ -86,6 +86,7 @@ test("ciphertext-only attestation rejects plaintext/key fields and corrupt prote
     keyEpoch: "epoch-1",
     compartmentId: "compartment-1",
     deviceId: "device-1",
+    metadata: { path: "phase14/attestation.txt" },
     plaintext: "ciphertext only",
     fileKey: crypto.randomBytes(32),
   });
@@ -103,6 +104,7 @@ test("sync store restart re-attests records and rejects a corrupt persisted ciph
   const record = createOperation({
     operation: "create", objectId: "object-2", fileId: "file-2", versionId: "version-2", operationId: "operation-2",
     revision: { counter: 1, deviceId: "device-2" }, keyEpoch: "epoch-2", compartmentId: "compartment-2", deviceId: "device-2",
+    metadata: { path: "phase14/restart.txt" },
     plaintext: "restart-safe", fileKey: crypto.randomBytes(32),
   });
   await store.put("alice", record);

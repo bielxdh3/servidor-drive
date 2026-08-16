@@ -99,9 +99,13 @@ for (const [name, files] of [
   ["Phase 10 auth/TOTP", ["test/totp-policy.test.js", "test/auth-totp-routes.test.js"]],
   ["Phase 12 sync/WebDAV", ["test/phase12-sync.test.js"]],
   ["Phase 13 client/groups", ["test/phase13-client-ux.test.js"]],
+  ["Phase 16 bidirectional sync engine", ["test/phase16-sync-engine.test.js"]],
+  ["Phase 16 opaque group sharing", ["test/phase16-group-sharing.test.js"]],
   ["Phase 14 readiness/attestation", ["test/phase14-deployment-resilience.test.js"]],
   ["Phase 14 backup/restore evidence", ["test/backup-restore-security.test.js"]],
 ]) command(name, process.execPath, ["--test", ...files], { blockedOnMissing: true });
+
+command("final-head canonical npm test", process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", "npm.cmd test"], { blockedOnMissing: true });
 
 command("high-severity dependency audit", process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", "npm.cmd audit --package-lock-only --audit-level=high"], { blockedOnMissing: true });
 const status = spawnSync("git", ["status", "--porcelain=v1"], { cwd: root, encoding: "utf8" }).stdout.trim();
