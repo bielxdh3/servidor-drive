@@ -103,18 +103,31 @@ function encryptPayload(operation, plaintext, fileKey) {
   };
 }
 
+function decodeBase64Url(value, field) {
+  if (typeof value !== "string" || !value || !/^[A-Za-z0-9_-]+$/.test(value) || value.length % 4 === 1) {
+    fail(`Invalid encrypted field: ${field}`, "invalid_envelope");
+  }
+  const decoded = Buffer.from(value, "base64url");
+  if (decoded.toString("base64url") !== value) fail(`Invalid encrypted field: ${field}`, "invalid_envelope");
+  if (field === "nonce" && decoded.length !== 12 || field === "tag" && decoded.length !== 16) {
+    fail(`Invalid encrypted field: ${field}`, "invalid_envelope");
+  }
+  return decoded;
+}
+
 function decryptPayload(operation, fileKey) {
   if (!operation.ciphertext || !operation.nonce || !operation.tag || !operation.aad) fail("Encrypted payload is incomplete");
   const key = assertFileKey(fileKey);
-  const nonce = Buffer.from(operation.nonce, "base64url");
-  const tag = Buffer.from(operation.tag, "base64url");
-  const aad = Buffer.from(operation.aad, "base64url");
+  const ciphertext = decodeBase64Url(operation.ciphertext, "ciphertext");
+  const nonce = decodeBase64Url(operation.nonce, "nonce");
+  const tag = decodeBase64Url(operation.tag, "tag");
+  const aad = decodeBase64Url(operation.aad, "aad");
   const expectedAad = Buffer.from(aadFor(operation), "utf8");
   if (aad.length !== expectedAad.length || !crypto.timingSafeEqual(aad, expectedAad)) fail("AAD binding mismatch", "aad_mismatch");
   const decipher = crypto.createDecipheriv("aes-256-gcm", key, nonce);
   decipher.setAAD(aad);
   decipher.setAuthTag(tag);
-  return Buffer.concat([decipher.update(Buffer.from(operation.ciphertext, "base64url")), decipher.final()]);
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
 }
 
 function createOperation(input = {}) {
@@ -154,6 +167,12 @@ function validateOperation(input) {
   for (const field of ["ciphertext", "nonce", "tag", "aad"]) {
     if (typeof input[field] !== "string" || !input[field]) fail(`Missing encrypted field: ${field}`);
   }
+  decodeBase64Url(input.ciphertext, "ciphertext");
+  decodeBase64Url(input.nonce, "nonce");
+  decodeBase64Url(input.tag, "tag");
+  const aad = decodeBase64Url(input.aad, "aad");
+  const expectedAad = Buffer.from(aadFor(operation), "utf8");
+  if (aad.length !== expectedAad.length || !crypto.timingSafeEqual(aad, expectedAad)) fail("AAD binding mismatch", "aad_mismatch");
   return { ...operation, ciphertext: input.ciphertext, nonce: input.nonce, tag: input.tag, aad: input.aad };
 }
 
