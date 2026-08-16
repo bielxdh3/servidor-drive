@@ -46,8 +46,9 @@ Remote CI evidence is absent for this final head. Browser/device behavior,
 provider interoperability and credentials, live production/TLS/topology,
 rollback and disaster-recovery acceptance, and owner/product approval remain
 external gates. The associated PR remains Draft. Release authorization is
-`NOT_AUTHORIZED`; no release, tag, deploy, merge, push, issue, or repository
-settings action is claimed.
+`NOT_AUTHORIZED`. The host broker performed the authorized normal fast-forward
+push and Draft PR #62 metadata update; no merge, release, tag, deploy, issue,
+repository-settings, or production authorization occurred.
 
 Phase 16 is not a claim of production readiness and does not create or infer a
 Phase 17 item.
