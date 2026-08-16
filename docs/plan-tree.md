@@ -415,6 +415,13 @@ All items below are candidates, not commitments.
 - `[IMPLEMENTED-UNVERIFIED]` Attest protected sync records during sync-store restart, backup creation, and restore archive validation without decrypting ciphertext or accepting plaintext/key fields; preserve backup, trash, version, and route contracts.
 - `[IMPLEMENTED-UNVERIFIED]` Focused failure-mode coverage is recorded in `test/phase14-deployment-resilience.test.js`; provider, dependency, native-binding, TLS, production, remote CI, and release gates remain open.
 
+### Phase 15: Local release gate — 2026-08-16
+
+- `[ACCEPTED-LOCAL]` Add `scripts/validate-release-gate.js` and preserve the exact Phase 14 starting SHA `bcf0861e3c6987331228816cb479ade525b3b555`.
+- `[ACCEPTED-LOCAL]` Repair only the transitive `brace-expansion` lock resolution from 5.0.8 to the reviewed 5.0.9 registry tarball and integrity; package manifest parity and audit threshold remain unchanged.
+- `[ACCEPTED-LOCAL]` The controlled pre-commit matrix records 13 passed, 0 failed, and 1 expected clean-worktree block. It covers lock/provenance, syntax, artifacts, diff, secret-material patterns, Phase 9 crypto, Phase 10 auth/TOTP, Phase 12 sync/WebDAV, Phase 13 client/groups, Phase 14 readiness/attestation, backup/restore, high-severity audit, and ciphertext-only evidence.
+- `[BLOCKED]` Provider credentials/interoperability, browser/device behavior, live production/TLS/rollback, remote CI for the final commit, product approval, publication, and independent Phase 16 review remain external gates.
+
 ### Authentication and administration
 
 - `[ACCEPTED-LOCAL]` 2FA/TOTP Issue #9 is implemented and security-reviewed within the bounded local scope; final independent evidence is 52/52 focused and 616/616 broad tests, with remote/publication/release acceptance remaining separate.

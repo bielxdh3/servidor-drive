@@ -81,6 +81,29 @@ recorded in `test/phase14-deployment-resilience.test.js`; dependency-backed,
 native-binding, provider, TLS, production, remote CI, browser, publication,
 and release acceptance remain unclaimed.
 
+## Phase 15 local release gate — 2026-08-16
+
+The bounded gate is implemented from exact Phase 14 SHA
+`bcf0861e3c6987331228816cb479ade525b3b555`. The release-candidate lockfile
+now resolves `brace-expansion` 5.0.9 with the previously reviewed official
+registry integrity; `package.json` dependency parity is preserved and no new
+dependency was added. High-severity lockfile audit evidence is clean in the
+controlled disposable install.
+
+The focused runner records **13 PASS, 0 FAIL, 1 BLOCKED** before the required
+local commit. The sole block is the intentional clean-worktree check. Phase 9
+crypto, Phase 10 auth/TOTP, Phase 12 sync/WebDAV, Phase 13 client/groups,
+Phase 14 readiness/ciphertext-only attestation, and disposable backup/restore
+evidence pass through their focused boundaries. Ciphertext-only evidence
+accepts a disposable protected record and rejects plaintext/key injection.
+
+Current verdict: **`RELEASE_GATE_BLOCKED_ENVIRONMENT`** for release purposes.
+Provider interoperability and credentials, browser/device behavior, live
+production/TLS/rollback, final remote CI, product approval, publication, and
+independent Phase 16 review remain explicit external residuals. No release,
+tag, deploy, merge, push, PR, issue, or repository-setting mutation is
+claimed.
+
 ## Current local gate
 
 The previously dirty scoped implementation/test/documentation work is now organized into the authorized commit set across five published branches and their draft PRs. The source branch `cdx/rootark-roadmap` is clean and exactly at the `Root/main` baseline SHA `28747c6ebdac873650e2d5a3c6193824e7cc9985`; this was achieved by branch organization and commits, not reset, clean, discard, or destructive cleanup. No merge, release, tag, deploy, force-push, destructive remote action, issue-state mutation, or repository-setting mutation occurred. Remaining work is gated by dependency/network recovery, zero-knowledge implementation and owner decisions, WebDAV and full persistence parity, native/provider/production evidence, and draft-PR review.
