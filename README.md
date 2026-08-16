@@ -74,6 +74,8 @@ recorded 13 passed, 0 failed, and 1 expected clean-worktree block. Provider,
 browser, production, remote-CI, publication, and Phase 16 review gates remain
 separate.
 
+Phase 16 final-review evidence is recorded in [the Phase 16 security review](docs/security/phase-16-final-review.md): 25/25 focused tests and 110/110 syntax checks passed. The canonical full `npm test` remains blocked by the unavailable `better-sqlite3` native binding in the disposable install; it is not claimed as passed. Remote CI, browser, provider, live-production/TLS, owner, Draft PR, and release authorization gates remain external or unavailable, with release authorization `NOT_AUTHORIZED`.
+
 > [!IMPORTANT]
 > The approved long-term direction includes client-side zero-knowledge encryption. The current implementation predates that architecture and must not be described as zero-knowledge or treated as the final security model.
 
@@ -175,7 +177,7 @@ Backups are not useful until restore behavior is tested. Read [BACKUP.md](BACKUP
 | `npm test` | Run Node.js tests |
 | `npm run validate` | Run syntax, tests, and dependency validation |
 | `npm run validate:artifacts` | Detect runtime artifacts contaminating the repository |
-| `npm run validate:release-gate` | Run the bounded Phase 15 local release gate |
+| `npm run validate:release-gate` | Run the bounded Phase 15/16 local release gate |
 | `npm run db:migrate` | Apply database migrations |
 | `npm run db:migrate-json` | Migrate supported JSON data to SQLite |
 | `npm run db:backup` | Run the database backup tool |
@@ -200,6 +202,8 @@ The checks cover:
 
 The bounded Phase 15 matrix and its external residuals are recorded in
 [the Phase 15 local release gate](docs/security/phase-15-local-release-gate.md).
+Phase 16 closeout evidence and limitations are recorded in
+[the Phase 16 final security review](docs/security/phase-16-final-review.md).
 
 ## Security boundary
 

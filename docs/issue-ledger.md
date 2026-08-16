@@ -104,6 +104,23 @@ independent Phase 16 review remain explicit external residuals. No release,
 tag, deploy, merge, push, PR, issue, or repository-setting mutation is
 claimed.
 
+## Phase 16 final security/quality review — 2026-08-16
+
+The bounded Phase 16 closeout is documented in
+`docs/security/phase-16-final-review.md`. It records protocol v2 metadata
+AAD and exact-schema enforcement, recoverable WebDAV overwrite/journal
+rollback, bidirectional encrypted sync, strict browser/offline boundaries,
+protected index/preview identity binding, and approved `rootark-zk-1` opaque
+group wraps without a server universal decrypt key.
+
+Exact local evidence is **25/25 focused tests passed** and **110/110 syntax
+checks passed**. The canonical full `npm test` was attempted but remains
+blocked by the unavailable `better-sqlite3` native binding in the disposable
+install; it is not a passing result. Remote CI is absent for the final head;
+browser/device, provider, live production/TLS, rollback/DR, and owner gates
+remain external. The associated PR remains Draft and release authorization is
+**`NOT_AUTHORIZED`**. No Phase 17 work is created or inferred.
+
 ## Current local gate
 
 The previously dirty scoped implementation/test/documentation work is now organized into the authorized commit set across five published branches and their draft PRs. The source branch `cdx/rootark-roadmap` is clean and exactly at the `Root/main` baseline SHA `28747c6ebdac873650e2d5a3c6193824e7cc9985`; this was achieved by branch organization and commits, not reset, clean, discard, or destructive cleanup. No merge, release, tag, deploy, force-push, destructive remote action, issue-state mutation, or repository-setting mutation occurred. Remaining work is gated by dependency/network recovery, zero-knowledge implementation and owner decisions, WebDAV and full persistence parity, native/provider/production evidence, and draft-PR review.
