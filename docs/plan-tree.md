@@ -34,7 +34,7 @@ A feature is not `[DONE]` merely because files, routes, UI, or documentation exi
 4. GitHub issues for executable scope.
 5. Historical chat context only as input, never as proof.
 
-Issue reconciliation ledger: `docs/issue-ledger.md` (locally reconciled 2026-08-13; remote issue state was not mutated).
+Issue reconciliation ledger: `docs/issue-ledger.md` (locally reconciled 2026-08-13; remote issue state was not mutated). The canonical Phase 11 Issue #6 reconciliation is `docs/roadmap/phase-11-backlog-reconciliation.md` and records `PHASE_11_BACKLOG_RECONCILED` at the accepted Phase 10 starting SHA `76f2a02cf6e3872ab2d7b61ff617021daf893c61`.
 
 Master Phase 0-16 ledger and independent local blocker taxonomy: `docs/issue-ledger.md`. The governing continuation supplies the original meanings for all phases; local statuses and evidence are reconciled there without converting design or historical evidence into acceptance.
 
@@ -392,6 +392,13 @@ Issue: #6
 
 All items below are candidates, not commitments.
 
+### Phase 11 backlog reconciliation — 2026-08-16
+
+- `[ACCEPTED-LOCAL]` `PHASE_11_BACKLOG_RECONCILED` is recorded in `docs/roadmap/phase-11-backlog-reconciliation.md` for the exact accepted Phase 10 starting SHA `76f2a02cf6e3872ab2d7b61ff617021daf893c61`.
+- `[DO NOT IMPLEMENT YET]` The canonical nine-item matrix maps current evidence, status, prerequisites, security boundaries, owner decisions, implementation boundaries, acceptance, validation, dependencies, and the required separate future issue for every candidate.
+- `[DO NOT IMPLEMENT YET]` TOTP is reconciled to accepted Phase 10; bidirectional sync and WebDAV mutations target Phase 12; search, previews, PWA/clients, groups, and admin UX target Phase 13; deployment prerequisites target Phase 14; naming and branding remain an owner/product decision.
+- `[DO NOT IMPLEMENT YET]` No Phase 12+ source, test, migration, UI, dependency, synchronization, WebDAV, deployment, or product implementation is authorized by this reconciliation.
+
 ### Authentication and administration
 
 - `[ACCEPTED-LOCAL]` 2FA/TOTP Issue #9 is implemented and security-reviewed within the bounded local scope; final independent evidence is 52/52 focused and 616/616 broad tests, with remote/publication/release acceptance remaining separate.
@@ -448,7 +455,7 @@ Historical completed checkpoints, retained as evidence rather than future work: 
 
 1. `[NEXT]` Measure JSON/SQLite parity and migration/restart behavior with disposable fixtures; native binding availability and final SQLite production policy remain open.
 2. `[PARALLEL-DISCOVERY]` Continue structured product discovery; Rounds 1 through 3 are recorded, Issue #4 remains open, and Issue #10's current independent relationship is closure-ready locally while future integration remains owner-dependent; the remote issue was not changed.
-3. `[BLOCKED]` Approve individual future features only after stabilization and discovery. Issues #6 and #9 remain gated.
+3. `[BLOCKED]` Approve individual future features only after stabilization and discovery. Issue #6 is reconciled locally, but every candidate remains gated by its prerequisites, owner decisions, and a separate approved issue; Issue #9 remains separately gated.
 
 ## 9. Plan-tree update rule
 
