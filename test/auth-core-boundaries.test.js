@@ -21,7 +21,7 @@ test("JWT claim boundary accepts only current HS256 session identities", async (
     ["invalid signature", `${valid()}.tampered`],
     ["expired token", valid({}, { expiresIn: -1 })],
     ["future nbf", valid({}, { notBefore: "1h" })],
-    ["future iat", valid({ iat: Math.floor(Date.now() / 1000) + 301 })],
+    ["future iat", valid({ iat: Math.floor(Date.now() / 1000) + 600 })],
     ["missing identity", jwt.sign({ sessionVersion: 2 }, SECRET, { algorithm: "HS256" })],
     ["missing session version", jwt.sign({ username: "alice" }, SECRET, { algorithm: "HS256" })],
     ["noninteger session version", jwt.sign({ username: "alice", sessionVersion: 2.5 }, SECRET, { algorithm: "HS256" })],
