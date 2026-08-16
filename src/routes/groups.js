@@ -3,6 +3,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { validateManifest } = require("../services/groupKeySharing");
 
 const STORE_VERSION = 1;
 const MAX_GROUP_NAME = 80;
@@ -92,7 +93,7 @@ class AtomicGroupsStore {
     assertMemberLimit(members);
     const now = new Date().toISOString();
     const id = `group-${crypto.randomUUID()}`;
-    const group = { id, name, members, createdAt: now, updatedAt: now };
+    const group = { id, name, members, keyEpoch: 1, keyManifest: null, createdAt: now, updatedAt: now };
     const next = clone(this.state);
     next.groups[id] = group;
     this.save(next);
@@ -104,7 +105,19 @@ class AtomicGroupsStore {
     if (!current) return null;
     if (changes.members !== undefined) assertMemberLimit(changes.members);
     const next = clone(this.state);
-    next.groups[id] = { ...current, ...changes, updatedAt: new Date().toISOString() };
+    const membershipChanged = changes.members && JSON.stringify(changes.members) !== JSON.stringify(current.members);
+    next.groups[id] = { ...current, ...changes, keyEpoch: membershipChanged ? (current.keyEpoch || 1) + 1 : (current.keyEpoch || 1), keyManifest: membershipChanged ? null : current.keyManifest || null, updatedAt: new Date().toISOString() };
+    this.save(next);
+    return clone(next.groups[id]);
+  }
+
+  setKeyManifest(id, manifest) {
+    const current = this.state.groups[id];
+    if (!current) return null;
+    const normalized = validateManifest(manifest);
+    if (normalized.groupId !== id || normalized.epoch !== (current.keyEpoch || 1)) throw new Error("Stale group key manifest");
+    const next = clone(this.state);
+    next.groups[id] = { ...current, keyManifest: normalized, updatedAt: new Date().toISOString() };
     this.save(next);
     return clone(next.groups[id]);
   }
@@ -124,6 +137,8 @@ function publicGroup(group) {
     name: group.name,
     members: [...group.members],
     memberCount: group.members.length,
+    keyEpoch: group.keyEpoch || 1,
+    wrapCount: group.keyManifest?.wraps?.length || 0,
     createdAt: group.createdAt,
     updatedAt: group.updatedAt,
   };
@@ -153,6 +168,21 @@ function registerGroupRoutes({
   };
 
   app.get("/groups", authorize, (_req, res) => res.json(store.list().map(publicGroup)));
+
+  app.get("/groups/:groupId/key-manifest", authorize, (req, res) => {
+    const group = store.get(req.params.groupId);
+    if (!group) return res.status(404).json({ error: "Grupo nao encontrado" });
+    return res.json(group.keyManifest || { groupId: group.id, epoch: group.keyEpoch || 1, wraps: [] });
+  });
+
+  app.post("/groups/:groupId/key-manifest", authorize, (req, res) => {
+    try {
+      const group = store.setKeyManifest(req.params.groupId, req.body);
+      if (!group) return res.status(404).json({ error: "Grupo nao encontrado" });
+      auditLog("group.key_manifest.updated", getAuditActor(req), { type: "group", id: group.id }, "modified", "success", { epoch: group.keyEpoch, wrapCount: group.keyManifest.wraps.length });
+      return res.status(201).json({ message: "Manifesto de chaves atualizado", group: publicGroup(group) });
+    } catch { return respondInvalid(res, "Manifesto de chaves invalido ou desatualizado"); }
+  });
 
   app.post("/groups", authorize, (req, res) => {
     const input = cleanGroup(req, res);

@@ -16,6 +16,8 @@ const protectedIndex = require("../public/client/rootark-protected-index");
 const protectedPreview = require("../public/client/rootark-protected-preview");
 const syncAdapter = require("../public/client/rootark-sync-adapter");
 const offlineQueue = require("../public/client/rootark-offline-queue");
+const protocol = require("../sync-client/rootark-sync-protocol");
+const { GroupKeySharing } = require("../src/services/groupKeySharing");
 const { AtomicGroupsStore, isGroupMember, MAX_MEMBERS, registerGroupRoutes } = require("../src/routes/groups");
 
 function request(port, requestPath, options = {}) {
@@ -38,8 +40,8 @@ function json(value) {
 test("protected client index canonicalizes metadata and rejects tamper/wrong keys", async () => {
   const key = crypto.randomBytes(32);
   const wrongKey = crypto.randomBytes(32);
-  const first = await protectedIndex.createEntry({ id: "file-1", metadata: { name: "secret.txt", size: 4, nested: { b: 2, a: 1 } } }, key);
-  const second = await protectedIndex.createEntry({ id: "file-2", metadata: { name: "public.txt", size: 6 } }, key);
+  const first = await protectedIndex.createEntry({ id: "file-1", versionId: "version-1", keyEpoch: "epoch-1", compartmentId: "private", metadata: { name: "secret.txt", size: 4, nested: { b: 2, a: 1 } } }, key);
+  const second = await protectedIndex.createEntry({ id: "file-2", versionId: "version-1", keyEpoch: "epoch-1", compartmentId: "private", metadata: { name: "public.txt", size: 6 } }, key);
   assert.equal(JSON.stringify(first).includes("secret.txt"), false);
   assert.deepEqual((await protectedIndex.search([first, second], "secret", key)).map((item) => item.id), ["file-1"]);
   await assert.rejects(protectedIndex.decryptEntry(first, wrongKey));
@@ -49,10 +51,15 @@ test("protected client index canonicalizes metadata and rejects tamper/wrong key
 
 test("protected preview never exposes body in its envelope and decrypts locally", async () => {
   const key = crypto.randomBytes(32);
-  const preview = await protectedPreview.seal({ fileId: "file-1", contentType: "text/plain", body: "private preview" }, key);
+  const preview = await protectedPreview.seal({ fileId: "file-1", sourceVersionId: "version-1", keyEpoch: "epoch-1", compartmentId: "private", contentType: "text/plain", body: "private preview" }, key);
   assert.equal(JSON.stringify(preview).includes("private preview"), false);
-  assert.deepEqual(await protectedPreview.open(preview, key), { fileId: "file-1", contentType: "text/plain", body: "private preview" });
+  assert.deepEqual(await protectedPreview.open(preview, key), { fileId: "file-1", sourceVersionId: "version-1", keyEpoch: "epoch-1", compartmentId: "private", previewFormat: "rootark-protected-preview-v2", contentType: "text/plain", body: "private preview" });
   await assert.rejects(protectedPreview.open(preview, crypto.randomBytes(32)));
+  await assert.rejects(protectedPreview.seal({ fileId: "file-1", sourceVersionId: "version-1", keyEpoch: "epoch-1", compartmentId: "private", contentType: "text/plain; charset=utf-8", body: "x" }, key));
+  await assert.rejects(protectedPreview.open({ ...preview, fileId: "file-2" }, key));
+  const jsonPreview = await protectedPreview.seal({ fileId: "file-1", sourceVersionId: "version-2", keyEpoch: "epoch-2", compartmentId: "private", contentType: "application/json", body: "{}" }, key);
+  assert.equal(protectedPreview.invalidateOnEpoch([preview, jsonPreview], "file-1", "epoch-2").length, 1);
+  assert.equal(protectedPreview.invalidateOnVersion([preview, jsonPreview], "file-1", "version-2").length, 1);
 });
 
 test("offline queue and sync adapter reject plaintext, keys, and search terms", () => {
@@ -60,7 +67,16 @@ test("offline queue and sync adapter reject plaintext, keys, and search terms", 
   const local = { getItem: (key) => store.get(key) || null, setItem: (key, value) => store.set(key, value), removeItem: (key) => store.delete(key) };
   const queue = offlineQueue.createOfflineQueue(local);
   assert.throws(() => queue.enqueue({ ciphertext: "opaque", plaintext: "secret" }));
-  assert.equal(queue.enqueue({ ciphertext: "opaque", nonce: "n", tag: "t", aad: "a" }), 1);
+  const valid = protocol.createOperation({ operation: "create", objectId: "object-queue", fileId: "file-queue", versionId: "version-queue", operationId: "operation-queue", deviceId: "device-a", keyEpoch: "epoch-1", compartmentId: "private", revision: { counter: 1, deviceId: "device-a" }, metadata: { path: "queue.txt" }, plaintext: Buffer.from("opaque"), fileKey: crypto.randomBytes(32) });
+  assert.equal(queue.enqueue(valid), 1);
+  const normalized = syncAdapter.assertOpaqueEnvelope(valid);
+  assert.notEqual(normalized, valid);
+  assert.throws(() => syncAdapter.assertOpaqueEnvelope({ ...valid, nested: { plaintext: "secret" } }));
+  assert.throws(() => syncAdapter.assertOpaqueEnvelope({ ...valid, metadata: { ...valid.metadata, preview: "secret" } }));
+  assert.throws(() => syncAdapter.assertOpaqueEnvelope({ ...valid, metadata: { ...valid.metadata, path: "../escape" } }));
+  store.set("rootark.offline.encrypted.v2", "not-json");
+  assert.equal(queue.size(), 0);
+  assert.equal(queue.clear(), true);
   assert.throws(() => syncAdapter.assertOpaqueEnvelope({ plaintext: "secret" }));
   assert.throws(() => syncAdapter.assertOpaqueEnvelope({ ciphertext: "x", fileKey: "key" }));
 });
@@ -129,6 +145,17 @@ test("groups require manageUsers, persist atomically, and add folder membership 
   assert.equal(route.store.isMember("alice", folders[0].groupIds), true);
   const persisted = new AtomicGroupsStore(path.join(dir, "groups.json"));
   assert.equal(persisted.get(group.id).name, "docs");
+  const sharing = new GroupKeySharing({ groupId: group.id, members: ["alice"] });
+  const cek = crypto.randomBytes(32);
+  const cer = crypto.randomBytes(32);
+  const wrap = await sharing.wrapFor({ compartmentId: "private", epoch: 1, objectId: "object-1", versionId: "version-1", keyRef: "file-1", recipientId: "alice", deviceId: "device-a", cek, cer });
+  const manifestBody = json({ groupId: group.id, epoch: 1, wraps: [wrap] });
+  const manifest = await request(port, `/groups/${group.id}/key-manifest`, { method: "POST", headers: { "x-user": "admin", "content-type": "application/json", "content-length": manifestBody.length }, body: manifestBody });
+  assert.equal(manifest.status, 201);
+  assert.equal(JSON.stringify(await fsp.readFile(path.join(dir, "groups.json"), "utf8")).includes(cek.toString("base64")), false);
+  const changedMembers = json({ members: ["alice", "bob"] });
+  assert.equal((await request(port, `/groups/${group.id}/members`, { method: "PUT", headers: { "x-user": "admin", "content-type": "application/json", "content-length": changedMembers.length }, body: changedMembers })).status, 200);
+  assert.equal(JSON.parse((await request(port, `/groups/${group.id}/key-manifest`, { headers: { "x-user": "admin" } })).body).wraps.length, 0);
   assert.ok(events.some((entry) => entry[0] === "group.created"));
   route.store.state.groups[group.id].members = Array.from({ length: MAX_MEMBERS }, () => "alice");
   const overLimitBody = json({ username: "bob" });
