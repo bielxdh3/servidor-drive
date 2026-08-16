@@ -76,6 +76,7 @@ function checkCiphertextOnlyEvidence() {
       operation: "create", objectId: "gate-object", fileId: "gate-file", versionId: "gate-version",
       operationId: "gate-operation", revision: { counter: 1, deviceId: "gate-device" },
       keyEpoch: "gate-epoch", compartmentId: "gate-compartment", deviceId: "gate-device",
+      metadata: { path: "release-gate.txt" },
       plaintext: "disposable release-gate fixture", fileKey: crypto.randomBytes(32),
     });
     assert.equal(resilience.attestCiphertextOnlyRecords([recordValue]).ok, true);
