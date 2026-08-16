@@ -2,14 +2,28 @@
 
 const crypto = require("node:crypto");
 
-const PROTOCOL_VERSION = 1;
+const PROTOCOL_VERSION = 2;
 const MAX_ID_LENGTH = 160;
 const MAX_METADATA_BYTES = 16 * 1024;
 const OPERATIONS = new Set(["create", "update", "move", "delete"]);
 const METADATA_KEYS = [
   "fileId", "versionId", "path", "parentId", "name", "contentType", "size",
-  "keyEpoch", "compartmentId", "deviceId",
+  "keyEpoch", "compartmentId", "deviceId", "sourcePath",
 ];
+const METADATA_KEYS_BY_OPERATION = Object.freeze({
+  create: new Set(METADATA_KEYS.filter((key) => key !== "sourcePath")),
+  update: new Set(METADATA_KEYS.filter((key) => key !== "sourcePath")),
+  move: new Set(["fileId", "versionId", "path", "sourcePath", "keyEpoch", "compartmentId", "deviceId"]),
+  delete: new Set(["fileId", "versionId", "path", "keyEpoch", "compartmentId", "deviceId"]),
+});
+const OPERATION_FIELDS = Object.freeze([
+  "protocolVersion", "operationId", "objectId", "fileId", "versionId", "operation",
+  "revision", "baseRevision", "keyEpoch", "compartmentId", "deviceId", "metadata",
+  "tombstone", "ciphertext", "nonce", "tag", "aad",
+]);
+const RESERVED_PATH_SEGMENTS = new Set([
+  ".rootark-trash", ".rootark-sync", ".rootark-sync-state.json", ".rootark-sync.json",
+]);
 
 function fail(message, code = "invalid_operation") {
   throw Object.assign(new Error(message), { code });
@@ -46,16 +60,39 @@ function canonicalJson(value) {
   return JSON.stringify(canonicalize(value));
 }
 
-function normalizeMetadata(input = {}) {
+function assertExactKeys(input, allowed, name) {
+  const allowedSet = new Set(allowed);
+  for (const key of Object.keys(input)) {
+    if (!allowedSet.has(key)) fail(`Unknown ${name} field: ${key}`);
+  }
+}
+
+function safeRelativePath(value, name) {
+  const text = String(value || "");
+  if (!text || text.length > 512 || text.includes("%") || text.includes("\\") || text.startsWith("/") || /^[A-Za-z]:[\\/]/.test(text)) {
+    fail(`Invalid metadata.${name}`);
+  }
+  const segments = text.split("/");
+  if (segments.some((segment) => !segment || segment === "." || segment === ".." || RESERVED_PATH_SEGMENTS.has(segment))) {
+    fail(`Invalid metadata.${name}`);
+  }
+  if (/[\u0000-\u001f\u007f]/.test(text)) fail(`Invalid metadata.${name}`);
+  return text;
+}
+
+function normalizeMetadata(input = {}, allowedKeys = METADATA_KEYS) {
   if (!input || typeof input !== "object" || Array.isArray(input)) fail("Invalid metadata");
+  assertExactKeys(input, allowedKeys, "metadata");
   const result = {};
-  for (const key of METADATA_KEYS) {
+  for (const key of allowedKeys) {
     if (!Object.hasOwn(input, key) || input[key] === undefined || input[key] === null) continue;
     const value = input[key];
     if (key === "size") {
       if (!Number.isSafeInteger(value) || value < 0) fail("Invalid metadata.size");
       result[key] = value;
-    } else if (["path", "name", "contentType"].includes(key)) {
+    } else if (["path", "sourcePath"].includes(key)) {
+      result[key] = safeRelativePath(value, key);
+    } else if (["name", "contentType"].includes(key)) {
       const text = String(value);
       if (!text || text.length > 512 || /[\u0000-\u001f\u007f]/.test(text)) fail(`Invalid metadata.${key}`);
       result[key] = text;
@@ -85,6 +122,8 @@ function aadFor(operation) {
     keyEpoch: operation.keyEpoch,
     compartmentId: operation.compartmentId,
     deviceId: operation.deviceId,
+    metadata: operation.metadata,
+    tombstone: operation.tombstone,
   });
 }
 
@@ -104,7 +143,7 @@ function encryptPayload(operation, plaintext, fileKey) {
 }
 
 function decodeBase64Url(value, field) {
-  if (typeof value !== "string" || !value || !/^[A-Za-z0-9_-]+$/.test(value) || value.length % 4 === 1) {
+  if (typeof value !== "string" || (field !== "ciphertext" && !value) || !/^[A-Za-z0-9_-]*$/.test(value) || value.length % 4 === 1) {
     fail(`Invalid encrypted field: ${field}`, "invalid_envelope");
   }
   const decoded = Buffer.from(value, "base64url");
@@ -116,7 +155,7 @@ function decodeBase64Url(value, field) {
 }
 
 function decryptPayload(operation, fileKey) {
-  if (!operation.ciphertext || !operation.nonce || !operation.tag || !operation.aad) fail("Encrypted payload is incomplete");
+  if (typeof operation.ciphertext !== "string" || !operation.nonce || !operation.tag || !operation.aad) fail("Encrypted payload is incomplete");
   const key = assertFileKey(fileKey);
   const ciphertext = decodeBase64Url(operation.ciphertext, "ciphertext");
   const nonce = decodeBase64Url(operation.nonce, "nonce");
@@ -152,20 +191,30 @@ function createOperation(input = {}) {
     keyEpoch,
     compartmentId,
     deviceId,
-    metadata: normalizeMetadata({ ...input.metadata, fileId, versionId, keyEpoch, compartmentId, deviceId }),
+    metadata: normalizeMetadata(
+      { ...input.metadata, fileId, versionId, keyEpoch, compartmentId, deviceId },
+      METADATA_KEYS_BY_OPERATION[operation],
+    ),
     tombstone: operation === "delete",
   };
-  if (operation === "delete") return result;
-  if (operation === "move") return result;
-  Object.assign(result, encryptPayload(result, input.plaintext, input.fileKey));
+  const plaintext = input.plaintext === undefined ? Buffer.from("{}", "utf8") : input.plaintext;
+  Object.assign(result, encryptPayload(result, plaintext, input.fileKey));
   return result;
 }
 
 function validateOperation(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) fail("Invalid operation");
+  if (input.protocolVersion !== PROTOCOL_VERSION) fail("Unsupported sync protocol version", "invalid_protocol_version");
+  assertExactKeys(input, OPERATION_FIELDS, "operation");
+  for (const field of OPERATION_FIELDS) {
+    if (!Object.hasOwn(input, field)) fail(`Missing operation field: ${field}`);
+  }
   const operation = createOperation({ ...input, plaintext: Buffer.alloc(0), fileKey: Buffer.alloc(32) });
-  if (input.operation === "delete" || input.operation === "move") return operation;
+  if (input.tombstone !== operation.tombstone) fail("Invalid tombstone flag");
+  if (!operation.metadata.path) fail("Operation metadata.path is required");
+  if (operation.operation === "move" && !operation.metadata.sourcePath) fail("Move metadata.sourcePath is required");
   for (const field of ["ciphertext", "nonce", "tag", "aad"]) {
-    if (typeof input[field] !== "string" || !input[field]) fail(`Missing encrypted field: ${field}`);
+    if (typeof input[field] !== "string" || (field !== "ciphertext" && !input[field])) fail(`Missing encrypted field: ${field}`);
   }
   decodeBase64Url(input.ciphertext, "ciphertext");
   decodeBase64Url(input.nonce, "nonce");
@@ -182,6 +231,7 @@ function nextRevision(current, deviceId) {
 }
 
 module.exports = {
+  OPERATION_FIELDS,
   PROTOCOL_VERSION,
   OPERATIONS,
   METADATA_KEYS,
@@ -191,5 +241,6 @@ module.exports = {
   decryptPayload,
   nextRevision,
   normalizeMetadata,
+  safeRelativePath,
   validateOperation,
 };

@@ -149,7 +149,7 @@ function sanitizeMetricLabels(labels = {}) {
 }
 
 function decodeBase64Url(value, field) {
-  if (typeof value !== "string" || !value || !/^[A-Za-z0-9_-]+$/.test(value) || value.length % 4 === 1) {
+  if (typeof value !== "string" || (field !== "ciphertext" && !value) || !/^[A-Za-z0-9_-]*$/.test(value) || value.length % 4 === 1) {
     throw Object.assign(new Error("Protected sync attestation failed"), { code: "SYNC_ATTESTATION_FAILED" });
   }
   const decoded = Buffer.from(value, "base64url");
@@ -180,6 +180,8 @@ function expectedAad(record) {
     keyEpoch: record.keyEpoch,
     compartmentId: record.compartmentId,
     deviceId: record.deviceId,
+    metadata: record.metadata,
+    tombstone: record.tombstone,
   });
 }
 
@@ -189,15 +191,11 @@ function attestCiphertextOnlyRecords(records) {
     assertNoProtectedSecrets(record);
     let normalized;
     try { normalized = validateOperation(record); } catch { throw Object.assign(new Error("Protected sync attestation failed"), { code: "SYNC_ATTESTATION_FAILED" }); }
-    if (["create", "update"].includes(normalized.operation)) {
-      decodeBase64Url(normalized.ciphertext, "ciphertext");
-      decodeBase64Url(normalized.nonce, "nonce");
-      decodeBase64Url(normalized.tag, "tag");
-      const aad = decodeBase64Url(normalized.aad, "aad").toString("utf8");
-      if (aad !== expectedAad(normalized)) throw Object.assign(new Error("Protected sync attestation failed"), { code: "SYNC_ATTESTATION_FAILED" });
-    } else if (["move", "delete"].includes(normalized.operation) && ["ciphertext", "nonce", "tag", "aad"].some((field) => Object.hasOwn(record, field))) {
-      throw Object.assign(new Error("Protected sync attestation failed"), { code: "SYNC_ATTESTATION_FAILED" });
-    }
+    decodeBase64Url(normalized.ciphertext, "ciphertext");
+    decodeBase64Url(normalized.nonce, "nonce");
+    decodeBase64Url(normalized.tag, "tag");
+    const aad = decodeBase64Url(normalized.aad, "aad").toString("utf8");
+    if (aad !== expectedAad(normalized)) throw Object.assign(new Error("Protected sync attestation failed"), { code: "SYNC_ATTESTATION_FAILED" });
   }
   return { ok: true, count: records.length, digest: crypto.createHash("sha256").update(canonicalJson(stableValue(records))).digest("hex") };
 }

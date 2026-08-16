@@ -41,7 +41,11 @@ test("Phase 12 protocol encrypts with bound metadata and rejects tampering", () 
   assert.equal(protocol.decryptPayload(operation, key).toString(), "secret");
   assert.throws(() => protocol.decryptPayload({ ...operation, objectId: "object-2" }, key));
   assert.equal(protocol.compareRevisions({ counter: 2, deviceId: "z" }, { counter: 1, deviceId: "z" }) > 0, true);
-  const tombstone = protocol.createOperation({ ...operation, operation: "delete", deviceId: "device-a", keyEpoch: "epoch-1", compartmentId: "private", revision: { counter: 2, deviceId: "device-a" } });
+  const tombstone = protocol.createOperation({
+    operation: "delete", objectId: operation.objectId, fileId: operation.fileId, versionId: "version-2",
+    operationId: "operation-delete", deviceId: "device-a", keyEpoch: "epoch-1", compartmentId: "private",
+    revision: { counter: 2, deviceId: "device-a" }, metadata: { path: "folder/file.txt" }, fileKey: key,
+  });
   assert.equal(tombstone.tombstone, true);
 });
 
@@ -80,6 +84,55 @@ test("Phase 12 local bridge is loopback bearer protected, contained, and trash-b
   assert.equal(fs.readdirSync(path.join(dir, ".rootark-trash")).length, 1);
 });
 
+test("Phase 16 WebDAV overwrite is recoverable, journaled, and protects configured trash", async (t) => {
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "rootark-phase16-webdav-"));
+  const trashDir = path.join(dir, "private-trash");
+  const journal = await new SyncJournal(path.join(dir, "journal.json")).open();
+  const bridge = new LocalSyncWebDavBridge({ rootDir: dir, trashDir, token: "phase16-token", journal });
+  await bridge.start();
+  t.after(async () => { await bridge.stop(); await fsp.rm(dir, { recursive: true, force: true }); });
+  const headers = { authorization: "Bearer phase16-token" };
+  const port = bridge.address().port;
+  await request(port, "/source.txt", { method: "PUT", headers, body: Buffer.from("source") });
+  await request(port, "/destination.txt", { method: "PUT", headers, body: Buffer.from("prior") });
+  assert.equal((await request(port, "/source.txt", { method: "MOVE", headers: { ...headers, overwrite: "F", destination: `http://127.0.0.1:${port}/destination.txt` } })).status, 412);
+  assert.equal((await request(port, "/destination.txt", { method: "GET", headers })).body.toString(), "prior");
+  assert.equal((await request(port, "/source.txt", { method: "MOVE", headers: { ...headers, overwrite: "T", destination: `http://127.0.0.1:${port}/destination.txt` } })).status, 204);
+  assert.equal((await request(port, "/destination.txt", { method: "GET", headers })).body.toString(), "source");
+  assert.equal(fs.readdirSync(trashDir).length, 1);
+  assert.equal((await request(port, "/private-trash", { method: "PROPFIND", headers })).status, 400);
+
+  await fsp.mkdir(path.join(dir, "source-dir"));
+  await fsp.writeFile(path.join(dir, "source-dir", "new.txt"), "new");
+  await fsp.mkdir(path.join(dir, "destination-dir"));
+  await fsp.writeFile(path.join(dir, "destination-dir", "old.txt"), "old");
+  assert.equal((await request(port, "/source-dir", { method: "MOVE", headers: { ...headers, overwrite: "T", destination: `http://127.0.0.1:${port}/destination-dir` } })).status, 204);
+  assert.equal(fs.existsSync(path.join(dir, "destination-dir", "new.txt")), true);
+  assert.equal(fs.existsSync(path.join(dir, "destination-dir", "old.txt")), false);
+});
+
+test("Phase 16 WebDAV journal recovery preserves unresolved entries", async (t) => {
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "rootark-phase16-recovery-"));
+  const trashDir = path.join(dir, "configured-trash");
+  const journal = await new SyncJournal(path.join(dir, "journal.json")).open();
+  const backup = path.join(trashDir, "staged-recovery.txt");
+  await fsp.mkdir(trashDir, { recursive: true });
+  await fsp.writeFile(backup, "recover");
+  await journal.enqueue({ operationId: "recover-1", kind: "move", source: "/source.txt", destination: "/restored.txt", trash: path.relative(dir, backup), phase: "staged" });
+  const bridge = new LocalSyncWebDavBridge({ rootDir: dir, trashDir, token: "phase16-token", journal });
+  await bridge.start();
+  t.after(async () => { await bridge.stop(); await fsp.rm(dir, { recursive: true, force: true }); });
+  assert.equal((await fsp.readFile(path.join(dir, "restored.txt"), "utf8")), "recover");
+  assert.deepEqual(await journal.recover(), []);
+
+  const unresolvedBackup = path.join(trashDir, "unresolved.txt");
+  await fsp.writeFile(unresolvedBackup, "backup");
+  await fsp.writeFile(path.join(dir, "unresolved.txt"), "destination");
+  await journal.enqueue({ operationId: "recover-2", kind: "move", source: "/source.txt", destination: "/unresolved.txt", trash: path.relative(dir, unresolvedBackup), phase: "staged" });
+  await bridge.recoverPending();
+  assert.equal((await journal.recover()).some((item) => item.operationId === "recover-2"), true);
+});
+
 test("Phase 12 server route stores opaque records and rejects conflict/replay", async (t) => {
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "rootark-phase12-route-"));
   const app = express();
@@ -107,7 +160,11 @@ test("Phase 12 server route stores opaque records and rejects conflict/replay", 
     metadata: { path: "file.txt", name: "file.txt", size: 7 }, plaintext: Buffer.from("updated"), fileKey: key,
   });
   assert.equal((await request(port, "/sync/v1/objects", { method: "POST", headers: { "content-type": "application/json" }, body: jsonBody(stale) })).status, 409);
-  const tombstone = { operationId: "operation-delete", fileId: "file-1", versionId: "version-3", deviceId: "device-a", keyEpoch: "epoch-1", compartmentId: "private", revision: { counter: 3, deviceId: "device-a" }, baseRevision: update.revision, metadata: { path: "file.txt", name: "file.txt", size: 0 } };
+  const tombstone = protocol.createOperation({
+    operation: "delete", objectId: "object-1", fileId: "file-1", versionId: "version-3", operationId: "operation-delete",
+    deviceId: "device-a", keyEpoch: "epoch-1", compartmentId: "private", revision: { counter: 3, deviceId: "device-a" },
+    baseRevision: update.revision, metadata: { path: "file.txt" }, fileKey: key,
+  });
   const tombstoneBody = jsonBody(tombstone);
   const deleted = await request(port, "/sync/v1/objects/object-1", { method: "DELETE", headers: { "content-type": "application/json", "content-length": tombstoneBody.length }, body: tombstoneBody });
   assert.equal(deleted.status, 200);

@@ -83,6 +83,13 @@ class SyncJournal {
     });
   }
 
+  async update(operationId, patch) {
+    await this.commit((next) => {
+      const operation = next.pending.find((item) => item.operationId === operationId);
+      if (operation) Object.assign(operation, patch);
+    });
+  }
+
   pending() { return this.state.pending.map((operation) => ({ ...operation })); }
   hasSeen(operationId) { return this.state.seen.includes(operationId); }
   async recover() { return this.pending(); }

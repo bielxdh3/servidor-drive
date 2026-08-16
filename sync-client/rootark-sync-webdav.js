@@ -8,6 +8,7 @@ const net = require("node:net");
 const path = require("node:path");
 
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
+const RESERVED_INTERNAL_SEGMENTS = new Set([".rootark-trash", ".rootark-sync"]);
 
 function isLoopback(host) {
   const value = String(host || "").toLowerCase();
@@ -19,7 +20,7 @@ function safeSegments(urlPath) {
   try { decoded = decodeURIComponent(urlPath); } catch { throw Object.assign(new Error("Invalid path"), { statusCode: 400 }); }
   if (decoded.includes("\0") || decoded.includes("\\")) throw Object.assign(new Error("Unsafe path"), { statusCode: 400 });
   const segments = decoded.split("/").filter(Boolean);
-  if (segments.some((segment) => segment === "." || segment === ".." || segment.includes("\0"))) throw Object.assign(new Error("Unsafe path"), { statusCode: 400 });
+  if (segments.some((segment) => segment === "." || segment === ".." || segment.includes("\0") || RESERVED_INTERNAL_SEGMENTS.has(segment))) throw Object.assign(new Error("Unsafe path"), { statusCode: 400 });
   return segments;
 }
 
@@ -60,6 +61,7 @@ class LocalSyncWebDavBridge {
     this.host = options.host || "127.0.0.1";
     this.port = Number(options.port || 0);
     this.maxBodyBytes = Number(options.maxBodyBytes || MAX_BODY_BYTES);
+    this.journal = options.journal || null;
     this.onOperation = options.onOperation || (options.journal ? (operation) => options.journal.enqueue(operation) : null);
     if (!this.token) throw new Error("Local WebDAV bridge bearer token is required");
     if (!isLoopback(this.host)) throw new Error("Local WebDAV bridge must bind to loopback");
@@ -71,6 +73,8 @@ class LocalSyncWebDavBridge {
     await rejectSymlinks(this.rootDir, this.rootDir, false);
     await fsp.mkdir(this.trashDir, { recursive: true });
     await rejectSymlinks(this.rootDir, this.trashDir, false);
+    if (this.trashDir === this.rootDir) throw Object.assign(new Error("Trash directory must be below bridge root"), { statusCode: 400 });
+    await this.recoverPending();
     await new Promise((resolve, reject) => {
       this.server.once("error", reject);
       this.server.listen(this.port, this.host, resolve);
@@ -79,6 +83,36 @@ class LocalSyncWebDavBridge {
   }
 
   address() { return this.server.address(); }
+
+  async recoverPending() {
+    if (!this.journal?.recover) return;
+    for (const operation of await this.journal.recover()) {
+      if (operation.kind !== "move" || !operation.trash) continue;
+      const backup = path.resolve(this.rootDir, operation.trash);
+      await rejectSymlinks(this.rootDir, backup, true);
+      const destination = await this.target(operation.destination);
+      const backupExists = await fsp.lstat(backup).then(() => true, (error) => error.code === "ENOENT" ? false : Promise.reject(error));
+      const destinationExists = await fsp.lstat(destination).then(() => true, (error) => error.code === "ENOENT" ? false : Promise.reject(error));
+      let resolved = false;
+      if (["prepared", "staged"].includes(operation.phase) && backupExists && !destinationExists) {
+        await fsp.rename(backup, destination);
+        resolved = true;
+      } else if (operation.phase === "source-moved" && backupExists && destinationExists) {
+        resolved = true;
+      } else if (operation.phase === "prepared" && !backupExists && destinationExists) {
+        resolved = true;
+      }
+      if (resolved && this.journal.markSeen) await this.journal.markSeen(operation.operationId);
+    }
+  }
+
+  async updateJournal(operationId, patch) {
+    if (this.journal?.update) await this.journal.update(operationId, patch);
+  }
+
+  async markJournalSeen(operationId) {
+    if (this.journal?.markSeen) await this.journal.markSeen(operationId);
+  }
 
   async stop() {
     if (!this.server.listening) return;
@@ -96,6 +130,7 @@ class LocalSyncWebDavBridge {
   async target(urlPath) {
     const target = await rejectSymlinks(this.rootDir, path.join(this.rootDir, ...safeSegments(urlPath)), true);
     if (target === this.rootDir) return target;
+    if (target === this.trashDir || target.startsWith(`${this.trashDir}${path.sep}`)) throw Object.assign(new Error("Internal trash path is not accessible"), { statusCode: 400 });
     await rejectSymlinks(this.rootDir, path.dirname(target), false);
     return target;
   }
@@ -190,9 +225,39 @@ class LocalSyncWebDavBridge {
     const existing = await fsp.lstat(destination.target).catch((error) => error.code === "ENOENT" ? null : Promise.reject(error));
     if (existing && String(req.headers.overwrite || "T").toUpperCase() !== "T") return writeResponse(res, 412, "Destination exists");
     await rejectSymlinks(this.rootDir, path.dirname(destination.target), false);
-    if (this.onOperation) await this.onOperation({ operationId: crypto.randomUUID(), kind: "move", source: parsed.pathname, destination: destination.parsed.pathname });
-    if (existing) await fsp.rm(destination.target, { recursive: true, force: false });
-    await fsp.rename(source, destination.target);
+    const operationId = crypto.randomUUID();
+    const backup = existing ? path.join(this.trashDir, `.rootark-move-${operationId}-${path.basename(destination.target)}`) : null;
+    const operation = {
+      operationId,
+      kind: "move",
+      source: parsed.pathname,
+      destination: destination.parsed.pathname,
+      trash: backup ? path.relative(this.rootDir, backup) : null,
+      phase: "prepared",
+    };
+    if (this.onOperation) await this.onOperation(operation);
+    let staged = false;
+    let moved = false;
+    try {
+      if (backup) {
+        await rejectSymlinks(this.rootDir, backup, true);
+        await fsp.rename(destination.target, backup);
+        staged = true;
+        await this.updateJournal(operationId, { phase: "staged" });
+      }
+      await fsp.rename(source, destination.target);
+      moved = true;
+      await this.updateJournal(operationId, { phase: "source-moved" });
+      await this.markJournalSeen(operationId);
+    } catch (error) {
+      if (moved) {
+        await fsp.rename(destination.target, source).catch(() => {});
+      }
+      if (staged) {
+        await fsp.rename(backup, destination.target).catch(() => {});
+      }
+      throw error;
+    }
     return writeResponse(res, existing ? 204 : 201);
   }
 

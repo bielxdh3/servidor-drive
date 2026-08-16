@@ -2,7 +2,7 @@
 
 const fs = require("node:fs/promises");
 const path = require("node:path");
-const { compareRevisions, validateOperation } = require("../../sync-client/rootark-sync-protocol");
+const { PROTOCOL_VERSION, compareRevisions, validateOperation } = require("../../sync-client/rootark-sync-protocol");
 const { attestCiphertextOnlySyncState } = require("../services/deploymentResilience");
 
 const STORE_VERSION = 1;
@@ -153,7 +153,7 @@ function registerSyncRoutes({ app, authenticate, requirePermission, storagePath 
 
   app.get("/sync/v1/objects", authenticate, requirePermission("listFiles"), async (req, res) => {
     await ready;
-    res.json({ protocolVersion: 1, objects: store.list(req.user.username, req.query.objectId ? String(req.query.objectId) : null) });
+    res.json({ protocolVersion: PROTOCOL_VERSION, objects: store.list(req.user.username, req.query.objectId ? String(req.query.objectId) : null) });
   });
   app.get("/sync/v1/objects/:objectId", authenticate, requirePermission("listFiles"), async (req, res) => {
     await ready;
