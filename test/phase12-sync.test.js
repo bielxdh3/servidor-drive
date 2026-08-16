@@ -47,6 +47,19 @@ test("Phase 12 protocol encrypts with bound metadata and rejects tampering", () 
     revision: { counter: 2, deviceId: "device-a" }, metadata: { path: "folder/file.txt" }, fileKey: key,
   });
   assert.equal(tombstone.tombstone, true);
+  const metadataMove = protocol.createOperation({
+    operation: "move", objectId: "object-1", fileId: "file-1", versionId: "version-3", operationId: "operation-move",
+    deviceId: "device-a", keyEpoch: "epoch-1", compartmentId: "private", revision: { counter: 3, deviceId: "device-a" },
+    metadata: { path: "new.txt", sourcePath: "folder/file.txt" }, plaintext: Buffer.alloc(0), fileKey: key,
+  });
+  assert.equal(metadataMove.ciphertext, "");
+  assert.equal(protocol.decryptPayload(protocol.validateOperation(JSON.parse(JSON.stringify(metadataMove))), key).length, 0);
+  assert.throws(() => protocol.validateOperation({ ...metadataMove, metadata: { ...metadataMove.metadata, path: "other.txt" } }));
+  assert.throws(() => protocol.validateOperation({ ...metadataMove, extra: "smuggled" }));
+  assert.throws(() => protocol.createOperation({ ...metadataMove, operation: "delete", metadata: { ...metadataMove.metadata, search: "secret" }, fileKey: key }));
+  for (const unsafe of ["../escape.txt", ".rootark-trash/hidden.txt", "folder/%2e%2e/escape.txt", "C:/escape.txt"]) {
+    assert.throws(() => protocol.createOperation({ ...metadataMove, operation: "move", metadata: { path: unsafe, sourcePath: "safe.txt" }, fileKey: key }));
+  }
 });
 
 test("Phase 12 journal is durable and recovers pending operations", async () => {
@@ -109,6 +122,37 @@ test("Phase 16 WebDAV overwrite is recoverable, journaled, and protects configur
   assert.equal((await request(port, "/source-dir", { method: "MOVE", headers: { ...headers, overwrite: "T", destination: `http://127.0.0.1:${port}/destination-dir` } })).status, 204);
   assert.equal(fs.existsSync(path.join(dir, "destination-dir", "new.txt")), true);
   assert.equal(fs.existsSync(path.join(dir, "destination-dir", "old.txt")), false);
+});
+
+test("Phase 16 WebDAV rename and journal failures leave both paths unchanged", async (t) => {
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "rootark-phase16-rollback-"));
+  const journal = await new SyncJournal(path.join(dir, "journal.json")).open();
+  const bridge = new LocalSyncWebDavBridge({ rootDir: dir, token: "phase16-token", journal });
+  await bridge.start();
+  t.after(async () => { await bridge.stop(); await fsp.rm(dir, { recursive: true, force: true }); });
+  const headers = { authorization: "Bearer phase16-token" };
+  const port = bridge.address().port;
+  await request(port, "/source.txt", { method: "PUT", headers, body: Buffer.from("source") });
+  await request(port, "/destination.txt", { method: "PUT", headers, body: Buffer.from("destination") });
+  const originalRename = fsp.rename;
+  fsp.rename = async (from, to) => { if (from === path.join(dir, "source.txt")) throw new Error("induced rename failure"); return originalRename(from, to); };
+  try {
+    assert.equal((await request(port, "/source.txt", { method: "MOVE", headers: { ...headers, destination: `http://127.0.0.1:${port}/destination.txt` } })).status, 500);
+  } finally { fsp.rename = originalRename; }
+  assert.equal((await request(port, "/source.txt", { method: "GET", headers })).body.toString(), "source");
+  assert.equal((await request(port, "/destination.txt", { method: "GET", headers })).body.toString(), "destination");
+
+  const journalFailure = new LocalSyncWebDavBridge({ rootDir: dir, token: "phase16-token", journal, onOperation: async () => { throw new Error("journal failure"); } });
+  await journalFailure.start();
+  const secondSource = path.join(dir, "second-source.txt");
+  const secondDestination = path.join(dir, "second-destination.txt");
+  await fsp.writeFile(secondSource, "second-source");
+  await fsp.writeFile(secondDestination, "second-destination");
+  const secondPort = journalFailure.address().port;
+  assert.equal((await request(secondPort, "/second-source.txt", { method: "MOVE", headers: { ...headers, destination: `http://127.0.0.1:${secondPort}/second-destination.txt` } })).status, 500);
+  await journalFailure.stop();
+  assert.equal(await fsp.readFile(secondSource, "utf8"), "second-source");
+  assert.equal(await fsp.readFile(secondDestination, "utf8"), "second-destination");
 });
 
 test("Phase 16 WebDAV journal recovery preserves unresolved entries", async (t) => {

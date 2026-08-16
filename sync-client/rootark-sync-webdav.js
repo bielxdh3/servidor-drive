@@ -201,8 +201,8 @@ class LocalSyncWebDavBridge {
         await rejectSymlinks(this.rootDir, target, false);
         return writeResponse(res, 201);
       }
-      if (req.method === "MOVE") return this.move(req, res, target, parsed);
-      if (req.method === "DELETE") return this.remove(req, res, target, parsed);
+      if (req.method === "MOVE") return await this.move(req, res, target, parsed);
+      if (req.method === "DELETE") return await this.remove(req, res, target, parsed);
       return writeResponse(res, 405, "Method not allowed");
     } catch (error) {
       const status = error.statusCode || (error.code === "ENOENT" ? 404 : error.code === "EEXIST" ? 405 : 500);
