@@ -408,6 +408,13 @@ All items below are candidates, not commitments.
 - `[ACCEPTED-LOCAL]` Record the independent 65/65 Phase 12 focused gate; the local executable slice passes 4/4. Broader dependency/provider/browser/production validation remains separate.
 - `[LATER]` Complete provider/browser/production validation, deployment hardening, release acceptance, and independent Phase 16 review.
 
+### Phase 14: Deployment/adapters/resilience — 2026-08-16
+
+- `[IMPLEMENTED-UNVERIFIED]` Add standard-library `/health` and fail-closed `/ready` adapters for JWT, explicit TOTP policy, master-key, and provider-critical configuration; responses are unauthenticated and sanitized.
+- `[IMPLEMENTED-UNVERIFIED]` Normalize provider errors, cap retry/backoff and cancellation, provide idempotency helpers, and redact secret-bearing log/metric values.
+- `[IMPLEMENTED-UNVERIFIED]` Attest protected sync records during sync-store restart, backup creation, and restore archive validation without decrypting ciphertext or accepting plaintext/key fields; preserve backup, trash, version, and route contracts.
+- `[IMPLEMENTED-UNVERIFIED]` Focused failure-mode coverage is recorded in `test/phase14-deployment-resilience.test.js`; provider, dependency, native-binding, TLS, production, remote CI, and release gates remain open.
+
 ### Authentication and administration
 
 - `[ACCEPTED-LOCAL]` 2FA/TOTP Issue #9 is implemented and security-reviewed within the bounded local scope; final independent evidence is 52/52 focused and 616/616 broad tests, with remote/publication/release acceptance remaining separate.

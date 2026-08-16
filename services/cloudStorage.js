@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { pipeline } = require("stream/promises");
+const { normalizeProviderError } = require("../src/services/deploymentResilience");
 
 function createCloudStorage(options = {}) {
   const provider = String(options.provider || "local").toLowerCase();
@@ -155,7 +156,7 @@ function createCloudStorage(options = {}) {
 
 function normalizePrefix(value) { const clean = String(value || "").replace(/\\/g, "/").replace(/^\/+|\/+$/g, ""); if (!clean || clean.split("/").some((part) => !part || part === "." || part === "..")) throw cloudError("invalid_prefix", "Invalid cloud prefix"); return clean; }
 function cloudError(code, message) { const error = new Error(message); error.code = code; return error; }
-function classify(error) { return error?.code ? error : cloudError("provider_error", "Cloud provider operation failed"); }
+function classify(error) { return normalizeProviderError(error); }
 function defaultS3Client(config) { return async () => { const { S3Client } = require("@aws-sdk/client-s3"); return new S3Client({ region: config.region || "us-east-1", ...(config.endpoint ? { endpoint: config.endpoint } : {}), ...(config.forcePathStyle ? { forcePathStyle: true } : {}) }); }; }
 function defaultGoogleDriveClient(config) { return async () => { const { google } = require("googleapis"); const auth = new google.auth.GoogleAuth({ ...(config.credentials ? { credentials: JSON.parse(config.credentials) } : {}), scopes: ["https://www.googleapis.com/auth/drive"] }); return google.drive({ version: "v3", auth }); }; }
 

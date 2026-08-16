@@ -3,6 +3,7 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { compareRevisions, validateOperation } = require("../../sync-client/rootark-sync-protocol");
+const { attestCiphertextOnlySyncState } = require("../services/deploymentResilience");
 
 const STORE_VERSION = 1;
 const MAX_REQUEST_BYTES = 9 * 1024 * 1024;
@@ -77,6 +78,7 @@ class SyncObjectStore {
     try {
       this.state = JSON.parse(await fs.readFile(this.filePath, "utf8"));
       if (this.state.version !== STORE_VERSION || !this.state.users || typeof this.state.users !== "object") throw new Error("Invalid sync object store");
+      attestCiphertextOnlySyncState(this.state);
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
       await durableWrite(this.filePath, this.state);

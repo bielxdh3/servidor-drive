@@ -44,6 +44,7 @@ const { registerGroupRoutes } = require("./src/routes/groups");
 const { createAuthenticate, createRealtimeAuthenticator, getExpectedOrigin, parseCookies } = require("./src/middlewares/auth");
 const { createRequirePermission } = require("./src/middlewares/permissions");
 const { validateTotpPolicy } = require("./src/services/totpPolicy");
+const { getDeploymentReadiness, registerReadinessRoutes, sanitizeLogValue } = require("./src/services/deploymentResilience");
 
 const app = express();
 const server = http.createServer(app);
@@ -170,6 +171,14 @@ const cloudStorage = createCloudStorage({
 });
 backupService.setCloudStorage(cloudStorage);
 restoreService.setCloudStorage(cloudStorage);
+registerReadinessRoutes(app, {
+  getReadiness: () => getDeploymentReadiness({
+    env: process.env,
+    masterKeyFile: SERVER_MASTER_KEY_FILE,
+    cloudStatus: cloudStorage.status(),
+    validateTotp: validateTotpPolicy,
+  }),
+});
 
 function shouldUseDatabase() {
   return dbConfig.isDbEnabled();
@@ -229,14 +238,14 @@ async function syncFolderCacheFromCloud(folderId, area = "uploads") {
       await ensureCloudFileCached(folderId, fileName, localPath, area);
     }
   } catch (error) {
-    console.error(`[cloud-storage] sync cache ${area}/${folderId}:`, error.message);
+    console.error("[cloud-storage] sync cache failed:", sanitizeLogValue(error.message));
   }
 }
 
 function syncCloudFireAndForget(promise, label) {
   if (!isCloudStorageEnabled()) return;
   Promise.resolve(promise).catch((error) => {
-    console.error(`[cloud-storage] ${label}:`, error.message);
+    console.error("[cloud-storage] operation failed:", sanitizeLogValue(error.message));
   });
 }
 
@@ -262,7 +271,7 @@ async function ensureCloudFileCached(folderId, fileName, localPath, area = "uplo
   try {
     return await downloadFileFromCloud(folderId, fileName, localPath, area);
   } catch (error) {
-    console.error(`[cloud-storage] restore cache ${area}/${folderId}/${fileName}:`, error.message);
+    console.error("[cloud-storage] restore cache failed:", sanitizeLogValue(error.message));
     return false;
   }
 }

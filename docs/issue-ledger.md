@@ -67,6 +67,20 @@ group access, and minimal admin/client UI wiring. The focused Phase 13 test
 file is the local evidence for these boundaries; browser install and
 provider/production validation remain unclaimed.
 
+## Phase 14 local implementation — 2026-08-16
+
+The bounded Phase 14 deployment/resilience slice is implemented from exact
+Phase 13 SHA `d1fe80ea921f3b72bc34e1476c930e468a722df6` on
+`cdx/rootark-phase14-deployment-resilience`. It adds sanitized unauthenticated
+`/health` and fail-closed `/ready` checks, provider-error normalization,
+bounded retry/cancellation and idempotency helpers, secret-safe observability
+sanitization, and ciphertext-only sync backup/restore attestation integrated
+with restart, backup, and restore validation. Existing backup/trash/version
+contracts and route shapes are preserved. Focused failure-mode evidence is
+recorded in `test/phase14-deployment-resilience.test.js`; dependency-backed,
+native-binding, provider, TLS, production, remote CI, browser, publication,
+and release acceptance remain unclaimed.
+
 ## Current local gate
 
 The previously dirty scoped implementation/test/documentation work is now organized into the authorized commit set across five published branches and their draft PRs. The source branch `cdx/rootark-roadmap` is clean and exactly at the `Root/main` baseline SHA `28747c6ebdac873650e2d5a3c6193824e7cc9985`; this was achieved by branch organization and commits, not reset, clean, discard, or destructive cleanup. No merge, release, tag, deploy, force-push, destructive remote action, issue-state mutation, or repository-setting mutation occurred. Remaining work is gated by dependency/network recovery, zero-knowledge implementation and owner decisions, WebDAV and full persistence parity, native/provider/production evidence, and draft-PR review.
@@ -121,7 +135,7 @@ Primary Phase 0-16 statuses use only `ACCEPTED`, `PARTIAL`, `BLOCKED_OWNER_DECIS
 | 11 | Issue #6 backlog reconciliation | `ACCEPTED` | `PHASE_11_BACKLOG_RECONCILED`: `docs/roadmap/phase-11-backlog-reconciliation.md` contains the complete nine-item evidence and boundary matrix; candidates remain non-commitments and each approved feature requires a separate issue | Stabilization, product decisions, security review, and scoped issues remain prerequisites for any future implementation | Keep all candidates gated; begin only a separately approved feature issue |
 | 12 | Bidirectional sync/WebDAV bridge | `ACCEPTED` | `PHASE_12_ACCEPTED_LOCAL`: versioned client protocol, durable journal, loopback bridge, opaque `/sync/v1/objects` routes including DELETE tombstones, and an independent 65/65 focused gate are recorded locally | Dependency-backed broader regression, provider/browser/production, deployment, release, and independent review evidence remain open | Preserve the bounded implementation and hand off deployment/release/review separately |
 | 13 | Search/previews/PWA/clients/groups/admin UX | `PARTIAL` | Local Phase 13 slice is implemented at the exact Phase 12 baseline: protected client index/preview, opaque adapter, public-shell PWA, encrypted offline queue boundary, group routes/folder membership, focused UI wiring, and focused tests | Browser install, real offline replay/conflicts, provider/production, and independent review remain open; server-side protected plaintext search/preview is intentionally not implemented | Preserve the frozen boundary and complete environment-specific validation separately |
-| 14 | Deployment/adapters/resilience | `BLOCKED_ENVIRONMENT` | Fresh artifact and syntax checks passed, but dependency, native-binding, provider, and production gates remain unavailable; no deployment acceptance is claimed | Provider, deployment, TLS, production, native dependency, and resilience evidence remain open; remote Issue #14 was not mutated | Recover dependencies, then repeat environment-specific validation |
+| 14 | Deployment/adapters/resilience | `IMPLEMENTED-UNVERIFIED` | Bounded local guards, sanitized health/readiness routes, provider normalization/retry/cancellation/idempotency helpers, secret-safe observability, and ciphertext-only sync backup/restore attestation are implemented; focused failure-mode evidence is recorded locally | Dependency, native-binding, provider, TLS, production, browser, remote CI, and release acceptance remain open; remote Issue #14 was not mutated | Run the final focused/regression/artifact/secret gates, then reassess local acceptance |
 | 15 | Documentation/release gate | `BLOCKED_ENVIRONMENT` | The local release gate is blocked by incomplete dependency/network, native-binding, provider, and production evidence; remote CI is confirmed partial and advisory-blocked, while documentation and secret-scan checks passed locally | Deployment exposure, product approval, and publication authorization remain separate open boundaries | Recover the environment and complete release evidence; seek publication authorization separately |
 | 16 | Independent security/quality review | `BLOCKED_ENVIRONMENT` | Architect review found no concrete source defect; residual runtime/provider/production risks remain unvalidated because the fresh dependency gate is blocked | Independent final review, complete validation, and quality gate evidence remain outstanding | Repeat final security/quality review after dependency recovery |
 

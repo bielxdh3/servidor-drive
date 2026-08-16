@@ -6,6 +6,7 @@ const { ZipArchive } = require("archiver");
 const backupRepository = require("../repositories/backupRepository");
 const { getDatabasePath, getDb, isDbEnabled } = require("../db");
 const { resolveRuntimePath } = require("../src/runtime-paths");
+const { attestCiphertextOnlyFile } = require("../src/services/deploymentResilience");
 
 const BACKUPS_DIR = resolveRuntimePath("data", "backups");
 const LOCK_FILE = path.join(BACKUPS_DIR, ".backup.lock");
@@ -140,6 +141,9 @@ async function collectBackupFiles(options = {}) {
   if (includeTemp || includePending) {
     files.push(...collectFilesRecursive(resolveRuntimePath("temp"), "temp"));
   }
+
+  const syncFile = files.find((file) => file.entryPath === "data/sync-objects.json");
+  if (syncFile) attestCiphertextOnlyFile(syncFile.absolutePath);
 
   if (!cloudStorage?.enabled()) return files.sort((a, b) => a.entryPath.localeCompare(b.entryPath));
 

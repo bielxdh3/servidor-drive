@@ -63,6 +63,8 @@ The repository currently contains working foundations for:
 - [x] WebDAV integration;
 - [x] cloud-storage adapter boundaries;
 - [x] local synchronization client;
+- [x] unauthenticated health/readiness endpoints with fail-closed deployment checks;
+- [x] bounded provider retry/cancellation, idempotency, ciphertext-only attestation, and secret-safe observability helpers;
 - [x] automated syntax, test, dependency, and artifact validation.
 
 > [!IMPORTANT]
@@ -106,6 +108,13 @@ npm start
 ```
 
 The server uses port `3000` unless `PORT` is configured.
+
+For a reviewed deployment profile, set a strong `JWT_SECRET`, an explicit
+`TOTP_POLICY` (`optional`, `role-required`, or `global-required`), and a
+32-byte `SERVER_MASTER_KEY` or protected `data/server-master.key`. `GET
+/health` is liveness-only; `GET /ready` returns `503` until these checks and
+the selected cloud-provider prerequisites pass. These endpoints do not require
+authentication and intentionally return no paths, credentials, or key data.
 
 ## Architecture
 
