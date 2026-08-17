@@ -52,7 +52,11 @@ async function start(options = {}) {
     keyEpoch: config.keyEpoch,
     compartmentId: config.compartmentId || "private",
     fileKeyResolver: fileKeyResolver(config.fileKey, config.keyEpoch),
-    authorize: async (operation) => operation.deviceId === config.deviceId,
+    authorize: async (operation) => operation.keyEpoch === config.keyEpoch,
+    authorizeOutgoing: async (operation) => config.deviceRevoked !== true && operation.deviceId === config.deviceId,
+    verifyIncoming: async (operation) => operation.authorization
+      ? verifyAuthorizationProof(operation.authorization, operation, { username: config.username })
+      : false,
     authorizationFactory: (operation) => createAuthorizationProof(operation, { username: config.username, privateKey: config.privateKey, publicKey: config.publicKey }),
     requireAuthorization: true,
   }).open();

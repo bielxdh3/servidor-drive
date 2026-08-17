@@ -42,6 +42,24 @@ test("S3 uses the expected bucket/key and paginates listings", async () => {
   assert.deepEqual(calls[0], { Bucket: "bucket", Prefix: "rootark/uploads/folder/", ContinuationToken: undefined });
 });
 
+test("cloud inventory rejects foreign, malformed, duplicate, and mismatched identities", async () => {
+  let contents = [{ Key: "other/uploads/folder/file.txt" }];
+  const s3 = createCloudStorage({ provider: "s3", prefix: "rootark", s3: { bucket: "bucket" }, createS3Client: async () => ({ send: async () => ({ Contents: contents }) }) });
+  await assert.rejects(s3.inventory(), { code: "foreign_prefix" });
+  contents = [{ Key: "rootark/uploads/folder/file/extra.txt" }];
+  await assert.rejects(s3.inventory(), { code: "invalid_inventory_key" });
+  contents = [{ Key: "rootark/uploads/folder/file.txt" }, { Key: "rootark/uploads/folder/file.txt" }];
+  await assert.rejects(s3.inventory(), { code: "duplicate_inventory_identity" });
+
+  let driveFiles = [{ id: "drive-1", parents: ["other-parent"], appProperties: { rootArkKey: "rootark/uploads/folder/file.txt", rootArkFolderId: "folder", rootArkArea: "uploads" } }];
+  const drive = createCloudStorage({ provider: "gdrive", gdrive: { folderId: "parent" }, createGoogleDriveClient: async () => ({ files: { list: async () => ({ data: { files: driveFiles } }) } }) });
+  await assert.rejects(drive.inventory(), { code: "outside_configured_parent" });
+  driveFiles = [{ id: "drive-1", parents: ["parent"], appProperties: { rootArkKey: "rootark/uploads/folder/file.txt", rootArkFolderId: "wrong", rootArkArea: "uploads" } }];
+  await assert.rejects(drive.inventory(), { code: "invalid_inventory_metadata" });
+  driveFiles = [{ parents: ["parent"], appProperties: { rootArkKey: "rootark/uploads/folder/file.txt", rootArkFolderId: "folder", rootArkArea: "uploads" } }];
+  await assert.rejects(drive.inventory(), { code: "invalid_inventory_identity" });
+});
+
 test("download cleans up a partial cache file after a provider stream failure", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "rootark-cloud-"));
   const target = path.join(root, "cache.txt");

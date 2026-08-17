@@ -68,6 +68,8 @@ class SyncEngine {
     this.compartmentId = String(options.compartmentId || "");
     this.fileKeyResolver = options.fileKeyResolver || (() => options.fileKey);
     this.authorize = options.authorize || (() => true);
+    this.authorizeOutgoing = options.authorizeOutgoing || (() => true);
+    this.verifyIncoming = options.verifyIncoming || null;
     this.authorizationFactory = options.authorizationFactory || null;
     this.requireAuthorization = options.requireAuthorization === true;
     this.translateWebDavOperation = options.translateWebDavOperation || null;
@@ -100,6 +102,10 @@ class SyncEngine {
     return key;
   }
 
+  async verifyIncomingOperation(operation) {
+    if (this.verifyIncoming && await this.verifyIncoming(operation) !== true) fail("Remote sync authorization rejected", "remote_authorization_rejected");
+  }
+
   async buildOperation(input) {
     const key = input.fileKey || await this.fileKeyResolver(input);
     const operation = protocol.createOperation({
@@ -110,6 +116,7 @@ class SyncEngine {
       operationId: input.operationId || crypto.randomUUID(),
       fileKey: key,
     });
+    if (await this.authorizeOutgoing(operation) !== true) fail("Local sync authorization rejected", "authorization_rejected");
     if (this.authorizationFactory) operation.authorization = await this.authorizationFactory(operation);
     else if (this.requireAuthorization) fail("Device authorization is required", "authorization_required");
     return operation;
@@ -196,6 +203,7 @@ class SyncEngine {
   }
 
   async apply(operation, summary = null) {
+    await this.verifyIncomingOperation(operation);
     const key = await this.keyFor(operation);
     const plaintext = protocol.decryptPayload(operation, key);
     const metadata = operation.metadata || {};

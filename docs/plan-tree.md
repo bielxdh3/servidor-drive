@@ -397,7 +397,7 @@ All items below are candidates, not commitments.
 - `[ACCEPTED-LOCAL]` `PHASE_11_BACKLOG_RECONCILED` is recorded in `docs/roadmap/phase-11-backlog-reconciliation.md` for the exact accepted Phase 10 starting SHA `76f2a02cf6e3872ab2d7b61ff617021daf893c61`.
 - `[DO NOT IMPLEMENT YET]` The canonical nine-item matrix maps current evidence, status, prerequisites, security boundaries, owner decisions, implementation boundaries, acceptance, validation, dependencies, and the required separate future issue for every candidate.
 - `[DO NOT IMPLEMENT YET]` TOTP is reconciled to accepted Phase 10; bidirectional sync and WebDAV mutations target Phase 12; search, previews, PWA/clients, groups, and admin UX target Phase 13; deployment prerequisites target Phase 14; naming and branding remain an owner/product decision.
-- `[DO NOT IMPLEMENT YET]` No Phase 12+ source, test, migration, UI, dependency, synchronization, WebDAV, deployment, or product implementation is authorized by this reconciliation.
+- `[HISTORICAL SCOPE]` No Phase 12+ source, test, migration, UI, dependency, synchronization, WebDAV, deployment, or product implementation was authorized by that reconciliation turn; later phase-specific authorizations and evidence are recorded below.
 
 ### Phase 12: ZK sync and local WebDAV bridge — 2026-08-16
 
@@ -406,7 +406,7 @@ All items below are candidates, not commitments.
 - `[ACCEPTED-LOCAL]` Add the loopback-only bearer-protected local WebDAV bridge with containment/symlink/traversal checks, safe PROPFIND/GET/PUT/MKCOL/MOVE/DELETE, journal callbacks, and DELETE-to-trash behavior.
 - `[ACCEPTED-LOCAL]` Add the authenticated, bounded, opaque `/sync/v1/objects` routes, including DELETE tombstone persistence, with per-user authorization, atomic persistence, conflict/replay/stale rejection, and no decryption/key handling; existing public WebDAV routes remain unchanged.
 - `[ACCEPTED-LOCAL]` Record the independent 65/65 Phase 12 focused gate; the local executable slice passes 4/4. Broader dependency/provider/browser/production validation remains separate.
-- `[LATER]` Complete provider/browser/production validation, deployment hardening, release acceptance, and independent Phase 16 review.
+- `[BLOCKED]` Provider/browser/production validation, deployment hardening, release acceptance, and remote/owner review remain external to this local implementation.
 
 ### Phase 14: Deployment/adapters/resilience — 2026-08-16
 
@@ -425,7 +425,7 @@ All items below are candidates, not commitments.
 ### Phase 16: Final security/quality review — 2026-08-16
 
 - `[ACCEPTED-LOCAL]` Protocol v2 metadata AAD/schema enforcement, recoverable WebDAV overwrite journaling, bidirectional encrypted sync, strict client/offline boundaries, protected index/preview identity binding, and approved `rootark-zk-1` opaque group wraps are implemented and locally reviewed.
-- `[ACCEPTED-LOCAL]` The controlled final-head cross-phase matrix recorded 63/63 tests passed, with separate realtime transport 4/4 and upload-security 12/12 boundary runs; syntax validation recorded 116/116 passed. WebDAV PUT has a distinct durable mutation event and explicit protocol-v2 translation, and the browser protected store now has an in-memory session hook.
+- `[ACCEPTED-LOCAL]` The controlled final-head cross-phase matrix recorded 66/66 tests passed, with separate realtime transport 4/4 and upload-security 12/12 boundary runs; syntax validation recorded 116/116 passed. WebDAV PUT has a distinct durable mutation event and explicit protocol-v2 translation, and the browser protected store now has an in-memory session hook.
 - `[BLOCKED]` Canonical full `npm test` was attempted but remains blocked by the unavailable `better-sqlite3` native binding in the disposable install; remote CI, browser/provider/live-production/TLS, owner approval, and release evidence remain external.
 - `[NOT_AUTHORIZED]` The associated PR remains Draft and release authorization is `NOT_AUTHORIZED`; no Phase 17 item is created or inferred.
 
@@ -445,10 +445,10 @@ All items below are candidates, not commitments.
 ### Clients and protocols
 
 - `[ACCEPTED-LOCAL]` Installable public-shell PWA, service-worker cache exclusions, encrypted client-local offline queue boundary, and opaque Phase 12 browser protocol adapter are present.
-- `[DO NOT IMPLEMENT YET]` Bidirectional desktop synchronization.
-- `[DO NOT IMPLEMENT YET]` Conflict resolution and deletion sync.
-- `[DO NOT IMPLEMENT YET]` Background/startup service.
-- `[DO NOT IMPLEMENT YET]` WebDAV MOVE/DELETE integrated with trash and versions.
+- `[ACCEPTED-LOCAL]` Bidirectional encrypted synchronization is implemented by the protocol-v2 `SyncEngine`; provider/browser/production acceptance remains external.
+- `[ACCEPTED-LOCAL]` Deterministic remote-wins conflict handling, tombstones, retry, and deletion sync are covered by focused engine tests.
+- `[ACCEPTED-LOCAL]` The protocol-v2 `sync:start` entrypoint runs the bidirectional engine; the legacy uploader requires an explicit development-only opt-in.
+- `[ACCEPTED-LOCAL]` WebDAV PUT/MOVE/DELETE mutation events translate into strict protocol-v2 journal operations with trash/rollback protection.
 - `[DO NOT IMPLEMENT YET]` Mobile client or mobile-specific strategy.
 
 ### Product and interface

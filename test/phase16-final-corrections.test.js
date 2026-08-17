@@ -10,7 +10,7 @@ const path = require("node:path");
 const test = require("node:test");
 
 const protocol = require("../sync-client/rootark-sync-protocol");
-const { createAuthorizationProof } = require("../sync-client/rootark-sync-authorization");
+const { createAuthorizationProof, verifyAuthorizationProof } = require("../sync-client/rootark-sync-authorization");
 const { SyncEngine } = require("../sync-client/rootark-sync-engine");
 const { SyncJournal } = require("../sync-client/rootark-sync-journal");
 const { LocalSyncWebDavBridge } = require("../sync-client/rootark-sync-webdav");
@@ -89,6 +89,42 @@ test("device authorization is exact, signed, expiry-bound, and revocable", async
   const revoked = { ...operation, operationId: "revoked-operation" };
   const revokedBody = Buffer.from(JSON.stringify(revoked));
   assert.equal((await request(server.address().port, "/sync/v1/objects", { method: "POST", headers: { "content-type": "application/json", "content-length": revokedBody.length }, body: revokedBody })).status, 403);
+});
+
+test("two authorized devices separate local send authorization from remote apply verification", async (t) => {
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "rootark-phase16-two-device-"));
+  t.after(() => fsp.rm(dir, { recursive: true, force: true }));
+  const key = crypto.randomBytes(32);
+  let revoked = false;
+  const deviceA = crypto.generateKeyPairSync("ed25519");
+  const deviceB = crypto.generateKeyPairSync("ed25519");
+  const publicDer = (pair) => pair.publicKey.export({ format: "der", type: "spki" }).toString("base64url");
+  const records = new Map();
+  const adapter = {
+    async push(operation) { records.set(operation.objectId, operation); return { status: 201, operationId: operation.operationId }; },
+    async list() { return [...records.values()]; },
+  };
+  const authorizeIncoming = async (operation) => verifyAuthorizationProof(operation.authorization, operation, { username: "alice" });
+  const engineA = await new SyncEngine({
+    rootDir: path.join(dir, "a"), adapter, deviceId: "device-a", keyEpoch: "epoch-1", compartmentId: "private",
+    fileKeyResolver: () => key, authorize: async () => true,
+    authorizeOutgoing: async (operation) => !revoked && operation.deviceId === "device-a",
+    authorizationFactory: (operation) => createAuthorizationProof(operation, { username: "alice", privateKey: deviceA.privateKey, publicKey: publicDer(deviceA) }),
+  }).open();
+  await assert.rejects(engineA.enqueueChange({ operation: "create", objectId: "wrong-device", fileId: "wrong-file", versionId: "wrong-version", operationId: "wrong-device-op", deviceId: "device-b", revision: { counter: 1, deviceId: "device-b" }, metadata: { path: "blocked.txt" }, plaintext: Buffer.from("blocked"), fileKey: key }), { code: "authorization_rejected" });
+  await engineA.enqueueChange({ operation: "create", objectId: "shared-object", fileId: "shared-file", versionId: "shared-version", operationId: "device-a-op", revision: { counter: 1, deviceId: "device-a" }, metadata: { path: "shared.txt" }, plaintext: Buffer.from("two-device-secret"), fileKey: key });
+  await engineA.syncOnce();
+  assert.equal(JSON.stringify([...records.values()]).includes("two-device-secret"), false);
+  revoked = true;
+  await assert.rejects(engineA.enqueueChange({ operation: "update", objectId: "shared-object", fileId: "shared-file", versionId: "revoked-version", operationId: "revoked-local-op", revision: { counter: 2, deviceId: "device-a" }, metadata: { path: "shared.txt" }, plaintext: Buffer.from("revoked"), fileKey: key }), { code: "authorization_rejected" });
+  const engineB = await new SyncEngine({
+    rootDir: path.join(dir, "b"), adapter, deviceId: "device-b", keyEpoch: "epoch-1", compartmentId: "private",
+    fileKeyResolver: () => key, authorize: async () => true, authorizeOutgoing: async (operation) => operation.deviceId === "device-b",
+    verifyIncoming: authorizeIncoming,
+  }).open();
+  const summary = await engineB.syncOnce();
+  assert.equal(summary.pulled, 1);
+  assert.equal(await fsp.readFile(path.join(dir, "b", "shared.txt"), "utf8"), "two-device-secret");
 });
 
 test("sync object history retains encrypted versions and tombstones across restart", async (t) => {

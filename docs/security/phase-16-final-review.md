@@ -16,7 +16,10 @@ deployment, production approval, or publication authorization.
 - The bidirectional sync engine scans local changes, queues normalized encrypted
   operations durably, retries bounded transient failures, pulls and applies
   authenticated records within the local root, handles tombstones/conflicts,
-  and rejects stale epochs or unauthorized keys.
+  and rejects stale epochs or unauthorized keys. Local outgoing device
+  authorization is separate from remote proof verification, allowing a second
+  authorized device to verify and apply ciphertext without accepting a local
+  device mismatch or revocation.
 - The browser adapter and offline queue use the strict protocol-v2 allowlist;
   corrupt queue state is cleared, and outbound state contains no plaintext or
   content keys.
@@ -35,12 +38,19 @@ deployment, production approval, or publication authorization.
 
 ## Evidence
 
-The controlled disposable install recorded **63/63 tests passed** across the
+The controlled disposable install recorded **66/66 tests passed** across the
 Phase 9, 12, 13, 14, 16, realtime, upload, and cloud boundary suites; the
 additional realtime transport suite passed **4/4** and upload security passed
 **12/12** when run separately to avoid full-server fixture contention. Syntax
 validation recorded **116/116 checked and 0 failed**. The targeted secret scan,
 runtime-artifact check, and `git diff --check` also passed.
+
+The read-only local object database did not contain the referenced PR #51, #52,
+or #53 commit objects, so no blind cherry-pick was used. The current inline
+realtime/upload boundaries were exercised by
+`test/realtime-transport-boundaries.test.js` and `test/upload-security.test.js`;
+cloud inventory identity and containment cases are covered in
+`test/cloud-storage.test.js`. The workflow target is verified as `Root/main`.
 
 The canonical full `npm test` was attempted against the disposable install but
 remains **blocked**, not passed, because the `better-sqlite3` native binding is

@@ -52,8 +52,9 @@ public WebDAV route shapes were not changed.
 
 Local status is **`PHASE_12_ACCEPTED_LOCAL`** for the bounded implementation and
 focused gate. Dependency-backed broader repository regressions, provider,
-browser, production, deployment, release, remote publication, and independent
-Phase 16 review remain outside this branch and unclaimed.
+browser, production, deployment, release, remote publication, and owner/remote
+review remain external gates. The later Phase 16 authorization and final-head
+evidence are recorded below; this historical Phase 12 entry is not their status.
 
 ## Phase 13 local implementation — 2026-08-16
 
@@ -113,7 +114,7 @@ rollback, bidirectional encrypted sync, strict browser/offline boundaries,
 protected index/preview identity binding, and approved `rootark-zk-1` opaque
 group wraps without a server universal decrypt key.
 
-Exact final-head local evidence is **63/63 cross-phase tests passed**, with
+Exact final-head local evidence is **66/66 cross-phase tests passed**, with
 separate realtime transport **4/4** and upload-security **12/12** boundary
 runs, and **116/116 syntax checks passed**. The canonical full `npm test` was
 attempted but remains blocked by the unavailable `better-sqlite3` native
