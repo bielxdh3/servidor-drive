@@ -90,6 +90,13 @@ class SyncJournal {
     });
   }
 
+  async replace(operationId, replacement) {
+    await this.commit((next) => {
+      const index = next.pending.findIndex((item) => item.operationId === operationId);
+      if (index >= 0) next.pending[index] = { ...replacement };
+    });
+  }
+
   pending() { return this.state.pending.map((operation) => ({ ...operation })); }
   hasSeen(operationId) { return this.state.seen.includes(operationId); }
   async recover() { return this.pending(); }

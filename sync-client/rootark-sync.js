@@ -473,6 +473,8 @@ async function initCommand(args) {
       permissions: loginPayload.permissions || {},
       localFolder,
       targetFolderId,
+      deviceId: existing.deviceId || `legacy-dev-${crypto.randomUUID()}`,
+      keyEpoch: existing.keyEpoch || "epoch-1",
       autoApprove,
       debounceMs: Number(args.debounce) || existing.debounceMs || DEFAULT_DEBOUNCE_MS,
       scanIntervalMs: Number(args.interval) || existing.scanIntervalMs || DEFAULT_SCAN_INTERVAL_MS,
@@ -489,6 +491,7 @@ async function initCommand(args) {
 }
 
 async function startCommand(args) {
+  if (args["legacy-development-opt-in"] !== true) throw new Error("Legacy uploader is development-only; use npm run sync:start for protocol v2");
   const configPath = path.resolve(args.config || DEFAULT_CONFIG_PATH);
   const config = await loadConfig(configPath);
   if (args["auto-approve"] !== undefined) config.autoApprove = args["auto-approve"] === true || args["auto-approve"] === "true";

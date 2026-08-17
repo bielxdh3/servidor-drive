@@ -1,6 +1,8 @@
 "use strict";
 
 const crypto = require("node:crypto");
+const path = require("node:path");
+const { pathToFileURL } = require("node:url");
 const { CipherSuite, HkdfSha256, Aes256Gcm } = require("@hpke/core");
 const { DhkemX25519HkdfSha256 } = require("@hpke/dhkem-x25519");
 const sodium = require("libsodium-wrappers-sumo");
@@ -141,7 +143,11 @@ function validateCborValue(value, seen = new Set()) {
 
 let cborgPromise;
 function cborg() {
-  if (!cborgPromise) cborgPromise = import("cborg");
+  if (!cborgPromise) cborgPromise = import("cborg").catch((error) => {
+    const searchPath = process.env.NODE_PATH?.split(path.delimiter).find((entry) => entry);
+    if (!searchPath) throw error;
+    return import(pathToFileURL(path.join(searchPath, "cborg", "cborg.js")).href);
+  });
   return cborgPromise;
 }
 

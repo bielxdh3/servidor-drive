@@ -4480,6 +4480,8 @@ registerSyncRoutes({
   authenticate,
   requirePermission,
   storagePath: process.env.SYNC_OBJECTS_FILE || "./data/sync-objects.json",
+  requireDeviceAuthorization: true,
+  deviceRegistryPath: process.env.SYNC_DEVICE_REGISTRY || "",
 });
 
 groupsStore = registerGroupRoutes({

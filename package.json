@@ -14,7 +14,8 @@
     "db:migrate-json": "node db/migrate-json-to-sqlite.js",
     "db:backup": "node db/backup.js",
     "sync:init": "node sync-client/rootark-sync.js init",
-    "sync:start": "node sync-client/rootark-sync.js start"
+    "sync:start": "node sync-client/rootark-sync-v2.js start",
+    "sync:start:legacy-dev": "node sync-client/rootark-sync.js start --legacy-development-opt-in"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1037.0",

@@ -1,6 +1,7 @@
 "use strict";
 
 const crypto = require("node:crypto");
+const { validatePortableRelativePath } = require("./rootark-sync-paths");
 
 const PROTOCOL_VERSION = 2;
 const MAX_ID_LENGTH = 160;
@@ -19,10 +20,14 @@ const METADATA_KEYS_BY_OPERATION = Object.freeze({
 const OPERATION_FIELDS = Object.freeze([
   "protocolVersion", "operationId", "objectId", "fileId", "versionId", "operation",
   "revision", "baseRevision", "keyEpoch", "compartmentId", "deviceId", "metadata",
-  "tombstone", "ciphertext", "nonce", "tag", "aad",
+  "tombstone", "ciphertext", "nonce", "tag", "aad", "authorization",
 ]);
-const RESERVED_PATH_SEGMENTS = new Set([
-  ".rootark-trash", ".rootark-sync", ".rootark-sync-state.json", ".rootark-sync.json",
+const OPTIONAL_OPERATION_FIELDS = new Set(["authorization"]);
+const AUTHORIZATION_FIELDS = Object.freeze([
+  "schemaVersion", "type", "suite", "protocolVersion", "username", "deviceId", "operationId",
+  "objectId", "fileId", "versionId", "operation", "revision", "baseRevision", "keyEpoch",
+  "compartmentId", "metadata", "aadDigest", "ciphertextDigest", "nonceDigest", "tagDigest",
+  "expiresAt", "replayId", "idempotencyKey", "publicKey", "signature",
 ]);
 
 function fail(message, code = "invalid_operation") {
@@ -68,16 +73,7 @@ function assertExactKeys(input, allowed, name) {
 }
 
 function safeRelativePath(value, name) {
-  const text = String(value || "");
-  if (!text || text.length > 512 || text.includes("%") || text.includes("\\") || text.startsWith("/") || /^[A-Za-z]:[\\/]/.test(text)) {
-    fail(`Invalid metadata.${name}`);
-  }
-  const segments = text.split("/");
-  if (segments.some((segment) => !segment || segment === "." || segment === ".." || RESERVED_PATH_SEGMENTS.has(segment))) {
-    fail(`Invalid metadata.${name}`);
-  }
-  if (/[\u0000-\u001f\u007f]/.test(text)) fail(`Invalid metadata.${name}`);
-  return text;
+  try { return validatePortableRelativePath(value, `metadata.${name}`); } catch { fail(`Invalid metadata.${name}`); }
 }
 
 function normalizeMetadata(input = {}, allowedKeys = METADATA_KEYS) {
@@ -125,6 +121,17 @@ function aadFor(operation) {
     metadata: operation.metadata,
     tombstone: operation.tombstone,
   });
+}
+
+function normalizeAuthorization(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) fail("Invalid device authorization");
+  assertExactKeys(value, AUTHORIZATION_FIELDS, "authorization");
+  if (AUTHORIZATION_FIELDS.some((field) => !Object.hasOwn(value, field)) || value.schemaVersion !== 1 || value.type !== "rootark-sync-device-authorization-v1" || value.suite !== "rootark-zk-1" || value.protocolVersion !== PROTOCOL_VERSION) fail("Invalid device authorization");
+  if (!Number.isSafeInteger(value.expiresAt) || value.expiresAt <= Date.now()) fail("Expired device authorization", "authorization_expired");
+  for (const field of ["aadDigest", "ciphertextDigest", "nonceDigest", "tagDigest", "replayId", "idempotencyKey", "publicKey", "signature"]) {
+    if (typeof value[field] !== "string" || !/^[A-Za-z0-9_-]+$/.test(value[field]) || value[field].length % 4 === 1) fail("Invalid device authorization");
+  }
+  return canonicalize(value);
 }
 
 function encryptPayload(operation, plaintext, fileKey) {
@@ -199,6 +206,7 @@ function createOperation(input = {}) {
   };
   const plaintext = input.plaintext === undefined ? Buffer.from("{}", "utf8") : input.plaintext;
   Object.assign(result, encryptPayload(result, plaintext, input.fileKey));
+  if (input.authorization !== undefined) result.authorization = normalizeAuthorization(input.authorization);
   return result;
 }
 
@@ -207,7 +215,7 @@ function validateOperation(input) {
   if (input.protocolVersion !== PROTOCOL_VERSION) fail("Unsupported sync protocol version", "invalid_protocol_version");
   assertExactKeys(input, OPERATION_FIELDS, "operation");
   for (const field of OPERATION_FIELDS) {
-    if (!Object.hasOwn(input, field)) fail(`Missing operation field: ${field}`);
+    if (!OPTIONAL_OPERATION_FIELDS.has(field) && !Object.hasOwn(input, field)) fail(`Missing operation field: ${field}`);
   }
   const operation = createOperation({ ...input, plaintext: Buffer.alloc(0), fileKey: Buffer.alloc(32) });
   if (input.tombstone !== operation.tombstone) fail("Invalid tombstone flag");
@@ -241,6 +249,8 @@ module.exports = {
   decryptPayload,
   nextRevision,
   normalizeMetadata,
+  normalizeAuthorization,
   safeRelativePath,
   validateOperation,
+  OPTIONAL_OPERATION_FIELDS,
 };

@@ -6,6 +6,9 @@
   const input = document.getElementById("protectedSearchInput");
   const searchButton = document.getElementById("protectedSearchButton");
   const index = window.RootarkProtectedIndex;
+  const protectedStore = window.RootarkProtectedStore?.createProtectedStore?.();
+  const session = window.RootarkProtectedSession;
+  session?.attachStore?.(protectedStore);
 
   function setStatus(message) { if (status) status.textContent = message; }
 
@@ -16,18 +19,26 @@
   }
 
   searchButton?.addEventListener("click", async () => {
-    if (!index || !window.ROOTARK_PROTECTED_INDEX_ENTRIES || !window.ROOTARK_PROTECTED_INDEX_KEY) {
+    if (!index || !protectedStore || typeof session?.getKey !== "function") {
       if (result) result.textContent = "Nenhum indice protegido local foi desbloqueado.";
       return;
     }
     try {
-      const matches = await index.search(window.ROOTARK_PROTECTED_INDEX_ENTRIES, input?.value || "", window.ROOTARK_PROTECTED_INDEX_KEY);
+      await protectedStore.open();
+      const key = await session.getKey();
+      const entries = await protectedStore.listIndex(key);
+      const matches = await index.search(entries, input?.value || "", key);
       if (result) result.textContent = `${matches.length} resultado(s) local(is).`;
     } catch {
       if (result) result.textContent = "Indice protegido indisponivel ou chave incorreta.";
     }
   });
 
-  window.addEventListener("online", () => setStatus("Online: fila local criptografada pronta para sincronizar."));
+  window.addEventListener("online", async () => {
+    setStatus("Online: fila local criptografada pronta para sincronizar.");
+    try { await session?.syncOnce?.(); } catch { setStatus("Online: sincronizacao protegida aguardando autorizacao."); }
+  });
   window.addEventListener("offline", () => setStatus("Offline: somente o shell publico e a fila criptografada local permanecem disponiveis."));
+  window.addEventListener("rootark:logout", () => session?.logout?.() || protectedStore?.logout?.());
+  window.addEventListener("rootark:device-revoked", () => session?.revoke?.() || protectedStore?.revoke?.());
 }());

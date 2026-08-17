@@ -6,10 +6,9 @@ const fsp = require("node:fs/promises");
 const http = require("node:http");
 const net = require("node:net");
 const path = require("node:path");
+const { validatePortableRelativePath } = require("./rootark-sync-paths");
 
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
-const RESERVED_INTERNAL_SEGMENTS = new Set([".rootark-trash", ".rootark-sync"]);
-
 function isLoopback(host) {
   const value = String(host || "").toLowerCase();
   return value === "localhost" || value === "127.0.0.1" || value === "::1" || (net.isIP(value) === 6 && value === "0:0:0:0:0:0:0:1");
@@ -20,8 +19,19 @@ function safeSegments(urlPath) {
   try { decoded = decodeURIComponent(urlPath); } catch { throw Object.assign(new Error("Invalid path"), { statusCode: 400 }); }
   if (decoded.includes("\0") || decoded.includes("\\")) throw Object.assign(new Error("Unsafe path"), { statusCode: 400 });
   const segments = decoded.split("/").filter(Boolean);
-  if (segments.some((segment) => segment === "." || segment === ".." || segment.includes("\0") || RESERVED_INTERNAL_SEGMENTS.has(segment))) throw Object.assign(new Error("Unsafe path"), { statusCode: 400 });
+  if (segments.length) {
+    try { validatePortableRelativePath(segments.join("/"), "path"); } catch { throw Object.assign(new Error("Unsafe path"), { statusCode: 400 }); }
+  }
   return segments;
+}
+
+function sameOrBelow(candidate, parent) {
+  const left = path.resolve(candidate);
+  const right = path.resolve(parent);
+  const compare = process.platform === "win32" ? (value) => value.toLowerCase() : (value) => value;
+  const a = compare(left);
+  const b = compare(right);
+  return a === b || a.startsWith(`${b}${path.sep}`);
 }
 
 async function rejectSymlinks(rootDir, targetPath, allowMissing = true) {
@@ -62,6 +72,8 @@ class LocalSyncWebDavBridge {
     this.port = Number(options.port || 0);
     this.maxBodyBytes = Number(options.maxBodyBytes || MAX_BODY_BYTES);
     this.journal = options.journal || null;
+    this.protocolJournal = options.protocolJournal || null;
+    this.toProtocolOperation = options.toProtocolOperation || null;
     this.onOperation = options.onOperation || (options.journal ? (operation) => options.journal.enqueue(operation) : null);
     if (!this.token) throw new Error("Local WebDAV bridge bearer token is required");
     if (!isLoopback(this.host)) throw new Error("Local WebDAV bridge must bind to loopback");
@@ -87,21 +99,23 @@ class LocalSyncWebDavBridge {
   async recoverPending() {
     if (!this.journal?.recover) return;
     for (const operation of await this.journal.recover()) {
-      if (operation.kind !== "move" || !operation.trash) continue;
-      const backup = path.resolve(this.rootDir, operation.trash);
-      await rejectSymlinks(this.rootDir, backup, true);
-      const destination = await this.target(operation.destination);
-      const backupExists = await fsp.lstat(backup).then(() => true, (error) => error.code === "ENOENT" ? false : Promise.reject(error));
+      if (!["move", "put"].includes(operation.kind)) continue;
+      const destinationPath = operation.destination || operation.path;
+      if (!destinationPath) continue;
+      const destination = await this.target(destinationPath);
+      const backup = operation.trash ? path.resolve(this.rootDir, operation.trash) : null;
+      if (backup) await rejectSymlinks(this.rootDir, backup, true);
+      const backupExists = backup ? await fsp.lstat(backup).then(() => true, (error) => error.code === "ENOENT" ? false : Promise.reject(error)) : false;
       const destinationExists = await fsp.lstat(destination).then(() => true, (error) => error.code === "ENOENT" ? false : Promise.reject(error));
       let resolved = false;
       if (["prepared", "staged"].includes(operation.phase) && backupExists && !destinationExists) {
         await fsp.rename(backup, destination);
         resolved = true;
-      } else if (operation.phase === "source-moved" && backupExists && destinationExists) {
-        resolved = true;
-      } else if (operation.phase === "prepared" && !backupExists && destinationExists) {
+      } else if (operation.phase === "prepared" && !backupExists && !destinationExists) {
         resolved = true;
       }
+      // A source-moved operation may have committed locally but not its protocol
+      // translation. Leave it pending so restart recovery cannot claim completion.
       if (resolved && this.journal.markSeen) await this.journal.markSeen(operation.operationId);
     }
   }
@@ -112,6 +126,14 @@ class LocalSyncWebDavBridge {
 
   async markJournalSeen(operationId) {
     if (this.journal?.markSeen) await this.journal.markSeen(operationId);
+  }
+
+  async enqueueProtocol(operation) {
+    if (!this.protocolJournal) return;
+    if (!this.toProtocolOperation) throw new Error("WebDAV protocol translation required");
+    const translated = await this.toProtocolOperation(operation);
+    if (!translated) throw new Error("WebDAV mutation translation failed");
+    await this.protocolJournal.enqueue(translated);
   }
 
   async stop() {
@@ -130,7 +152,7 @@ class LocalSyncWebDavBridge {
   async target(urlPath) {
     const target = await rejectSymlinks(this.rootDir, path.join(this.rootDir, ...safeSegments(urlPath)), true);
     if (target === this.rootDir) return target;
-    if (target === this.trashDir || target.startsWith(`${this.trashDir}${path.sep}`)) throw Object.assign(new Error("Internal trash path is not accessible"), { statusCode: 400 });
+    if (sameOrBelow(target, this.trashDir)) throw Object.assign(new Error("Internal trash path is not accessible"), { statusCode: 400 });
     await rejectSymlinks(this.rootDir, path.dirname(target), false);
     return target;
   }
@@ -190,9 +212,42 @@ class LocalSyncWebDavBridge {
         await rejectSymlinks(this.rootDir, parent, false);
         const existing = await fsp.lstat(target).catch((error) => error.code === "ENOENT" ? null : Promise.reject(error));
         if (existing?.isSymbolicLink() || existing?.isDirectory()) return writeResponse(res, 409, "Invalid target");
+        const operationId = crypto.randomUUID();
+        const backup = existing ? path.join(this.trashDir, `.rootark-put-${operationId}-${path.basename(target)}`) : null;
+        const operation = {
+          operationId,
+          kind: "put",
+          journalType: "webdav-mutation",
+          path: parsed.pathname,
+          source: parsed.pathname,
+          destination: parsed.pathname,
+          existed: Boolean(existing),
+          trash: backup ? path.relative(this.rootDir, backup) : null,
+          phase: "prepared",
+        };
+        if (this.onOperation) await this.onOperation(operation);
         const temporary = path.join(parent, `.rootark-put-${process.pid}-${crypto.randomUUID()}`);
-        await fsp.writeFile(temporary, data, { mode: 0o600 });
-        await fsp.rename(temporary, target);
+        let staged = false;
+        let installed = false;
+        try {
+          await fsp.writeFile(temporary, data, { mode: 0o600 });
+          if (backup) {
+            await rejectSymlinks(this.rootDir, backup, true);
+            await fsp.rename(target, backup);
+            staged = true;
+            await this.updateJournal(operationId, { phase: "staged" });
+          }
+          await fsp.rename(temporary, target);
+          installed = true;
+          await this.updateJournal(operationId, { phase: "source-moved" });
+          await this.enqueueProtocol(operation);
+          await this.markJournalSeen(operationId);
+        } catch (error) {
+          await fsp.rm(temporary, { force: true }).catch(() => {});
+          if (installed) await fsp.rm(target, { recursive: true, force: true }).catch(() => {});
+          if (staged) await fsp.rename(backup, target).catch(() => {});
+          throw error;
+        }
         return writeResponse(res, existing ? 204 : 201);
       }
       if (req.method === "MKCOL") {
@@ -230,6 +285,7 @@ class LocalSyncWebDavBridge {
     const operation = {
       operationId,
       kind: "move",
+      journalType: "webdav-mutation",
       source: parsed.pathname,
       destination: destination.parsed.pathname,
       trash: backup ? path.relative(this.rootDir, backup) : null,
@@ -248,6 +304,7 @@ class LocalSyncWebDavBridge {
       await fsp.rename(source, destination.target);
       moved = true;
       await this.updateJournal(operationId, { phase: "source-moved" });
+      await this.enqueueProtocol(operation);
       await this.markJournalSeen(operationId);
     } catch (error) {
       if (moved) {
@@ -268,8 +325,16 @@ class LocalSyncWebDavBridge {
     await fsp.mkdir(this.trashDir, { recursive: true });
     const trashTarget = path.join(this.trashDir, `${Date.now()}-${crypto.randomUUID()}-${path.basename(target)}`);
     await rejectSymlinks(this.rootDir, trashTarget, true);
-    if (this.onOperation) await this.onOperation({ operationId: crypto.randomUUID(), kind: "delete", source: parsed.pathname, trash: path.relative(this.rootDir, trashTarget) });
+    const operation = { operationId: crypto.randomUUID(), kind: "delete", journalType: "webdav-mutation", source: parsed.pathname, trash: path.relative(this.rootDir, trashTarget) };
+    if (this.onOperation) await this.onOperation(operation);
     await fsp.rename(target, trashTarget);
+    try {
+      await this.enqueueProtocol(operation);
+      await this.markJournalSeen(operation.operationId);
+    } catch (error) {
+      await fsp.rename(trashTarget, target).catch(() => {});
+      throw error;
+    }
     return writeResponse(res, 204);
   }
 }

@@ -1,18 +1,32 @@
 (function (root, factory) {
-  if (typeof module === "object" && module.exports) module.exports = factory();
-  else root.RootarkSyncAdapter = factory();
-}(typeof globalThis === "object" ? globalThis : this, function () {
+  if (typeof module === "object" && module.exports) module.exports = factory(require("../../sync-client/rootark-sync-paths"));
+  else root.RootarkSyncAdapter = factory(root.RootarkSyncPaths);
+}(typeof globalThis === "object" ? globalThis : this, function (sharedPaths) {
   "use strict";
 
+  class SyncConflictError extends Error {
+    constructor(payload = {}) {
+      super(payload.error || "Sync conflict");
+      this.name = "SyncConflictError";
+      this.code = "sync_conflict";
+      this.status = 409;
+      this.current = payload.current || null;
+      this.currentRevision = payload.currentRevision || this.current?.revision || null;
+      this.payload = payload;
+    }
+  }
+
   const PROTOCOL_VERSION = 2;
-  const OPERATION_FIELDS = ["protocolVersion", "operationId", "objectId", "fileId", "versionId", "operation", "revision", "baseRevision", "keyEpoch", "compartmentId", "deviceId", "metadata", "tombstone", "ciphertext", "nonce", "tag", "aad"];
+  const OPERATION_FIELDS = ["protocolVersion", "operationId", "objectId", "fileId", "versionId", "operation", "revision", "baseRevision", "keyEpoch", "compartmentId", "deviceId", "metadata", "tombstone", "ciphertext", "nonce", "tag", "aad", "authorization"];
+  const OPTIONAL_FIELDS = new Set(["authorization"]);
+  const AUTHORIZATION_FIELDS = ["schemaVersion", "type", "suite", "protocolVersion", "username", "deviceId", "operationId", "objectId", "fileId", "versionId", "operation", "revision", "baseRevision", "keyEpoch", "compartmentId", "metadata", "aadDigest", "ciphertextDigest", "nonceDigest", "tagDigest", "expiresAt", "replayId", "idempotencyKey", "publicKey", "signature"];
   const METADATA = {
     create: new Set(["fileId", "versionId", "path", "parentId", "name", "contentType", "size", "keyEpoch", "compartmentId", "deviceId"]),
     update: new Set(["fileId", "versionId", "path", "parentId", "name", "contentType", "size", "keyEpoch", "compartmentId", "deviceId"]),
     move: new Set(["fileId", "versionId", "path", "sourcePath", "keyEpoch", "compartmentId", "deviceId"]),
     delete: new Set(["fileId", "versionId", "path", "keyEpoch", "compartmentId", "deviceId"]),
   };
-  const RESERVED = new Set([".rootark-trash", ".rootark-sync", ".rootark-sync-state.json", ".rootark-sync.json"]);
+  const RESERVED = new Set([".rootark-trash", ".rootark-sync", ".rootark-sync-state.json", ".rootark-sync.json", ".rootark-sync-journal.json", ".rootark-sync-index.json"]);
 
   function fail(message) { throw new Error(message); }
 
@@ -28,13 +42,22 @@
     if (!value || typeof value !== "object" || Array.isArray(value)) fail(`Invalid ${name}`);
     const allowed = new Set(keys);
     Object.keys(value).forEach((key) => { if (!allowed.has(key)) fail(`Unknown ${name} field`); });
-    keys.forEach((key) => { if (!Object.hasOwn(value, key)) fail(`Missing ${name} field`); });
+    keys.forEach((key) => { if (!OPTIONAL_FIELDS.has(key) && !Object.hasOwn(value, key)) fail(`Missing ${name} field`); });
   }
 
   function allowedOnly(value, keys, name) {
     if (!value || typeof value !== "object" || Array.isArray(value)) fail(`Invalid ${name}`);
     const allowed = new Set(keys);
     Object.keys(value).forEach((key) => { if (!allowed.has(key)) fail(`Unknown ${name} field`); });
+  }
+
+  function portablePath(value) {
+    if (sharedPaths?.validatePortableRelativePath) return sharedPaths.validatePortableRelativePath(value, "path");
+    const text = String(value || "");
+    if (!text || text.includes("%") || text.includes("\\") || text.includes(":") || text.startsWith("/") || /[\u0000-\u001f\u007f]/.test(text)) fail("Invalid metadata path");
+    const dos = /^(?:con|prn|aux|nul|clock\$|com[1-9]|lpt[1-9])(?:\..*)?$/i;
+    if (text.split("/").some((part) => !part || part === "." || part === ".." || RESERVED.has(part.toLowerCase()) || dos.test(part) || /[. ]$/.test(part))) fail("Invalid metadata path");
+    return text;
   }
 
   function id(value) {
@@ -69,9 +92,7 @@
       const item = value[key];
       if (key === "size") { if (!Number.isSafeInteger(item) || item < 0) fail("Invalid metadata size"); result[key] = item; }
       else if (["path", "sourcePath"].includes(key)) {
-        const text = String(item || "");
-        if (!text || text.includes("%") || text.includes("\\") || text.startsWith("/") || /^[A-Za-z]:[\\/]/.test(text) || text.split("/").some((part) => !part || part === "." || part === ".." || RESERVED.has(part))) fail("Invalid metadata path");
-        result[key] = text;
+        result[key] = portablePath(item);
       } else if (["name", "contentType"].includes(key)) {
         const text = String(item || "");
         if (!text || text.length > 512 || /[\u0000-\u001f\u007f]/.test(text)) fail("Invalid metadata text");
@@ -82,6 +103,14 @@
     return canonicalize(result);
   }
 
+  function authorization(value) {
+    exact(value, AUTHORIZATION_FIELDS, "authorization");
+    if (value.schemaVersion !== 1 || value.type !== "rootark-sync-device-authorization-v1" || value.suite !== "rootark-zk-1") fail("Invalid device authorization");
+    for (const field of ["aadDigest", "ciphertextDigest", "nonceDigest", "tagDigest", "replayId", "idempotencyKey", "publicKey", "signature"]) decoded(value[field], "authorization");
+    if (!Number.isSafeInteger(value.expiresAt) || value.expiresAt <= Date.now()) fail("Expired device authorization");
+    return canonicalize(value);
+  }
+
   function aadFor(operation) {
     return canonicalJson({ protocolVersion: PROTOCOL_VERSION, objectId: operation.objectId, fileId: operation.fileId, versionId: operation.versionId, operation: operation.operation, revision: operation.revision, baseRevision: operation.baseRevision, keyEpoch: operation.keyEpoch, compartmentId: operation.compartmentId, deviceId: operation.deviceId, metadata: operation.metadata, tombstone: operation.tombstone });
   }
@@ -90,6 +119,7 @@
     exact(input, OPERATION_FIELDS, "operation");
     if (input.protocolVersion !== PROTOCOL_VERSION || !["create", "update", "move", "delete"].includes(input.operation)) fail("Unsupported sync operation");
     const operation = { ...input, objectId: id(input.objectId), fileId: id(input.fileId), versionId: id(input.versionId), operationId: id(input.operationId), keyEpoch: id(input.keyEpoch), compartmentId: id(input.compartmentId), deviceId: id(input.deviceId), revision: revision(input.revision), baseRevision: revision(input.baseRevision, true), metadata: metadata(input.metadata, input.operation), tombstone: input.operation === "delete" };
+    if (input.authorization !== undefined) operation.authorization = authorization(input.authorization);
     if (input.tombstone !== operation.tombstone) fail("Invalid tombstone flag");
     const aad = decoded(input.aad, "aad");
     decoded(input.ciphertext, "ciphertext");
@@ -103,6 +133,7 @@
     const request = async (url, options = {}) => {
       const response = await fetchImpl(`${baseUrl}${url}`, { ...options, headers: { "Content-Type": "application/json", ...(options.headers || {}) } });
       const payload = await response.json().catch(() => ({}));
+      if (response.status === 409) throw new SyncConflictError(payload);
       if (!response.ok) throw Object.assign(new Error(payload.error || "Falha de sincronizacao"), { status: response.status, payload });
       return payload;
     };
@@ -123,5 +154,5 @@
     };
   }
 
-  return { PROTOCOL_VERSION, OPERATION_FIELDS, assertOpaqueEnvelope, createOpaqueSyncAdapter, normalizeOpaqueEnvelope: assertOpaqueEnvelope };
+  return { PROTOCOL_VERSION, OPERATION_FIELDS, SyncConflictError, assertOpaqueEnvelope, createOpaqueSyncAdapter, normalizeOpaqueEnvelope: assertOpaqueEnvelope };
 }));

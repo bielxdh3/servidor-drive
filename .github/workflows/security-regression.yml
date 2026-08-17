@@ -3,7 +3,7 @@ name: Security Regression
 on:
   pull_request:
     branches:
-      - codex/folders-acl
+      - Root/main
   workflow_dispatch:
 
 permissions:

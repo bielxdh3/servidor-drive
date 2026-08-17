@@ -169,9 +169,11 @@ function registerGroupRoutes({
 
   app.get("/groups", authorize, (_req, res) => res.json(store.list().map(publicGroup)));
 
-  app.get("/groups/:groupId/key-manifest", authorize, (req, res) => {
+  app.get("/groups/:groupId/key-manifest", authenticate, (req, res) => {
     const group = store.get(req.params.groupId);
     if (!group) return res.status(404).json({ error: "Grupo nao encontrado" });
+    const canRead = req.user?.role === "admin" || req.user?.permissions?.manageUsers || store.isMember(req.user?.username, [group.id]);
+    if (!canRead) return res.status(403).json({ error: "Permissao negada" });
     return res.json(group.keyManifest || { groupId: group.id, epoch: group.keyEpoch || 1, wraps: [] });
   });
 

@@ -6,9 +6,10 @@ const path = require("node:path");
 
 const protocol = require("./rootark-sync-protocol");
 const { SyncJournal } = require("./rootark-sync-journal");
+const { SyncConflictError } = require("../public/client/rootark-sync-adapter");
 
 const SNAPSHOT_VERSION = 1;
-const INTERNAL_NAMES = new Set([".rootark-trash", ".rootark-sync-journal.json", ".rootark-sync-index.json"]);
+const INTERNAL_NAMES = new Set([".rootark-trash", ".rootark-conflicts", ".rootark-sync-journal.json", ".rootark-sync-index.json"]);
 
 function fail(message, code = "sync_engine_error") {
   throw Object.assign(new Error(message), { code });
@@ -67,6 +68,9 @@ class SyncEngine {
     this.compartmentId = String(options.compartmentId || "");
     this.fileKeyResolver = options.fileKeyResolver || (() => options.fileKey);
     this.authorize = options.authorize || (() => true);
+    this.authorizationFactory = options.authorizationFactory || null;
+    this.requireAuthorization = options.requireAuthorization === true;
+    this.translateWebDavOperation = options.translateWebDavOperation || null;
     this.maxRetries = Math.max(1, Math.min(5, Number(options.maxRetries || 3)));
     this.snapshot = { version: SNAPSHOT_VERSION, files: {} };
     this.opened = false;
@@ -89,7 +93,7 @@ class SyncEngine {
   }
 
   async keyFor(operation) {
-    await this.authorize(operation);
+    if (await this.authorize(operation) !== true) fail("Sync authorization rejected", "authorization_rejected");
     if (operation.keyEpoch !== this.keyEpoch && this.keyEpoch) fail("Stale sync key epoch", "stale_key_epoch");
     const key = await this.fileKeyResolver(operation);
     if (!key) fail("No authorized file key is available", "key_unavailable");
@@ -98,7 +102,7 @@ class SyncEngine {
 
   async buildOperation(input) {
     const key = input.fileKey || await this.fileKeyResolver(input);
-    return protocol.createOperation({
+    const operation = protocol.createOperation({
       ...input,
       deviceId: input.deviceId || this.deviceId,
       keyEpoch: input.keyEpoch || this.keyEpoch,
@@ -106,6 +110,9 @@ class SyncEngine {
       operationId: input.operationId || crypto.randomUUID(),
       fileKey: key,
     });
+    if (this.authorizationFactory) operation.authorization = await this.authorizationFactory(operation);
+    else if (this.requireAuthorization) fail("Device authorization is required", "authorization_required");
+    return operation;
   }
 
   async enqueueChange(input) {
@@ -128,19 +135,49 @@ class SyncEngine {
     throw lastError;
   }
 
+  async recoverConflict(operation, summary) {
+    if (operation.operation === "delete" || operation.tombstone) return;
+    const key = await this.keyFor(operation);
+    const plaintext = protocol.decryptPayload(operation, key);
+    const conflictRoot = path.join(this.rootDir, ".rootark-conflicts");
+    await fsp.mkdir(conflictRoot, { recursive: true });
+    await containedAbsolute(this.rootDir, conflictRoot, false);
+    const target = path.join(conflictRoot, `${operation.operationId}.conflict`);
+    await containedAbsolute(this.rootDir, target, true);
+    await fsp.writeFile(target, plaintext, { mode: 0o600 });
+    summary.conflictRecovery = (summary.conflictRecovery || 0) + 1;
+  }
+
   async pushPending(summary) {
-    for (const pending of await this.journal.recover()) {
+    for (const original of await this.journal.recover()) {
+      let pending = original;
+      if (pending.journalType === "webdav-mutation") {
+        if (!this.translateWebDavOperation) continue;
+        const translated = await this.translateWebDavOperation(pending);
+        if (!translated) continue;
+        if (this.journal.replace) await this.journal.replace(pending.operationId, translated);
+        else await this.journal.update(pending.operationId, translated);
+        pending = translated;
+      }
+      let operation;
       try {
-        const operation = protocol.validateOperation(pending);
+        operation = protocol.validateOperation(pending);
         const result = await this.retryPush(operation);
         if (result?.status >= 400) {
           if (result.status !== 409) fail("Sync push rejected", "push_rejected");
-          summary.conflicts.push({ operationId: operation.operationId, policy: "remote-wins", currentRevision: result.currentRevision || null });
-          if (result.current) await this.apply(protocol.validateOperation(result.current), summary);
+          throw new SyncConflictError(result);
         }
         await this.journal.markSeen(operation.operationId);
         summary.pushed += 1;
       } catch (error) {
+        if (error instanceof SyncConflictError || error?.status === 409 || error?.code === "sync_conflict") {
+          summary.conflicts.push({ operationId: operation?.operationId || pending.operationId, policy: "remote-wins", currentRevision: error.currentRevision || error.payload?.currentRevision || null });
+          await this.recoverConflict(operation, summary);
+          if (error.current) await this.apply(protocol.validateOperation(error.current), summary);
+          await this.journal.markSeen(operation.operationId);
+          summary.pushed += 1;
+          continue;
+        }
         if (transient(error)) { summary.offline = true; continue; }
         throw error;
       }
@@ -174,8 +211,16 @@ class SyncEngine {
       await containedAbsolute(this.rootDir, path.dirname(target), false);
       if (await exists(target)) await this.stageExisting(target);
       if (await exists(source)) await fsp.rename(source, target);
+      const prior = this.snapshot.files[metadata.sourcePath] || {};
       delete this.snapshot.files[metadata.sourcePath];
-      this.rememberOperation(operation);
+      this.snapshot.files[metadata.path] = {
+        ...prior,
+        objectId: operation.objectId,
+        fileId: operation.fileId,
+        versionId: operation.versionId,
+        revision: operation.revision,
+        deleted: false,
+      };
     } else {
       await fsp.mkdir(path.dirname(target), { recursive: true });
       await containedAbsolute(this.rootDir, path.dirname(target), false);
@@ -199,9 +244,10 @@ class SyncEngine {
     const result = {};
     const walk = async (directory, prefix = "") => {
       for (const entry of await fsp.readdir(directory, { withFileTypes: true })) {
-        if (prefix === "" && INTERNAL_NAMES.has(entry.name)) continue;
+        if (prefix === "" && [...INTERNAL_NAMES].some((name) => name.toLowerCase() === entry.name.toLowerCase())) continue;
         if (entry.name.startsWith(".rootark-put-") || entry.name.startsWith(".rootark-move-")) continue;
         const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+        try { protocol.safeRelativePath(relative, "path"); } catch { continue; }
         const target = path.join(directory, entry.name);
         await containedAbsolute(this.rootDir, target, false);
         if (entry.isDirectory()) await walk(target, relative);
@@ -217,7 +263,13 @@ class SyncEngine {
 
   async reconcileLocal() {
     const current = await this.scanFiles();
+    const protectedPaths = new Set();
+    for (const operation of await this.journal.recover()) {
+      if (operation.metadata?.path) protectedPaths.add(operation.metadata.path);
+      if (operation.metadata?.sourcePath) protectedPaths.add(operation.metadata.sourcePath);
+    }
     for (const [relative, prior] of Object.entries(this.snapshot.files)) {
+      if (protectedPaths.has(relative)) continue;
       if (prior.deleted || current[relative]) continue;
       const key = await this.fileKeyResolver(prior);
       const operation = await this.buildOperation({ operation: "delete", objectId: prior.objectId, fileId: prior.fileId, versionId: crypto.randomUUID(), baseRevision: prior.revision, revision: { counter: (prior.revision?.counter || 0) + 1, deviceId: this.deviceId }, metadata: { path: relative }, fileKey: key });
@@ -225,6 +277,7 @@ class SyncEngine {
       this.rememberOperation(operation);
     }
     for (const [relative, file] of Object.entries(current)) {
+      if (protectedPaths.has(relative)) continue;
       const prior = this.snapshot.files[relative];
       if (prior && !prior.deleted && prior.hash === file.hash) continue;
       const isUpdate = prior && !prior.deleted;

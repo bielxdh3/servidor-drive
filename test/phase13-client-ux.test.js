@@ -14,6 +14,7 @@ const test = require("node:test");
 const clientCrypto = require("../public/client/rootark-client-crypto");
 const protectedIndex = require("../public/client/rootark-protected-index");
 const protectedPreview = require("../public/client/rootark-protected-preview");
+const protectedSession = require("../public/client/rootark-protected-session");
 const syncAdapter = require("../public/client/rootark-sync-adapter");
 const offlineQueue = require("../public/client/rootark-offline-queue");
 const protocol = require("../sync-client/rootark-sync-protocol");
@@ -60,6 +61,24 @@ test("protected preview never exposes body in its envelope and decrypts locally"
   const jsonPreview = await protectedPreview.seal({ fileId: "file-1", sourceVersionId: "version-2", keyEpoch: "epoch-2", compartmentId: "private", contentType: "application/json", body: "{}" }, key);
   assert.equal(protectedPreview.invalidateOnEpoch([preview, jsonPreview], "file-1", "epoch-2").length, 1);
   assert.equal(protectedPreview.invalidateOnVersion([preview, jsonPreview], "file-1", "version-2").length, 1);
+});
+
+test("protected browser session keeps keys in memory and wires queue/sync/logout hooks", async () => {
+  let queued = null;
+  let cleared = 0;
+  const store = {
+    enqueue: async (operation, key) => { queued = { operation, key }; return true; },
+    clear: async () => { cleared += 1; return true; },
+  };
+  const key = new Uint8Array(32);
+  protectedSession.attachStore(store);
+  protectedSession.configure({ getKey: () => key, syncOnce: () => "synced" });
+  assert.equal(await protectedSession.enqueue({ operationId: "session-op" }), true);
+  assert.equal(queued.key, key);
+  assert.equal(protectedSession.syncOnce(), "synced");
+  assert.equal(await protectedSession.logout(), true);
+  assert.equal(cleared, 1);
+  await assert.rejects(protectedSession.getKey());
 });
 
 test("offline queue and sync adapter reject plaintext, keys, and search terms", () => {

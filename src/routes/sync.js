@@ -3,9 +3,12 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { PROTOCOL_VERSION, compareRevisions, validateOperation } = require("../../sync-client/rootark-sync-protocol");
+const { verifyAuthorizationProof } = require("../../sync-client/rootark-sync-authorization");
 const { attestCiphertextOnlySyncState } = require("../services/deploymentResilience");
 
-const STORE_VERSION = 1;
+const STORE_VERSION = 2;
+const MAX_HISTORY_PER_OBJECT = 32;
+const MAX_SEEN_OPERATIONS = 10000;
 const MAX_REQUEST_BYTES = 9 * 1024 * 1024;
 const MAX_CIPHERTEXT_BYTES = 8 * 1024 * 1024;
 
@@ -60,10 +63,11 @@ function publicRecord(record) {
     deviceId: record.deviceId,
     metadata: record.metadata,
     tombstone: Boolean(record.tombstone),
-    ciphertext: record.ciphertext || null,
-    nonce: record.nonce || null,
-    tag: record.tag || null,
-    aad: record.aad || null,
+    ciphertext: record.ciphertext ?? null,
+    nonce: record.nonce ?? null,
+    tag: record.tag ?? null,
+    aad: record.aad ?? null,
+    ...(record.authorization ? { authorization: record.authorization } : {}),
   };
 }
 
@@ -77,7 +81,20 @@ class SyncObjectStore {
   async open() {
     try {
       this.state = JSON.parse(await fs.readFile(this.filePath, "utf8"));
-      if (this.state.version !== STORE_VERSION || !this.state.users || typeof this.state.users !== "object") throw new Error("Invalid sync object store");
+      if (![1, STORE_VERSION].includes(this.state.version) || !this.state.users || typeof this.state.users !== "object") throw new Error("Invalid sync object store");
+      if (this.state.version === 1) {
+        this.state.version = STORE_VERSION;
+        for (const user of Object.values(this.state.users)) {
+          user.versions ||= {};
+          user.revisions ||= {};
+          user.seen ||= {};
+          for (const [objectId, record] of Object.entries(user.objects || {})) {
+            user.versions[objectId] ||= [record];
+            user.revisions[objectId] ||= record.revision;
+          }
+        }
+        await durableWrite(this.filePath, this.state);
+      }
       attestCiphertextOnlySyncState(this.state);
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
@@ -99,7 +116,11 @@ class SyncObjectStore {
   }
 
   user(next, username) {
-    const current = next.users[username] || { objects: {}, seen: {} };
+    const current = next.users[username] || { objects: {}, versions: {}, revisions: {}, seen: {} };
+    current.objects ||= {};
+    current.versions ||= {};
+    current.revisions ||= {};
+    current.seen ||= {};
     next.users[username] = current;
     return current;
   }
@@ -116,7 +137,11 @@ class SyncObjectStore {
       if (current && compareRevisions(input.revision, current.revision) <= 0) return { kind: "stale", current };
       const record = publicRecord(input);
       user.objects[input.objectId] = record;
+      user.versions[input.objectId] = [...(user.versions[input.objectId] || []), record].slice(-MAX_HISTORY_PER_OBJECT);
+      user.revisions[input.objectId] = input.revision;
       user.seen[input.operationId] = true;
+      const seenIds = Object.keys(user.seen);
+      for (const oldId of seenIds.slice(0, Math.max(0, seenIds.length - MAX_SEEN_OPERATIONS))) delete user.seen[oldId];
       return { kind: "stored", record };
     });
   }
@@ -126,9 +151,21 @@ class SyncObjectStore {
     if (objectId) return user.objects[objectId] ? [publicRecord(user.objects[objectId])] : [];
     return Object.values(user.objects).map(publicRecord);
   }
+
+  history(username, objectId) {
+    const user = this.state.users[username] || { versions: {} };
+    return (user.versions?.[objectId] || []).map(publicRecord);
+  }
 }
 
-function registerSyncRoutes({ app, authenticate, requirePermission, storagePath = process.env.SYNC_OBJECTS_FILE || "./data/sync-objects.json" }) {
+function registerSyncRoutes({ app, authenticate, requirePermission, storagePath = process.env.SYNC_OBJECTS_FILE || "./data/sync-objects.json", deviceAuthorization = null, requireDeviceAuthorization = false, deviceRegistryPath = process.env.SYNC_DEVICE_REGISTRY || "" }) {
+  const verifyRegisteredDevice = deviceAuthorization || (deviceRegistryPath ? async ({ username, operation, proof }) => {
+    let registry;
+    try { registry = JSON.parse(await fs.readFile(deviceRegistryPath, "utf8")); } catch { return false; }
+    const record = registry?.devices?.[operation.deviceId];
+    if (!record || record.username !== username || record.revoked || record.active === false || record.publicKey !== proof.publicKey) return false;
+    return verifyAuthorizationProof(proof, operation, { username });
+  } : null);
   const store = new SyncObjectStore(storagePath);
   const ready = store.open();
   const sizeGuard = (req, res, next) => {
@@ -143,11 +180,17 @@ function registerSyncRoutes({ app, authenticate, requirePermission, storagePath 
     if (Object.hasOwn(payload, "plaintext") || Object.hasOwn(payload, "fileKey")) return errorResponse(res, 400, "Plaintext and keys are not accepted");
     if (typeof payload.ciphertext === "string" && Buffer.byteLength(payload.ciphertext, "base64url") > MAX_CIPHERTEXT_BYTES) return errorResponse(res, 413, "Ciphertext too large");
     let operation;
-    try { operation = validateOperation(payload); } catch (error) { return errorResponse(res, error.code === "payload_too_large" ? 413 : 400, "Invalid sync operation"); }
+    try { operation = validateOperation(payload); } catch (error) { return errorResponse(res, error.code === "payload_too_large" ? 413 : error.code?.startsWith("authorization") ? 403 : 400, "Invalid sync operation"); }
+    if (requireDeviceAuthorization || verifyRegisteredDevice) {
+      if (typeof verifyRegisteredDevice !== "function" || !operation.authorization) return errorResponse(res, 403, "Sync device authorization required");
+      try {
+        if (await verifyRegisteredDevice({ username: req.user.username, operation, proof: operation.authorization }) !== true) return errorResponse(res, 403, "Sync device authorization rejected");
+      } catch { return errorResponse(res, 403, "Sync device authorization rejected"); }
+    }
     const result = await store.put(req.user.username, operation);
     if (result.kind === "replay") return errorResponse(res, 409, "Replay rejected");
-    if (result.kind === "stale") return errorResponse(res, 409, "Stale revision rejected", { currentRevision: result.current.revision });
-    if (result.kind === "conflict") return errorResponse(res, 409, "Base revision conflict", { currentRevision: result.current?.revision || null });
+    if (result.kind === "stale") return errorResponse(res, 409, "Stale revision rejected", { currentRevision: result.current.revision, current: publicRecord(result.current) });
+    if (result.kind === "conflict") return errorResponse(res, 409, "Base revision conflict", { currentRevision: result.current?.revision || null, current: result.current ? publicRecord(result.current) : null });
     return res.status(req.method === "POST" ? 201 : 200).json(publicRecord(result.record));
   };
 

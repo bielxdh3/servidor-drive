@@ -201,7 +201,7 @@ function attestCiphertextOnlyRecords(records) {
 }
 
 function attestCiphertextOnlySyncState(state) {
-  if (!state || state.version !== 1 || !state.users || typeof state.users !== "object") {
+  if (!state || ![1, 2].includes(state.version) || !state.users || typeof state.users !== "object") {
     throw Object.assign(new Error("Protected sync attestation failed"), { code: "SYNC_ATTESTATION_FAILED" });
   }
   const records = [];
@@ -210,6 +210,10 @@ function attestCiphertextOnlySyncState(state) {
       throw Object.assign(new Error("Protected sync attestation failed"), { code: "SYNC_ATTESTATION_FAILED" });
     }
     records.push(...Object.values(user.objects));
+    for (const history of Object.values(user.versions || {})) {
+      if (!Array.isArray(history)) throw Object.assign(new Error("Protected sync attestation failed"), { code: "SYNC_ATTESTATION_FAILED" });
+      records.push(...history);
+    }
   }
   return attestCiphertextOnlyRecords(records);
 }

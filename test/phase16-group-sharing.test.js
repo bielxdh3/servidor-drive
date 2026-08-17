@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
 const test = require("node:test");
 
-const { GroupKeySharing, validateOpaqueWrap } = require("../src/services/groupKeySharing");
+const { GroupKeySharing, validateOpaqueWrap, verifyManifest } = require("../src/services/groupKeySharing");
 
 const input = (epoch, overrides = {}) => ({
   compartmentId: "private", epoch, objectId: "object-1", versionId: "version-1", keyRef: "file-1",
@@ -42,4 +42,22 @@ test("Phase 16 group sharing rejects stale membership and exact-schema smuggling
     objectId: "object-1", versionId: "version-1", keyRef: "file-1", recipientId: "alice", deviceId: "device-a",
     wrapId: "AA", wrapped: "AA", aad: "AA", search: "smuggle",
   }));
+});
+
+test("Phase 16 group sharing HPKE-wraps CER to an active device and signs lifecycle manifest", async () => {
+  const suite = require("../src/crypto/rootark-zk-1").hpkeSuite();
+  const device = await suite.kem.generateKeyPair();
+  const signing = crypto.generateKeyPairSync("ed25519");
+  const sharing = new GroupKeySharing({ groupId: "group-hpke", members: ["alice"], signingKey: signing.privateKey });
+  sharing.registerDevice("alice", "device-a", device.publicKey);
+  const cek = crypto.randomBytes(32);
+  const cer = crypto.randomBytes(32);
+  const record = await sharing.wrapFor({ ...input(1, { objectId: "object-hpke" }), cek, cer, recipientPublicKey: device.publicKey });
+  assert.equal(Object.hasOwn(record, "hpkeEnc"), true);
+  assert.deepEqual(await sharing.unwrap(record, { ...input(1, { objectId: "object-hpke" }), recipientKey: device.privateKey }), cek);
+  const manifest = sharing.manifest();
+  assert.equal(manifest.manifestVersion, 1);
+  assert.equal(verifyManifest(manifest, signing.publicKey).membershipVersion, 1);
+  sharing.revokeDevice("device-a");
+  await assert.rejects(sharing.unwrap(record, { ...input(1, { objectId: "object-hpke" }), recipientKey: device.privateKey }));
 });

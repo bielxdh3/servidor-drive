@@ -93,7 +93,7 @@ test("Phase 12 local bridge is loopback bearer protected, contained, and trash-b
   assert.equal((await request(port, "/a.txt", { method: "MOVE", headers: { ...headers, destination: `http://127.0.0.1:${port}/b.txt` } })).status, 201);
   assert.equal((await request(port, "/b.txt", { method: "DELETE", headers })).status, 204);
   assert.equal(fs.existsSync(path.join(dir, "b.txt")), false);
-  assert.equal(events.map((event) => event.kind).join(","), "move,delete");
+  assert.equal(events.map((event) => event.kind).join(","), "put,move,delete");
   assert.equal(fs.readdirSync(path.join(dir, ".rootark-trash")).length, 1);
 });
 
