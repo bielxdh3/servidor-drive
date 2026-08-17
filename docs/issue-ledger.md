@@ -113,10 +113,11 @@ rollback, bidirectional encrypted sync, strict browser/offline boundaries,
 protected index/preview identity binding, and approved `rootark-zk-1` opaque
 group wraps without a server universal decrypt key.
 
-Exact local evidence is **25/25 focused tests passed** and **110/110 syntax
-checks passed**. The canonical full `npm test` was attempted but remains
-blocked by the unavailable `better-sqlite3` native binding in the disposable
-install; it is not a passing result. Remote CI is absent for the final head;
+Exact final-head local evidence is **63/63 cross-phase tests passed**, with
+separate realtime transport **4/4** and upload-security **12/12** boundary
+runs, and **116/116 syntax checks passed**. The canonical full `npm test` was
+attempted but remains blocked by the unavailable `better-sqlite3` native
+binding in the disposable install; it is not a passing result. Remote CI is absent for the final head;
 browser/device, provider, live production/TLS, rollback/DR, and owner gates
 remain external. The associated PR remains Draft and release authorization is
 **`NOT_AUTHORIZED`**. No Phase 17 work is created or inferred.

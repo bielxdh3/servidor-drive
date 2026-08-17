@@ -20,6 +20,10 @@ deployment, production approval, or publication authorization.
 - The browser adapter and offline queue use the strict protocol-v2 allowlist;
   corrupt queue state is cleared, and outbound state contains no plaintext or
   content keys.
+- WebDAV PUT now records a distinct durable mutation event and requires an
+  explicit protocol-v2 translation before entering the encrypted sync journal;
+  the disposable bridge-to-second-client regression covers PUT followed by
+  MOVE, while rollback and unresolved-journal recovery remain fail-closed.
 - Protected index and preview artifacts bind file/object identity, version,
   epoch, compartment, format, and safe content type in authenticated payloads
   and AAD, with stale version/epoch/tombstone/revocation invalidation helpers.
@@ -31,10 +35,12 @@ deployment, production approval, or publication authorization.
 
 ## Evidence
 
-The controlled disposable install recorded **25/25 focused tests passed** across
-Phase 12 sync/WebDAV, Phase 13 client/groups, Phase 14 resilience, and Phase 16
-engine/group-sharing suites. Syntax validation recorded **110/110 checked and
-0 failed**.
+The controlled disposable install recorded **63/63 tests passed** across the
+Phase 9, 12, 13, 14, 16, realtime, upload, and cloud boundary suites; the
+additional realtime transport suite passed **4/4** and upload security passed
+**12/12** when run separately to avoid full-server fixture contention. Syntax
+validation recorded **116/116 checked and 0 failed**. The targeted secret scan,
+runtime-artifact check, and `git diff --check` also passed.
 
 The canonical full `npm test` was attempted against the disposable install but
 remains **blocked**, not passed, because the `better-sqlite3` native binding is

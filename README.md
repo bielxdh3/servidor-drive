@@ -74,7 +74,7 @@ recorded 13 passed, 0 failed, and 1 expected clean-worktree block. Provider,
 browser, production, remote-CI, publication, and Phase 16 review gates remain
 separate.
 
-Phase 16 final-review evidence is recorded in [the Phase 16 security review](docs/security/phase-16-final-review.md): 25/25 focused tests and 110/110 syntax checks passed. The canonical full `npm test` remains blocked by the unavailable `better-sqlite3` native binding in the disposable install; it is not claimed as passed. Remote CI, browser, provider, live-production/TLS, owner, Draft PR, and release authorization gates remain external or unavailable, with release authorization `NOT_AUTHORIZED`.
+Phase 16 final-review evidence is recorded in [the Phase 16 security review](docs/security/phase-16-final-review.md): 63/63 cross-phase tests and 116/116 syntax checks passed, with separate realtime 4/4 and upload 12/12 boundary runs. The canonical full `npm test` remains blocked by the unavailable `better-sqlite3` native binding in the disposable install; it is not claimed as passed. Remote CI, browser, provider, live-production/TLS, owner, Draft PR, and release authorization gates remain external or unavailable, with release authorization `NOT_AUTHORIZED`.
 
 > [!IMPORTANT]
 > The approved long-term direction includes client-side zero-knowledge encryption. The current implementation predates that architecture and must not be described as zero-knowledge or treated as the final security model.

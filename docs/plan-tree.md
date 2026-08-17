@@ -425,7 +425,7 @@ All items below are candidates, not commitments.
 ### Phase 16: Final security/quality review — 2026-08-16
 
 - `[ACCEPTED-LOCAL]` Protocol v2 metadata AAD/schema enforcement, recoverable WebDAV overwrite journaling, bidirectional encrypted sync, strict client/offline boundaries, protected index/preview identity binding, and approved `rootark-zk-1` opaque group wraps are implemented and locally reviewed.
-- `[ACCEPTED-LOCAL]` The exact focused Phase 12/13/14/16 matrix recorded 25/25 passed; syntax validation recorded 110/110 passed.
+- `[ACCEPTED-LOCAL]` The controlled final-head cross-phase matrix recorded 63/63 tests passed, with separate realtime transport 4/4 and upload-security 12/12 boundary runs; syntax validation recorded 116/116 passed. WebDAV PUT has a distinct durable mutation event and explicit protocol-v2 translation, and the browser protected store now has an in-memory session hook.
 - `[BLOCKED]` Canonical full `npm test` was attempted but remains blocked by the unavailable `better-sqlite3` native binding in the disposable install; remote CI, browser/provider/live-production/TLS, owner approval, and release evidence remain external.
 - `[NOT_AUTHORIZED]` The associated PR remains Draft and release authorization is `NOT_AUTHORIZED`; no Phase 17 item is created or inferred.
 

@@ -102,6 +102,10 @@ for (const [name, files] of [
   ["Phase 13 client/groups", ["test/phase13-client-ux.test.js"]],
   ["Phase 16 bidirectional sync engine", ["test/phase16-sync-engine.test.js"]],
   ["Phase 16 opaque group sharing", ["test/phase16-group-sharing.test.js"]],
+  ["Phase 16 final correction boundary", ["test/phase16-final-corrections.test.js"]],
+  ["Realtime transport boundary", ["test/realtime-transport-boundaries.test.js"]],
+  ["Upload security boundary", ["test/upload-security.test.js"]],
+  ["Cloud inventory containment", ["test/cloud-storage.test.js"]],
   ["Phase 14 readiness/attestation", ["test/phase14-deployment-resilience.test.js"]],
   ["Phase 14 backup/restore evidence", ["test/backup-restore-security.test.js"]],
 ]) command(name, process.execPath, ["--test", ...files], { blockedOnMissing: true });
