@@ -7,6 +7,7 @@ const { closeDb, getDatabasePath, isDbEnabled } = require("../db");
 const { resolveRuntimePath } = require("../src/runtime-paths");
 const backupRepository = require("../repositories/backupRepository");
 const backupService = require("./backupService");
+const { attestCiphertextOnlyArchive } = require("../src/services/deploymentResilience");
 
 const RESTORE_TMP_DIR = path.join(backupService.BACKUPS_DIR, ".restore-tmp");
 const RESTORE_SYNC_LOCK_DIR = resolveRuntimePath("data", "restore-sync-locks");
@@ -254,6 +255,7 @@ async function validateBackupArchive(backup, archivePath) {
     destinations.add(destinationKey);
   }
   if (!manifest.backup_id) throw new Error("Manifest invalido");
+  await attestCiphertextOnlyArchive(zip);
   return { zip, manifest };
 }
 

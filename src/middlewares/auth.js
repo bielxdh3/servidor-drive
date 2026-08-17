@@ -1,6 +1,13 @@
 const MAX_TOKEN_LENGTH = 4096;
 const MAX_FUTURE_IAT_SECONDS = 300;
 const JWT_VERIFY_OPTIONS = { algorithms: ["HS256"] };
+const {
+  getTotpPolicy,
+  isTotpEnrollmentPath,
+  isTotpPolicyError,
+  isTotpRequired,
+  TOTP_POLICY_ERROR_MESSAGE,
+} = require("../services/totpPolicy");
 
 function parseCookies(header = "") {
   const cookies = {};
@@ -40,7 +47,20 @@ function createAuthenticate({ jwt, jwtSecret, loadUser, normalizeUserPermissions
       const claims = verifyClaims(jwt, token, jwtSecret);
       const user = loadUser(claims.username);
       if (!user || user.disabled || claims.sessionVersion !== (user.sessionVersion || 0)) throw new Error("revoked");
-      req.user = { username: user.username, role: user.role, permissions: normalizeUserPermissions(user), sessionVersion: user.sessionVersion || 0 };
+      const totpPolicy = getTotpPolicy();
+      const enrollmentRequired = isTotpRequired(user, totpPolicy) && !user.totpEnabled;
+      req.user = {
+        username: user.username,
+        role: user.role,
+        permissions: normalizeUserPermissions(user),
+        sessionVersion: user.sessionVersion || 0,
+        totpEnabled: Boolean(user.totpEnabled),
+        enrollmentOnly: Boolean(claims.totpEnrollment),
+      };
+      req.totpPolicy = totpPolicy;
+      if ((claims.totpEnrollment || enrollmentRequired) && !isTotpEnrollmentPath(req.path)) {
+        return res.status(403).json({ error: "2FA enrollment required." });
+      }
       req.authType = bearer ? "bearer" : "cookie";
       if (req.authType === "cookie" && !["GET", "HEAD", "OPTIONS"].includes(req.method)) {
         const origin = req.headers.origin;
@@ -50,7 +70,8 @@ function createAuthenticate({ jwt, jwtSecret, loadUser, normalizeUserPermissions
         }
       }
       next();
-    } catch {
+    } catch (error) {
+      if (isTotpPolicyError(error)) return res.status(503).json({ error: TOTP_POLICY_ERROR_MESSAGE });
       res.status(401).json({ error: "Token invalido ou expirado" });
     }
   };
@@ -61,9 +82,19 @@ function createRealtimeAuthenticator({ jwt, jwtSecret, loadUser, normalizeUserPe
     if (!token) return null;
     try {
       const claims = verifyClaims(jwt, token, jwtSecret);
+      if (claims.totpEnrollment) return null;
       const user = loadUser(claims.username);
       if (!user || user.disabled || claims.sessionVersion !== (user.sessionVersion || 0)) return null;
-      return { username: user.username, role: user.role, permissions: normalizeUserPermissions(user), sessionVersion: user.sessionVersion || 0, expiresAt: Number.isFinite(claims.exp) ? claims.exp * 1000 : null };
+      const totpPolicy = getTotpPolicy();
+      if (isTotpRequired(user, totpPolicy) && !user.totpEnabled) return null;
+      return {
+        username: user.username,
+        role: user.role,
+        permissions: normalizeUserPermissions(user),
+        sessionVersion: user.sessionVersion || 0,
+        totpEnabled: Boolean(user.totpEnabled),
+        expiresAt: Number.isFinite(claims.exp) ? claims.exp * 1000 : null,
+      };
     } catch {
       return null;
     }

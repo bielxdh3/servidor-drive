@@ -63,7 +63,18 @@ The repository currently contains working foundations for:
 - [x] WebDAV integration;
 - [x] cloud-storage adapter boundaries;
 - [x] local synchronization client;
+- [x] unauthenticated health/readiness endpoints with fail-closed deployment checks;
+- [x] bounded provider retry/cancellation, idempotency, ciphertext-only attestation, and secret-safe observability helpers;
 - [x] automated syntax, test, dependency, and artifact validation.
+
+Phase 15 adds a local release-gate runner and repairs the release-candidate
+lockfile to the reviewed `brace-expansion` 5.0.9 integrity. The current local
+verdict is `RELEASE_GATE_BLOCKED_ENVIRONMENT`: the controlled pre-commit gate
+recorded 13 passed, 0 failed, and 1 expected clean-worktree block. Provider,
+browser, production, remote-CI, publication, and Phase 16 review gates remain
+separate.
+
+Phase 16 final-review evidence is recorded in [the Phase 16 security review](docs/security/phase-16-final-review.md): 66/66 cross-phase tests and 116/116 syntax checks passed, with separate realtime 4/4 and upload 12/12 boundary runs. The canonical full `npm test` remains blocked by the unavailable `better-sqlite3` native binding in the disposable install; it is not claimed as passed. Remote CI, browser, provider, live-production/TLS, owner, Draft PR, and release authorization gates remain external or unavailable, with release authorization `NOT_AUTHORIZED`.
 
 > [!IMPORTANT]
 > The approved long-term direction includes client-side zero-knowledge encryption. The current implementation predates that architecture and must not be described as zero-knowledge or treated as the final security model.
@@ -106,6 +117,13 @@ npm start
 ```
 
 The server uses port `3000` unless `PORT` is configured.
+
+For a reviewed deployment profile, set a strong `JWT_SECRET`, an explicit
+`TOTP_POLICY` (`optional`, `role-required`, or `global-required`), and a
+32-byte `SERVER_MASTER_KEY` or protected `data/server-master.key`. `GET
+/health` is liveness-only; `GET /ready` returns `503` until these checks and
+the selected cloud-provider prerequisites pass. These endpoints do not require
+authentication and intentionally return no paths, credentials, or key data.
 
 ## Architecture
 
@@ -159,6 +177,7 @@ Backups are not useful until restore behavior is tested. Read [BACKUP.md](BACKUP
 | `npm test` | Run Node.js tests |
 | `npm run validate` | Run syntax, tests, and dependency validation |
 | `npm run validate:artifacts` | Detect runtime artifacts contaminating the repository |
+| `npm run validate:release-gate` | Run the bounded Phase 15/16 local release gate |
 | `npm run db:migrate` | Apply database migrations |
 | `npm run db:migrate-json` | Migrate supported JSON data to SQLite |
 | `npm run db:backup` | Run the database backup tool |
@@ -180,6 +199,11 @@ The checks cover:
 - automated tests;
 - lockfile-backed dependency auditing at high severity;
 - accidental repository contamination by generated runtime data.
+
+The bounded Phase 15 matrix and its external residuals are recorded in
+[the Phase 15 local release gate](docs/security/phase-15-local-release-gate.md).
+Phase 16 closeout evidence and limitations are recorded in
+[the Phase 16 final security review](docs/security/phase-16-final-review.md).
 
 ## Security boundary
 

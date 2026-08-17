@@ -44,8 +44,8 @@ function waitForExit(child, timeoutMs, secrets) {
   });
 }
 
-function startServer({ cwd, port, jwtSecret }) {
-  const env = { ...process.env, PORT: String(port), DB_ENABLED: "false" };
+function startServer({ cwd, port, jwtSecret, envOverrides = {} }) {
+  const env = { ...process.env, PORT: String(port), DB_ENABLED: "false", ...envOverrides };
   if (jwtSecret === undefined) delete env.JWT_SECRET;
   else env.JWT_SECRET = jwtSecret;
   const child = spawn(process.execPath, [SERVER], {
@@ -128,4 +128,26 @@ test("startup accepts only an explicit strong JWT_SECRET", { timeout: 45_000 }, 
   assert.equal(await waitForServer(port, secrets), 200);
   await stop(running.child, secrets);
   assert.equal(sanitize(running.output(), secrets).includes("[redacted]"), false, "strong secret was echoed");
+});
+
+test("startup rejects invalid TOTP policy configuration without echoing raw values", { timeout: 45_000 }, async (t) => {
+  const strongSecret = crypto.randomBytes(48).toString("base64url");
+  const cases = [
+    ["invalid mode", { TOTP_POLICY: "typo-mode" }, "typo-mode"],
+    ["blank roles", { TOTP_POLICY: "role-required", TOTP_REQUIRED_ROLES: "   " }, null],
+  ];
+  const sandboxes = [];
+  t.after(() => { for (const dir of sandboxes) fs.rmSync(dir, { recursive: true, force: true }); });
+
+  for (const [name, envOverrides, rawValue] of cases) {
+    const cwd = createSandbox();
+    sandboxes.push(cwd);
+    const port = await getUnusedPort();
+    const launched = startServer({ cwd, port, jwtSecret: strongSecret, envOverrides });
+    const result = await waitForExit(launched.child, TIMEOUT_MS, [strongSecret, rawValue].filter(Boolean));
+    const output = sanitize(launched.output(), [strongSecret, rawValue].filter(Boolean));
+    assert.notEqual(result.code, 0, `${name} unexpectedly succeeded`);
+    assert.match(output, /Configuracao TOTP invalida/);
+    if (rawValue) assert.equal(output.includes(rawValue), false, `${name} value was echoed`);
+  }
 });

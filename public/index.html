@@ -7,6 +7,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Root.ark</title>
     <link rel="stylesheet" href="./styles/index.css?v=12" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <link
       href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght,XOPQ,XTRA,YOPQ,YTDE,YTFI,YTLC,YTUC@8..144,100..1000,96,468,79,-203,738,514,712&family=Roboto+Mono:ital,wght@0,100..700;1,100..700&family=Sora:wght@100..800&display=swap"
       rel="stylesheet"
@@ -114,6 +115,20 @@
       .app-view[hidden] {
         display: none !important;
       }
+
+      .protected-client-panel {
+        width: min(980px, calc(100vw - 260px));
+        margin: 18px auto 0;
+        padding: 12px 16px;
+        border: 1px solid rgba(96, 160, 206, 0.35);
+        border-radius: 12px;
+        color: #b8b8b8;
+        font: var(--p-sm);
+      }
+
+      .protected-client-panel strong { color: #60a0ce; }
+      .protected-client-controls { display: flex; gap: 8px; margin-top: 10px; }
+      .protected-client-controls input { flex: 1; min-width: 0; }
 
       .btn-small.btn-approve,
       .btn-small.btn-rename,
@@ -1163,6 +1178,16 @@
         </div>
       </div>
 
+      <section class="protected-client-panel" aria-label="Cliente protegido">
+        <strong>Cliente protegido</strong>
+        <span id="protectedClientStatus">Inicializando shell offline...</span>
+        <div class="protected-client-controls">
+          <input id="protectedSearchInput" class="file-filter" type="search" placeholder="Buscar somente no indice protegido local" autocomplete="off" />
+          <button id="protectedSearchButton" class="folder-action" type="button">Buscar local</button>
+        </div>
+        <span id="protectedSearchResult">Nenhum dado protegido e carregado nesta sessao.</span>
+      </section>
+
       <div class="upload-box" id="dropzone" style="display: none">
         <form id="form">
           <input type="file" name="file" id="fileInput" style="display: none" multiple />
@@ -1652,6 +1677,13 @@
 
     <script src="/auth/session.js"></script>
     <script src="/auth-bootstrap.js"></script>
+    <script src="/client/rootark-client-crypto.js"></script>
+    <script src="/client/rootark-protected-index.js"></script>
+    <script src="/client/rootark-protected-preview.js"></script>
+    <script src="/client/rootark-protected-store.js"></script>
+    <script src="/client/rootark-protected-session.js"></script>
+    <script src="/client/rootark-sync-adapter.js"></script>
+    <script src="/client/rootark-offline-queue.js"></script>
     <script>
       const token = "cookie-session";
       const { permissions, role, username } = window.ROOTARK_AUTH;
@@ -4468,5 +4500,6 @@
       });
       connectRealtime();
     </script>
+    <script src="/client/rootark-bootstrap.js"></script>
   </body>
 </html>

@@ -82,3 +82,17 @@ curl.exe -i -u admin:admin123 -X DELETE http://localhost:3000/dav/teste.txt
 ```
 
 O `DELETE` deve retornar bloqueado no MVP.
+
+## Bridge WebDAV local da Phase 12
+
+O modulo separado `sync-client/rootark-sync-webdav.js` e um bridge confiavel
+somente para o cliente local. Ele escuta em `127.0.0.1` por padrao, exige
+`Authorization: Bearer <token>` fornecido pelo chamador e nao e registrado em
+uma rota publica do servidor. O bridge aceita `PROPFIND`, `GET`, `HEAD`, `PUT`,
+`MKCOL`, `MOVE` e `DELETE`, rejeita traversal, separadores inseguros, symlinks
+e destinos fora da raiz, e limita corpos a 8 MiB.
+
+`MOVE` e `DELETE` chamam o journal antes da mutacao. DELETE move o item para
+`.rootark-trash` por rename; nao ha delecao permanente. O bridge pode manipular
+plaintext somente dentro da raiz autorizada do cliente local. Ele nao deve ser
+exposto por proxy, bind publico ou usado como origem plaintext do servidor.

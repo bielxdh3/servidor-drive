@@ -39,11 +39,16 @@ const registerAnalyticsRoutes = require("./src/routes/analytics");
 const registerAuditRoutes = require("./src/routes/audit");
 const registerBackupRoutes = require("./src/routes/backups");
 const registerTrashRoutes = require("./src/routes/trash");
+const { registerSyncRoutes } = require("./src/routes/sync");
+const { registerGroupRoutes } = require("./src/routes/groups");
 const { createAuthenticate, createRealtimeAuthenticator, getExpectedOrigin, parseCookies } = require("./src/middlewares/auth");
 const { createRequirePermission } = require("./src/middlewares/permissions");
+const { validateTotpPolicy } = require("./src/services/totpPolicy");
+const { getDeploymentReadiness, registerReadinessRoutes, sanitizeLogValue } = require("./src/services/deploymentResilience");
 
 const app = express();
 const server = http.createServer(app);
+const syncJsonParser = express.json({ limit: "9mb" });
 function parseBoundedNumber(name, fallback, minimum, maximum) {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && Number.isInteger(value) && value >= minimum && value <= maximum ? value : fallback;
@@ -67,6 +72,7 @@ const JWT_SECRET = String(process.env.JWT_SECRET || "");
 if (JWT_SECRET.length < 32 || JWT_SECRET === "rootark_secret_change_in_production") {
   throw new Error("JWT_SECRET deve ser definido explicitamente com pelo menos 32 caracteres seguros.");
 }
+validateTotpPolicy();
 const PORT = Number(process.env.PORT || 3000);
 const SESSION_COOKIE_OPTIONS = { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/" };
 const USERS_SEED_FILE = "./data/users.json";
@@ -85,6 +91,7 @@ const ANALYTICS_FILE = "./data/analytics.json";
 const AUDIT_LOGS_FILE = "./data/audit-logs.json";
 const AUDIT_ARCHIVE_FILE = "./data/audit-logs-archive.json";
 const QUARANTINE_FILE = "./data/quarantine.json";
+const GROUPS_FILE = "./data/groups.json";
 const CLOUD_STORAGE_PROVIDER = String(process.env.CLOUD_STORAGE_PROVIDER || "local").toLowerCase();
 const CLOUD_STORAGE_PREFIX = String(process.env.CLOUD_STORAGE_PREFIX || "rootark").replace(/^\/+|\/+$/g, "") || "rootark";
 const ROOT_FOLDER_ID = "root";
@@ -153,6 +160,7 @@ let webDavReconciliationRunning = false;
 let webDavReconciliationTimer = null;
 const ENCRYPTION_ITERATIONS = 100000;
 const openFileTokens = new Map();
+let groupsStore = null;
 let analyticsSummaryCache = null;
 const cloudStorage = createCloudStorage({
   provider: CLOUD_STORAGE_PROVIDER,
@@ -163,6 +171,14 @@ const cloudStorage = createCloudStorage({
 });
 backupService.setCloudStorage(cloudStorage);
 restoreService.setCloudStorage(cloudStorage);
+registerReadinessRoutes(app, {
+  getReadiness: () => getDeploymentReadiness({
+    env: process.env,
+    masterKeyFile: SERVER_MASTER_KEY_FILE,
+    cloudStatus: cloudStorage.status(),
+    validateTotp: validateTotpPolicy,
+  }),
+});
 
 function shouldUseDatabase() {
   return dbConfig.isDbEnabled();
@@ -222,14 +238,14 @@ async function syncFolderCacheFromCloud(folderId, area = "uploads") {
       await ensureCloudFileCached(folderId, fileName, localPath, area);
     }
   } catch (error) {
-    console.error(`[cloud-storage] sync cache ${area}/${folderId}:`, error.message);
+    console.error("[cloud-storage] sync cache failed:", sanitizeLogValue(error.message));
   }
 }
 
 function syncCloudFireAndForget(promise, label) {
   if (!isCloudStorageEnabled()) return;
   Promise.resolve(promise).catch((error) => {
-    console.error(`[cloud-storage] ${label}:`, error.message);
+    console.error("[cloud-storage] operation failed:", sanitizeLogValue(error.message));
   });
 }
 
@@ -255,7 +271,7 @@ async function ensureCloudFileCached(folderId, fileName, localPath, area = "uplo
   try {
     return await downloadFileFromCloud(folderId, fileName, localPath, area);
   } catch (error) {
-    console.error(`[cloud-storage] restore cache ${area}/${folderId}/${fileName}:`, error.message);
+    console.error("[cloud-storage] restore cache failed:", sanitizeLogValue(error.message));
     return false;
   }
 }
@@ -338,7 +354,14 @@ function saveUsers(users) {
   if (shouldUseDatabase()) usersRepository.saveUsers(users);
   if (shouldWriteLegacyJson()) {
     rememberUserGenerations(users);
-    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+    const temporaryFile = `${USERS_FILE}.tmp-${process.pid}-${crypto.randomBytes(8).toString("hex")}`;
+    try {
+      fs.writeFileSync(temporaryFile, JSON.stringify(users, null, 2), { mode: 0o600 });
+      fs.renameSync(temporaryFile, USERS_FILE);
+    } catch (error) {
+      fs.rmSync(temporaryFile, { force: true });
+      throw error;
+    }
   }
 }
 
@@ -1859,6 +1882,7 @@ function hasFolderAccess(req, folder) {
   if (folder.isRoot || folder.id === ROOT_FOLDER_ID) return true;
   if (req.user?.role === "admin" || req.user?.permissions?.manageUsers) return true;
   if (folder.createdBy === req.user?.username) return true;
+  if (groupsStore?.isMember(req.user?.username, folder.groupIds)) return true;
   const access = normalizeFolderAccessEntry(folder).users[req.user?.username];
   return Boolean(access?.read) || Boolean(access?.edit);
 }
@@ -2412,7 +2436,8 @@ function isInlinePreviewFile(fileName) {
   return ["image", "pdf", "audio", "video"].includes(getPreviewKind(fileName));
 }
 
-function getServerMasterKey() {
+function getServerMasterKey(options = {}) {
+  const createIfMissing = options.createIfMissing !== false;
   const envKey = process.env.SERVER_MASTER_KEY;
   if (envKey) {
     const cleanKey = envKey.trim();
@@ -2423,13 +2448,16 @@ function getServerMasterKey() {
   }
 
   if (!fs.existsSync(SERVER_MASTER_KEY_FILE)) {
+    if (!createIfMissing) throw new Error("SERVER_MASTER_KEY ausente");
     const masterKey = crypto.randomBytes(32);
     fs.writeFileSync(SERVER_MASTER_KEY_FILE, masterKey.toString("hex"), { mode: 0o600 });
     console.warn("[security] Nova chave mestra gerada em data/server-master.key. Faca backup seguro imediatamente.");
     return masterKey;
   }
 
-  return Buffer.from(fs.readFileSync(SERVER_MASTER_KEY_FILE, "utf-8").trim(), "hex");
+  const fileKey = fs.readFileSync(SERVER_MASTER_KEY_FILE, "utf-8").trim();
+  if (!/^[a-f0-9]{64}$/i.test(fileKey)) throw new Error("SERVER_MASTER_KEY invalida");
+  return Buffer.from(fileKey, "hex");
 }
 
 function deriveKeyFromPassword(password, salt = null) {
@@ -2885,9 +2913,16 @@ function getFolderEligibleUsers(folder) {
     user.role === "admin" ||
     user.permissions?.manageUsers ||
     folder.createdBy === user.username ||
+    groupsStore?.isMember(user.username, folder.groupIds) ||
     Boolean(folderUsers[user.username]?.read) ||
     Boolean(folderUsers[user.username]?.edit)
   ));
+}
+
+function normalizeFolderGroupIds(value, allowMissing = true) {
+  if (value === undefined && allowMissing) return undefined;
+  if (!groupsStore) return null;
+  return groupsStore?.validateIds(value);
 }
 
 function hasFileAccess(req, folder, fileName, entries = loadFilePermissions()) {
@@ -4372,6 +4407,7 @@ function initData() {
 app.set("trust proxy", true);
 app.use((req, res, next) => {
   if (WEBDAV_ENABLED && isWebDavRequestPath(req.path)) return next();
+  if (req.path === "/sync/v1" || req.path.startsWith("/sync/v1/")) return syncJsonParser(req, res, next);
   return express.json()(req, res, next);
 });
 app.use((req, res, next) => {
@@ -4439,6 +4475,27 @@ wss.on("connection", (socket, req) => {
 
 const requirePermission = createRequirePermission();
 
+registerSyncRoutes({
+  app,
+  authenticate,
+  requirePermission,
+  storagePath: process.env.SYNC_OBJECTS_FILE || "./data/sync-objects.json",
+  requireDeviceAuthorization: true,
+  deviceRegistryPath: process.env.SYNC_DEVICE_REGISTRY || "",
+});
+
+groupsStore = registerGroupRoutes({
+  app,
+  authenticate,
+  requirePermission,
+  loadUsers,
+  loadFolders,
+  saveFolders,
+  auditLog,
+  getAuditActor,
+  storagePath: process.env.GROUPS_FILE || GROUPS_FILE,
+}).store;
+
 if (WEBDAV_ENABLED) {
   registerWebDavRoutes();
 }
@@ -4497,14 +4554,18 @@ registerAuthRoutes(app, {
   getAuditActor,
   jwt,
   jwtSecret: JWT_SECRET,
+  getTotpKey: () => getServerMasterKey({ createIfMissing: false }),
+  qrcode: QRCode,
   sessionCookieOptions: SESSION_COOKIE_OPTIONS,
   loadUsers,
+  saveUsers,
   logAnalyticsEvent,
   normalizeUserPermissions,
+  requirePermission,
 });
 
 app.get("/users", authenticate, requirePermission("manageUsers"), (req, res) => {
-  const users = loadUsers().map(({ password, ...rest }) => ({
+  const users = loadUsers().map(({ password, totpSecret, totpPendingSecret, totpRecoveryHashes, totpLastUsedStep, ...rest }) => ({
     ...rest,
     permissions: normalizeUserPermissions(rest),
   }));
@@ -4587,7 +4648,7 @@ app.put("/users/:username", authenticate, requirePermission("manageUsers"), (req
     { changes, modifiedBy: req.user.username }
   );
 
-  const { password: _, ...updated } = users[idx];
+  const { password: _, totpSecret, totpPendingSecret, totpRecoveryHashes, totpLastUsedStep, ...updated } = users[idx];
   res.json({ message: "Usuario atualizado", user: updated });
 });
 
@@ -4842,6 +4903,7 @@ app.post("/folders", authenticate, (req, res) => {
       ]));
   const validUsernames = new Set(loadUsers().map((user) => user.username));
   const folderUsers = {};
+  const groupIds = normalizeFolderGroupIds(req.body.groupIds);
   const invalidUsers = [];
   const expiresAt = getTemporaryExpirationFromBody(req.body);
 
@@ -4851,6 +4913,10 @@ app.post("/folders", authenticate, (req, res) => {
 
   if (expiresAt === undefined) {
     return res.status(400).json({ error: "Expiracao temporaria invalida" });
+  }
+
+  if (groupIds === null) {
+    return res.status(400).json({ error: "Grupos invalidos" });
   }
 
   for (const [username, access] of Object.entries(requestedUsers)) {
@@ -4882,6 +4948,7 @@ app.post("/folders", authenticate, (req, res) => {
     expiresAt,
     users: folderUsers,
     allowedUsers: Object.keys(folderUsers),
+    groupIds: groupIds || [],
     isRoot: false,
   };
 
@@ -4937,6 +5004,11 @@ app.put("/folders/:id/access", authenticate, (req, res) => {
     return res.status(403).json({ error: "Permissao negada para editar esta pasta" });
   }
 
+  const groupIds = normalizeFolderGroupIds(req.body.groupIds);
+  if (groupIds === null) {
+    return res.status(400).json({ error: "Grupos invalidos" });
+  }
+
   const requestedUsers = req.body.users && typeof req.body.users === "object"
     ? req.body.users
     : Object.fromEntries(normalizeAllowedUsers(req.body.allowedUsers).map((username) => [
@@ -4969,6 +5041,7 @@ app.put("/folders/:id/access", authenticate, (req, res) => {
 
   folder.users = folderUsers;
   folder.allowedUsers = Object.keys(folderUsers);
+  if (groupIds !== undefined) folder.groupIds = groupIds;
   folder.updatedAt = new Date().toISOString();
   saveFolders(folders);
   auditLog("folder.access.changed", getAuditActor(req), { type: "folder", id: folderId }, "modified", "success", {
