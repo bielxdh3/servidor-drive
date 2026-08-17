@@ -4,6 +4,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { createCloudStorage } = require("../services/cloudStorage");
+const { normalizeProviderError } = require("../src/services/deploymentResilience");
 
 const originalCwd = process.cwd();
 const runtime = fs.mkdtempSync(path.join(os.tmpdir(), "rootark-cloud-meta-"));
@@ -118,7 +119,7 @@ test("authoritative cloud backup and restore matrix", async (t) => {
   await t.test("traversal key", async () => { const result = await runBackup([object("bad.txt", "x", { folderId: ".." })]); assert.equal(result.ok, false); });
   await t.test("absolute key", async () => { const result = await runBackup([object("bad.txt", "x", { folderId: "/root" })]); assert.equal(result.ok, false); });
   await t.test("foreign prefix", async () => { const storage = createCloudStorage({ provider: "s3", prefix: "rootark", s3: { bucket: "bucket" }, createS3Client: async () => ({ send: async () => ({ Contents: [{ Key: "foreign/uploads/root/a.txt" }] }) }) }); await assert.rejects(storage.inventory(), /outside the configured prefix/); });
-  await t.test("malformed Drive appProperties", async () => { const storage = createCloudStorage({ provider: "gdrive", prefix: "rootark", gdrive: { folderId: "root" }, createGoogleDriveClient: async () => ({ files: { list: async () => ({ data: { files: [{ id: "x", parents: ["root"], appProperties: { rootArkKey: "rootark/uploads/root/x.txt", rootArkFolderId: "wrong", rootArkArea: "uploads" } }] } }) } }) }); await assert.rejects(storage.inventory(), /does not match/); });
+  await t.test("malformed Drive appProperties", async () => { const storage = createCloudStorage({ provider: "gdrive", prefix: "rootark", gdrive: { folderId: "root" }, createGoogleDriveClient: async () => ({ files: { list: async () => ({ data: { files: [{ id: "x", parents: ["root"], appProperties: { rootArkKey: "rootark/uploads/root/x.txt", rootArkFolderId: "wrong", rootArkArea: "uploads" } }] } }) } }) }); await assert.rejects(storage.inventory(), /does not match/); const normalized = normalizeProviderError(Object.assign(new Error("provider detail"), { code: "invalid_inventory_metadata" })); assert.equal(normalized.code, "invalid_inventory_metadata"); assert.match(normalized.message, /does not match/); });
   await t.test("missing Drive key", async () => { const storage = createCloudStorage({ provider: "gdrive", prefix: "rootark", gdrive: { folderId: "root" }, createGoogleDriveClient: async () => ({ files: { list: async () => ({ data: { files: [{ id: "x", parents: ["root"], appProperties: {} }] } }) } }) }); await assert.rejects(storage.inventory()); });
   await t.test("Drive file outside configured parent", async () => { const storage = createCloudStorage({ provider: "gdrive", prefix: "rootark", gdrive: { folderId: "root" }, createGoogleDriveClient: async () => ({ files: { list: async () => ({ data: { files: [{ id: "x", parents: ["foreign"], appProperties: { rootArkKey: "rootark/uploads/root/x.txt", rootArkFolderId: "root", rootArkArea: "uploads" } }] } }) } }) }); await assert.rejects(storage.inventory(), /configured parent/); });
   await t.test("inventory failure", async () => { const result = await runBackup([], { failInventory: true }); assert.equal(result.ok, false); });

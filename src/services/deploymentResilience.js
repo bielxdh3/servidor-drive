@@ -17,7 +17,7 @@ const SAFE_PROVIDER_MESSAGES = {
   invalid_prefix: "Provider prefix is invalid",
   foreign_prefix: "Provider object is outside the configured prefix",
   invalid_inventory_key: "Provider inventory is invalid",
-  invalid_inventory_metadata: "Provider metadata is invalid",
+  invalid_inventory_metadata: "Provider metadata does not match configured inventory",
   invalid_inventory_identity: "Provider identity is invalid",
   outside_configured_parent: "Provider object is outside the configured parent",
   duplicate_inventory_identity: "Provider inventory contains a duplicate identity",
